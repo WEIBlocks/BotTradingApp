@@ -1,11 +1,9 @@
 import React, {useState, useRef, useCallback} from 'react';
-import {View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Dimensions} from 'react-native';
-import {useNavigation} from '@react-navigation/native';
-import Badge from '../../components/common/Badge';
-import SendIcon from '../../components/icons/SendIcon';
-import ImageIcon from '../../components/icons/ImageIcon';
-import ChartIcon from '../../components/icons/ChartIcon';
-import MiniLineChart from '../../components/charts/MiniLineChart';
+import {
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  TextInput, KeyboardAvoidingView, Platform, Dimensions, ScrollView,
+} from 'react-native';
+import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 
 const {width} = Dimensions.get('window');
 
@@ -20,22 +18,107 @@ const INITIAL_MESSAGES: Message[] = [
   {
     id: '1',
     role: 'ai',
-    text: 'Hello! I\'m your AI trading assistant. I can help you create custom bots, analyze charts, and build strategies tailored to your goals.',
+    text: "Hello! I can help you build a custom trading strategy. What logic should we start with?",
   },
   {
     id: '2',
     role: 'user',
-    text: 'Create a BTC momentum bot that buys dips and has a 2% stop-loss.',
+    text: 'I want a bot that buys Bitcoin when it drops 5% and sells at 10% profit',
   },
   {
     id: '3',
     role: 'ai',
-    text: 'Great choice! I\'ve designed a custom BTC Dip Buyer strategy for you. It uses RSI < 30 to identify oversold conditions, with a dynamic 2% stop-loss and 4% take-profit. Based on 6-month backtesting:',
+    text: "That sounds like a solid dip-buying strategy. To manage risk, I suggest adding a 2% stop-loss. Here is a preview of the logic based on recent BTC data:",
     hasStrategyCard: true,
   },
 ];
 
 const SUGGESTIONS = ['Analyze my chart', 'Create a momentum bot', 'RSI strategy', 'What is MACD?'];
+
+// ─── Icons ─────────────────────────────────────────────────────────────────────
+
+function BackArrow() {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Path d="M15 19l-7-7 7-7" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+function DotsMenu() {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Circle cx={5} cy={12} r={1.5} fill="rgba(255,255,255,0.6)" />
+      <Circle cx={12} cy={12} r={1.5} fill="rgba(255,255,255,0.6)" />
+      <Circle cx={19} cy={12} r={1.5} fill="rgba(255,255,255,0.6)" />
+    </Svg>
+  );
+}
+
+function ImageAttachIcon() {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Rect x={3} y={3} width={18} height={18} rx={4} stroke="rgba(255,255,255,0.4)" strokeWidth={1.5} />
+      <Circle cx={8.5} cy={8.5} r={1.5} fill="rgba(255,255,255,0.4)" />
+      <Path d="M3 16l5-5 4 4 3-3 4 4" stroke="rgba(255,255,255,0.4)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+function SendArrow() {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+      <Path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+// AI robot avatar
+function AiBotAvatar({size = 32}: {size?: number}) {
+  return (
+    <View style={{
+      width: size, height: size, borderRadius: size / 2,
+      backgroundColor: '#10B981' + '22',
+      borderWidth: 1.5, borderColor: '#10B981' + '55',
+      alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+    }}>
+      <Svg width={size * 0.7} height={size * 0.7} viewBox="0 0 64 64" fill="none">
+        <Rect x={13} y={18} width={38} height={30} rx={9} fill="#10B981" opacity={0.85} />
+        <Ellipse cx={23} cy={31} rx={5} ry={5} fill="#0A0E14" />
+        <Ellipse cx={41} cy={31} rx={5} ry={5} fill="#0A0E14" />
+        <Ellipse cx={24.5} cy={29.5} rx={2} ry={2} fill="#FFFFFF" />
+        <Ellipse cx={42.5} cy={29.5} rx={2} ry={2} fill="#FFFFFF" />
+        <Rect x={22} y={39} width={20} height={3.5} rx={1.75} fill="#0A0E14" />
+        <Rect x={29} y={8} width={6} height={11} rx={3} fill="#10B981" opacity={0.7} />
+        <Circle cx={32} cy={7} r={4} fill="#10B981" />
+        <Rect x={4} y={27} width={9} height={11} rx={4} fill="#10B981" opacity={0.5} />
+        <Rect x={51} y={27} width={9} height={11} rx={4} fill="#10B981" opacity={0.5} />
+      </Svg>
+    </View>
+  );
+}
+
+// Bar chart for strategy card
+function StrategyBarChart({chartWidth}: {chartWidth: number}) {
+  const bars = [3, 5, 4, 7, 6, 8, 7, 9, 10, 11, 10, 13];
+  const maxH = 40;
+  const maxVal = Math.max(...bars);
+  const barW = (chartWidth - (bars.length - 1) * 3) / bars.length;
+  return (
+    <View style={{flexDirection: 'row', alignItems: 'flex-end', height: maxH, gap: 3}}>
+      {bars.map((v, i) => (
+        <View key={i} style={{
+          width: barW, height: (v / maxVal) * maxH,
+          backgroundColor: '#10B981',
+          borderRadius: 3,
+          opacity: 0.3 + (i / bars.length) * 0.7,
+        }} />
+      ))}
+    </View>
+  );
+}
+
+// ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function AIChatScreen() {
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
@@ -44,170 +127,254 @@ export default function AIChatScreen() {
 
   const sendMessage = useCallback(() => {
     if (!inputText.trim()) return;
-    const newMsg: Message = {id: Date.now().toString(), role: 'user', text: inputText};
+    const newMsg: Message = {id: Date.now().toString(), role: 'user', text: inputText.trim()};
     setMessages(prev => [...prev, newMsg]);
     setInputText('');
-
-    // Simulate AI response
     setTimeout(() => {
       const aiReply: Message = {
         id: (Date.now() + 1).toString(),
         role: 'ai',
-        text: 'I\'m analyzing your request... Based on current market conditions, I recommend a momentum-based approach with tight risk controls.',
+        text: "I'm analyzing your request. Based on current market conditions, I recommend a momentum-based approach with tight risk controls.",
       };
       setMessages(prev => [...prev, aiReply]);
+      setTimeout(() => flatListRef.current?.scrollToEnd({animated: true}), 100);
     }, 800);
   }, [inputText]);
 
-  const mockChartData = [10000, 10200, 10150, 10400, 10800, 10650, 11100, 11400, 11200, 11600, 12100, 11420];
+  // Strategy card width = bubble max width - padding
+  const strategyCardWidth = width * 0.72 - 32;
 
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>AI Bot Builder</Text>
-          <Badge label="● ACTIVE SESSION" variant="green" size="sm" />
+  const renderMessage = useCallback(({item}: {item: Message}) => {
+    const isUser = item.role === 'user';
+
+    if (isUser) {
+      return (
+        <View style={styles.userRow}>
+          <View style={styles.userMeta}>
+            <Text style={styles.youLabel}>You</Text>
+            <View style={styles.userAvatar}>
+              <Text style={styles.userAvatarText}>Y</Text>
+            </View>
+          </View>
+          <View style={styles.userBubble}>
+            <Text style={styles.userText}>{item.text}</Text>
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.aiRow}>
+        <AiBotAvatar size={34} />
+        <View style={styles.aiContent}>
+          <Text style={styles.aiNameLabel}>TradingBot AI</Text>
+          <View style={styles.aiBubble}>
+            <Text style={styles.aiText}>{item.text}</Text>
+            {item.hasStrategyCard && (
+              <View style={styles.strategyCard}>
+                <View style={styles.strategyTopRow}>
+                  <View style={{flex: 1, marginRight: 8}}>
+                    <Text style={styles.strategyName}>Custom BTC Dip{'\n'}Buyer</Text>
+                    <Text style={styles.strategySubLabel}>STRATEGY PREVIEW</Text>
+                  </View>
+                  <View style={styles.backtestBadge}>
+                    <Text style={styles.backtestText}>+14.2%{'\n'}BACKTEST</Text>
+                  </View>
+                </View>
+                <Text style={styles.perfLabel}>30D PERFORMANCE</Text>
+                <StrategyBarChart chartWidth={strategyCardWidth} />
+              </View>
+            )}
+          </View>
         </View>
       </View>
+    );
+  }, [strategyCardWidth]);
 
-      <KeyboardAvoidingView
-        style={styles.chatContainer}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
-        {/* Messages */}
-        <FlatList
-          ref={flatListRef}
-          data={messages}
-          keyExtractor={item => item.id}
-          contentContainerStyle={styles.messagesList}
-          showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({animated: true})}
-          renderItem={({item}) => {
-            const isUser = item.role === 'user';
-            return (
-              <View style={[styles.messageRow, isUser && styles.messageRowUser]}>
-                {!isUser && (
-                  <View style={styles.aiAvatar}>
-                    <Text style={styles.aiAvatarText}>AI</Text>
-                  </View>
-                )}
-                <View style={[styles.bubble, isUser ? styles.userBubble : styles.aiBubble]}>
-                  {!isUser && <Text style={styles.aiName}>TradingBot AI</Text>}
-                  <Text style={[styles.messageText, isUser && styles.userMessageText]}>{item.text}</Text>
-                  {item.hasStrategyCard && (
-                    <View style={styles.strategyCard}>
-                      <View style={styles.strategyHeader}>
-                        <View>
-                          <Text style={styles.strategyName}>Custom BTC Dip Buyer</Text>
-                          <Text style={styles.strategySubtitle}>STRATEGY PREVIEW</Text>
-                        </View>
-                        <Badge label="+14.2% BACKTEST" variant="green" size="sm" />
-                      </View>
-                      <MiniLineChart data={mockChartData} width={width - 160} height={50} color="#10B981" />
-                    </View>
-                  )}
-                </View>
-              </View>
-            );
-          }}
-        />
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}>
 
-        {/* Suggestion chips */}
-        <View style={styles.suggestionsRow}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.headerBtn}>
+          <BackArrow />
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle}>AI Bot Builder</Text>
+          <View style={styles.activePill}>
+            <View style={styles.activeDot} />
+            <Text style={styles.activeText}>ACTIVE SESSION</Text>
+          </View>
+        </View>
+        <TouchableOpacity style={styles.headerBtn}>
+          <DotsMenu />
+        </TouchableOpacity>
+      </View>
+
+      {/* Messages — flex:1 pushes bottom bar down */}
+      <FlatList
+        ref={flatListRef}
+        data={messages}
+        keyExtractor={item => item.id}
+        contentContainerStyle={styles.messagesList}
+        showsVerticalScrollIndicator={false}
+        onContentSizeChange={() => flatListRef.current?.scrollToEnd({animated: true})}
+        renderItem={renderMessage}
+        style={styles.messageList}
+      />
+
+      {/* Bottom bar: suggestions + input — pinned above keyboard */}
+      <View style={styles.bottomBar}>
+        {/* Suggestion chips — horizontal scroll */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.suggestionsScroll}
+          contentContainerStyle={styles.suggestionsContent}>
           {SUGGESTIONS.map(s => (
             <TouchableOpacity
               key={s}
-              style={styles.suggestionChip}
+              style={styles.chip}
               onPress={() => setInputText(s)}
               activeOpacity={0.7}>
-              <Text style={styles.suggestionText}>{s}</Text>
+              <Text style={styles.chipText}>{s}</Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </ScrollView>
 
         {/* Input bar */}
         <View style={styles.inputBar}>
-          <TouchableOpacity style={styles.inputIcon}>
-            <ImageIcon size={20} color="rgba(255,255,255,0.4)" />
+          <TouchableOpacity style={styles.attachBtn}>
+            <ImageAttachIcon />
           </TouchableOpacity>
           <TextInput
             style={styles.input}
             placeholder="Type a message..."
-            placeholderTextColor="rgba(255,255,255,0.3)"
+            placeholderTextColor="rgba(255,255,255,0.25)"
             value={inputText}
             onChangeText={setInputText}
             multiline
             maxLength={500}
+            returnKeyType="send"
+            onSubmitEditing={sendMessage}
           />
-          <TouchableOpacity
-            style={[styles.sendBtn, inputText.trim() && styles.sendBtnActive]}
-            onPress={sendMessage}
-            activeOpacity={0.8}>
-            <SendIcon size={18} color="#FFFFFF" />
+          <TouchableOpacity style={styles.sendBtn} onPress={sendMessage} activeOpacity={0.85}>
+            <SendArrow />
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
-    </View>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
+// ─── Styles ────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: '#0F1117'},
+  container: {flex: 1, backgroundColor: '#0A0E14'},
+  messageList: {flex: 1},
+  bottomBar: {backgroundColor: '#0A0E14'},
+
+  // Header
   header: {
-    paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12,
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingTop: 54, paddingBottom: 14,
     borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)',
-    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
   },
-  headerTitle: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF', marginBottom: 4},
-  chatContainer: {flex: 1},
-  messagesList: {paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8},
-  messageRow: {flexDirection: 'row', alignItems: 'flex-end', marginBottom: 14},
-  messageRowUser: {justifyContent: 'flex-end'},
-  aiAvatar: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: '#10B981', alignItems: 'center', justifyContent: 'center', marginRight: 8,
+  headerBtn: {width: 36, height: 36, alignItems: 'center', justifyContent: 'center'},
+  headerCenter: {flex: 1, alignItems: 'center'},
+  headerTitle: {fontFamily: 'Inter-Bold', fontSize: 17, color: '#FFFFFF', marginBottom: 4},
+  activePill: {flexDirection: 'row', alignItems: 'center', gap: 5},
+  activeDot: {width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981'},
+  activeText: {fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#10B981', letterSpacing: 0.5},
+
+  // Messages list
+  messagesList: {paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10},
+
+  // AI message
+  aiRow: {flexDirection: 'row', alignItems: 'flex-start', marginBottom: 18, maxWidth: '100%'},
+  aiContent: {flex: 1, marginLeft: 10},
+  aiNameLabel: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#10B981', marginBottom: 6},
+  aiBubble: {
+    backgroundColor: '#161D2A',
+    borderRadius: 4, borderTopLeftRadius: 16, borderTopRightRadius: 16, borderBottomRightRadius: 16,
+    padding: 14, alignSelf: 'flex-start', maxWidth: '95%',
   },
-  aiAvatarText: {fontFamily: 'Inter-Bold', fontSize: 11, color: '#FFFFFF'},
-  bubble: {maxWidth: '78%', borderRadius: 16, padding: 12},
-  aiBubble: {backgroundColor: '#1C2333', borderTopLeftRadius: 4},
-  userBubble: {backgroundColor: '#10B981', borderTopRightRadius: 4},
-  aiName: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: '#10B981', marginBottom: 4},
-  messageText: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.8)', lineHeight: 20},
-  userMessageText: {color: '#FFFFFF'},
-  strategyCard: {
-    backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 12, padding: 12, marginTop: 10,
-    borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)',
-  },
-  strategyHeader: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8},
-  strategyName: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
-  strategySubtitle: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 2},
-  suggestionsRow: {
-    paddingHorizontal: 16, paddingVertical: 8,
-    flexDirection: 'row', flexWrap: 'wrap', gap: 8,
-  },
-  suggestionChip: {
-    paddingHorizontal: 12, paddingVertical: 7,
-    backgroundColor: 'rgba(13,127,242,0.12)', borderRadius: 20,
-    borderWidth: 1, borderColor: 'rgba(13,127,242,0.3)',
-  },
-  suggestionText: {fontFamily: 'Inter-Medium', fontSize: 12, color: '#0D7FF2'},
-  inputBar: {
-    flexDirection: 'row', alignItems: 'flex-end',
-    paddingHorizontal: 16, paddingVertical: 10,
-    backgroundColor: '#161B22', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)',
-    gap: 10,
-  },
-  inputIcon: {paddingBottom: 6},
-  input: {
-    flex: 1, fontFamily: 'Inter-Regular', fontSize: 14, color: '#FFFFFF',
-    backgroundColor: '#1C2333', borderRadius: 20, paddingHorizontal: 16, paddingVertical: 10,
-    maxHeight: 100, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
-  },
-  sendBtn: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+  aiText: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.85)', lineHeight: 21},
+
+  // User message
+  userRow: {alignItems: 'flex-end', marginBottom: 18},
+  userMeta: {flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6, justifyContent: 'flex-end'},
+  youLabel: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
+  userAvatar: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center', justifyContent: 'center',
   },
-  sendBtnActive: {backgroundColor: '#10B981'},
+  userAvatarText: {fontFamily: 'Inter-Bold', fontSize: 10, color: '#FFFFFF'},
+  userBubble: {
+    backgroundColor: '#10B981',
+    borderRadius: 16, borderBottomRightRadius: 4,
+    paddingHorizontal: 16, paddingVertical: 12,
+    maxWidth: '80%', alignSelf: 'flex-end',
+  },
+  userText: {fontFamily: 'Inter-Regular', fontSize: 14, color: '#FFFFFF', lineHeight: 21},
+
+  // Strategy card
+  strategyCard: {
+    backgroundColor: 'rgba(0,0,0,0.25)', borderRadius: 12,
+    padding: 14, marginTop: 12,
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.25)',
+  },
+  strategyTopRow: {flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10},
+  strategyName: {fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF', lineHeight: 20},
+  strategySubLabel: {
+    fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.35)',
+    letterSpacing: 0.8, marginTop: 4,
+  },
+  backtestBadge: {
+    backgroundColor: '#10B981',
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+    alignItems: 'center',
+  },
+  backtestText: {fontFamily: 'Inter-Bold', fontSize: 11, color: '#FFFFFF', textAlign: 'center', lineHeight: 16},
+  perfLabel: {
+    fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.3)',
+    letterSpacing: 0.8, marginBottom: 8,
+  },
+
+  // Suggestions
+  suggestionsScroll: {height: 46},
+  suggestionsContent: {paddingHorizontal: 16, paddingVertical: 6, gap: 8, alignItems: 'center'},
+  chip: {
+    paddingHorizontal: 14, paddingVertical: 8,
+    backgroundColor: '#161D2A',
+    borderRadius: 999,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  chipText: {fontFamily: 'Inter-Medium', fontSize: 13, color: 'rgba(255,255,255,0.75)'},
+
+  // Input bar
+  inputBar: {
+    flexDirection: 'row', alignItems: 'flex-end', gap: 10,
+    paddingHorizontal: 16, paddingVertical: 6,
+    marginBottom: 12,
+    borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#0A0E14',
+  },
+  attachBtn: {paddingBottom: 4, width: 28, alignItems: 'center'},
+  input: {
+    flex: 1, fontFamily: 'Inter-Regular', fontSize: 14, color: '#FFFFFF',
+    backgroundColor: '#161D2A',
+    borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10,
+    maxHeight: 100,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+  },
+  sendBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: '#10B981',
+    alignItems: 'center', justifyContent: 'center',
+  },
 });
