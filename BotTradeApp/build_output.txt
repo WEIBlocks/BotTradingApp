@@ -1,0 +1,510 @@
+﻿To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.13/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :gradle-plugin:settings-plugin:checkKotlinGradlePluginConfigurationErrors
+> Task :gradle-plugin:shared:checkKotlinGradlePluginConfigurationErrors
+> Task :gradle-plugin:shared:compileKotlin UP-TO-DATE
+> Task :gradle-plugin:shared:compileJava NO-SOURCE
+> Task :gradle-plugin:shared:processResources NO-SOURCE
+> Task :gradle-plugin:shared:classes UP-TO-DATE
+> Task :gradle-plugin:shared:jar UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:compileKotlin UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:compileJava NO-SOURCE
+> Task :gradle-plugin:settings-plugin:pluginDescriptors UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:processResources UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:classes UP-TO-DATE
+> Task :gradle-plugin:settings-plugin:jar UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:checkKotlinGradlePluginConfigurationErrors
+> Task :gradle-plugin:react-native-gradle-plugin:compileKotlin UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:compileJava NO-SOURCE
+> Task :gradle-plugin:react-native-gradle-plugin:pluginDescriptors UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:processResources UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:classes UP-TO-DATE
+> Task :gradle-plugin:react-native-gradle-plugin:jar UP-TO-DATE
+
+> Configure project :react-native-reanimated
+Android gradle plugin: 8.7.3
+Gradle: 8.13
+
+> Configure project :shopify_react-native-skia
+react-native-skia: node_modules/ found at: D:\Weiblocks\Bot_App\BotTradeApp\node_modules
+react-native-skia: RN Version: 75 / 0.75.4
+react-native-skia: isSourceBuild: false
+react-native-skia: PrebuiltDir: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\@shopify\react-native-skia\android\build/react-native-0*/jni
+react-native-skia: buildType: debug
+react-native-skia: buildDir: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\@shopify\react-native-skia\android\build
+react-native-skia: node_modules: D:\Weiblocks\Bot_App\BotTradeApp\node_modules
+react-native-skia: Enable Prefab: true
+react-native-skia: aar state post 70, do nothing
+WARNING: We recommend using a newer Android Gradle plugin to use compileSdk = 36
+
+This Android Gradle plugin (8.7.3) was tested up to compileSdk = 35.
+
+You are strongly encouraged to update your project to use a newer
+Android Gradle plugin that has been tested with compileSdk = 36.
+
+If you are already using the latest version of the Android Gradle plugin,
+you may need to wait until a newer version with support for compileSdk = 36 is available.
+
+For more information refer to the compatibility table:
+https://d.android.com/r/tools/api-level-support
+
+To suppress this warning, add/update
+    android.suppressUnsupportedCompileSdk=36
+to this project's gradle.properties.
+WARNING: We recommend using a newer Android Gradle plugin to use compileSdk = 36
+
+This Android Gradle plugin (8.7.3) was tested up to compileSdk = 35.
+
+You are strongly encouraged to update your project to use a newer
+Android Gradle plugin that has been tested with compileSdk = 36.
+
+If you are already using the latest version of the Android Gradle plugin,
+you may need to wait until a newer version with support for compileSdk = 36 is available.
+
+For more information refer to the compatibility table:
+https://d.android.com/r/tools/api-level-support
+
+To suppress this warning, add/update
+    android.suppressUnsupportedCompileSdk=36
+to this project's gradle.properties.
+
+> Task :app:generateAutolinkingPackageList
+> Task :app:generateCodegenSchemaFromJavaScript SKIPPED
+> Task :app:generateCodegenArtifactsFromSchema SKIPPED
+> Task :app:preBuild
+> Task :app:preDebugBuild
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:generateDebugBuildConfig
+> Task :react-native-async-storage_async-storage:preBuild UP-TO-DATE
+> Task :react-native-async-storage_async-storage:preDebugBuild UP-TO-DATE
+> Task :react-native-community_slider:preBuild UP-TO-DATE
+> Task :react-native-community_slider:preDebugBuild UP-TO-DATE
+> Task :react-native-gesture-handler:preBuild UP-TO-DATE
+> Task :react-native-gesture-handler:preDebugBuild UP-TO-DATE
+> Task :react-native-haptic-feedback:preBuild UP-TO-DATE
+> Task :react-native-haptic-feedback:preDebugBuild UP-TO-DATE
+> Task :react-native-linear-gradient:preBuild UP-TO-DATE
+> Task :react-native-linear-gradient:preDebugBuild UP-TO-DATE
+> Task :react-native-community_slider:writeDebugAarMetadata
+> Task :react-native-reanimated:assertLatestReactNativeWithNewArchitectureTask SKIPPED
+> Task :react-native-reanimated:assertMinimalReactNativeVersionTask SKIPPED
+> Task :react-native-haptic-feedback:writeDebugAarMetadata
+> Task :react-native-gesture-handler:writeDebugAarMetadata
+> Task :react-native-async-storage_async-storage:writeDebugAarMetadata
+> Task :react-native-linear-gradient:writeDebugAarMetadata
+> Task :react-native-reanimated:prepareReanimatedHeadersForPrefabs
+> Task :react-native-reanimated:prepareWorkletsHeadersForPrefabs
+> Task :react-native-reanimated:preBuild
+> Task :react-native-reanimated:preDebugBuild
+> Task :react-native-safe-area-context:preBuild UP-TO-DATE
+> Task :react-native-safe-area-context:preDebugBuild UP-TO-DATE
+> Task :react-native-reanimated:writeDebugAarMetadata
+> Task :react-native-screens:preBuild UP-TO-DATE
+> Task :react-native-screens:preDebugBuild UP-TO-DATE
+> Task :react-native-safe-area-context:writeDebugAarMetadata
+> Task :react-native-svg:preBuild UP-TO-DATE
+> Task :react-native-svg:preDebugBuild UP-TO-DATE
+> Task :react-native-screens:writeDebugAarMetadata
+> Task :react-native-svg:writeDebugAarMetadata
+> Task :shopify_react-native-skia:prepareHeaders
+> Task :shopify_react-native-skia:preBuild
+> Task :shopify_react-native-skia:preDebugBuild
+> Task :shopify_react-native-skia:writeDebugAarMetadata
+> Task :app:generateDebugResValues
+> Task :react-native-async-storage_async-storage:generateDebugResValues
+> Task :app:checkDebugAarMetadata
+> Task :react-native-async-storage_async-storage:generateDebugResources
+> Task :react-native-async-storage_async-storage:packageDebugResources
+> Task :react-native-community_slider:generateDebugResValues
+> Task :react-native-community_slider:generateDebugResources
+> Task :react-native-community_slider:packageDebugResources
+> Task :react-native-gesture-handler:generateDebugResValues
+> Task :react-native-gesture-handler:generateDebugResources
+> Task :react-native-gesture-handler:packageDebugResources
+> Task :react-native-haptic-feedback:generateDebugResValues
+> Task :react-native-haptic-feedback:generateDebugResources
+> Task :react-native-haptic-feedback:packageDebugResources
+> Task :react-native-linear-gradient:generateDebugResValues
+> Task :react-native-linear-gradient:generateDebugResources
+> Task :react-native-linear-gradient:packageDebugResources
+> Task :react-native-reanimated:generateDebugResValues
+> Task :react-native-reanimated:generateDebugResources
+> Task :react-native-reanimated:packageDebugResources
+> Task :react-native-safe-area-context:generateDebugResValues
+> Task :react-native-safe-area-context:generateDebugResources
+> Task :react-native-safe-area-context:packageDebugResources
+> Task :react-native-screens:generateDebugResValues
+> Task :react-native-screens:generateDebugResources
+> Task :react-native-screens:packageDebugResources
+> Task :react-native-svg:generateDebugResValues
+> Task :react-native-svg:generateDebugResources
+> Task :react-native-svg:packageDebugResources
+> Task :shopify_react-native-skia:generateDebugResValues
+> Task :shopify_react-native-skia:generateDebugResources
+> Task :shopify_react-native-skia:packageDebugResources
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:packageDebugResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :react-native-async-storage_async-storage:extractDeepLinksDebug
+> Task :react-native-community_slider:extractDeepLinksDebug
+> Task :react-native-gesture-handler:extractDeepLinksDebug
+> Task :app:parseDebugLocalResources
+> Task :react-native-haptic-feedback:extractDeepLinksDebug
+> Task :react-native-linear-gradient:extractDeepLinksDebug
+> Task :react-native-reanimated:extractDeepLinksDebug
+> Task :react-native-safe-area-context:extractDeepLinksDebug
+
+> Task :react-native-async-storage_async-storage:processDebugManifest
+package="com.reactnativecommunity.asyncstorage" found in source AndroidManifest.xml: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\@react-native-async-storage\async-storage\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.reactnativecommunity.asyncstorage" from the source AndroidManifest.xml: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\@react-native-async-storage\async-storage\android\src\main\AndroidManifest.xml.
+
+> Task :react-native-screens:extractDeepLinksDebug
+
+> Task :react-native-linear-gradient:processDebugManifest
+package="com.BV.LinearGradient" found in source AndroidManifest.xml: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\react-native-linear-gradient\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.BV.LinearGradient" from the source AndroidManifest.xml: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\react-native-linear-gradient\android\src\main\AndroidManifest.xml.
+
+> Task :react-native-haptic-feedback:processDebugManifest
+package="com.mkuczera" found in source AndroidManifest.xml: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\react-native-haptic-feedback\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.mkuczera" from the source AndroidManifest.xml: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\react-native-haptic-feedback\android\src\main\AndroidManifest.xml.
+
+> Task :react-native-gesture-handler:processDebugManifest
+
+> Task :react-native-safe-area-context:processDebugManifest
+package="com.th3rdwave.safeareacontext" found in source AndroidManifest.xml: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\react-native-safe-area-context\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.th3rdwave.safeareacontext" from the source AndroidManifest.xml: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\react-native-safe-area-context\android\src\main\AndroidManifest.xml.
+
+> Task :react-native-svg:extractDeepLinksDebug
+> Task :shopify_react-native-skia:extractDeepLinksDebug
+> Task :react-native-reanimated:processDebugManifest
+> Task :react-native-svg:processDebugManifest
+> Task :react-native-async-storage_async-storage:compileDebugLibraryResources
+> Task :react-native-async-storage_async-storage:parseDebugLocalResources
+
+> Task :shopify_react-native-skia:processDebugManifest
+package="com.shopify.reactnative.skia" found in source AndroidManifest.xml: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\@shopify\react-native-skia\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.shopify.reactnative.skia" from the source AndroidManifest.xml: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\@shopify\react-native-skia\android\src\main\AndroidManifest.xml.
+
+> Task :react-native-community_slider:compileDebugLibraryResources
+> Task :react-native-screens:processDebugManifest
+
+> Task :react-native-community_slider:processDebugManifest
+package="com.reactnativecommunity.slider" found in source AndroidManifest.xml: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\@react-native-community\slider\android\src\main\AndroidManifest.xml.
+Setting the namespace via the package attribute in the source AndroidManifest.xml is no longer supported, and the value is ignored.
+Recommendation: remove package="com.reactnativecommunity.slider" from the source AndroidManifest.xml: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\@react-native-community\slider\android\src\main\AndroidManifest.xml.
+
+> Task :react-native-community_slider:parseDebugLocalResources
+> Task :react-native-async-storage_async-storage:generateDebugRFile
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
+> Task :react-native-gesture-handler:compileDebugLibraryResources
+> Task :app:processDebugManifestForPackage
+> Task :react-native-gesture-handler:parseDebugLocalResources
+> Task :react-native-haptic-feedback:compileDebugLibraryResources
+> Task :react-native-community_slider:generateDebugRFile
+> Task :react-native-haptic-feedback:parseDebugLocalResources
+> Task :react-native-gesture-handler:generateDebugRFile
+> Task :react-native-linear-gradient:compileDebugLibraryResources
+> Task :react-native-reanimated:compileDebugLibraryResources
+> Task :react-native-linear-gradient:parseDebugLocalResources
+> Task :react-native-reanimated:parseDebugLocalResources
+> Task :react-native-haptic-feedback:generateDebugRFile
+> Task :app:mergeDebugResources
+> Task :react-native-safe-area-context:compileDebugLibraryResources
+> Task :react-native-reanimated:generateDebugRFile
+> Task :react-native-safe-area-context:parseDebugLocalResources
+> Task :react-native-linear-gradient:generateDebugRFile
+> Task :react-native-screens:parseDebugLocalResources
+> Task :react-native-svg:compileDebugLibraryResources
+> Task :react-native-safe-area-context:generateDebugRFile
+> Task :react-native-svg:parseDebugLocalResources
+> Task :shopify_react-native-skia:compileDebugLibraryResources
+> Task :shopify_react-native-skia:parseDebugLocalResources
+> Task :react-native-async-storage_async-storage:generateDebugBuildConfig
+> Task :react-native-svg:generateDebugRFile
+> Task :react-native-screens:generateDebugRFile
+> Task :react-native-async-storage_async-storage:javaPreCompileDebug
+> Task :react-native-community_slider:generateDebugBuildConfig
+> Task :shopify_react-native-skia:generateDebugRFile
+> Task :react-native-screens:compileDebugLibraryResources
+
+> Task :react-native-async-storage_async-storage:compileDebugJavaWithJavac
+gradlew.bat : Note: Some input files use or override a deprecated API.
+At line:1 char:11
++ $output = & .\gradlew.bat assembleDebug --console=plain 2>&1
++           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Note: Some inpu...deprecated API.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Note: Recompile with -Xlint:deprecation for details.
+Note: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\@react-native-async-storage\async-storage\android\src\javaPackage\j
+ava\com\reactnativecommunity\asyncstorage\AsyncStoragePackage.java uses unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+
+> Task :react-native-gesture-handler:checkKotlinGradlePluginConfigurationErrors
+> Task :react-native-community_slider:javaPreCompileDebug
+> Task :react-native-gesture-handler:generateDebugBuildConfig
+> Task :react-native-async-storage_async-storage:bundleLibCompileToJarDebug
+
+> Task :react-native-community_slider:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: D:\Weiblocks\Bot_App\BotTradeApp\node_modules\@react-native-community\slider\android\src\oldarch\java\com\reactna
+tivecommunity\slider\ReactSliderManager.java uses unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+
+> Task :react-native-reanimated:generateDebugBuildConfig
+> Task :react-native-reanimated:javaPreCompileDebug
+> Task :react-native-reanimated:packageNdkLibs NO-SOURCE
+> Task :react-native-community_slider:bundleLibCompileToJarDebug
+> Task :app:processDebugResources
+
+> Task :react-native-reanimated:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+
+> Task :react-native-svg:generateDebugBuildConfig
+> Task :react-native-svg:javaPreCompileDebug
+> Task :react-native-gesture-handler:javaPreCompileDebug
+> Task :react-native-reanimated:bundleLibCompileToJarDebug
+
+> Task :react-native-svg:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+
+> Task :react-native-haptic-feedback:generateDebugBuildConfig
+> Task :react-native-haptic-feedback:javaPreCompileDebug
+> Task :react-native-svg:bundleLibCompileToJarDebug
+
+> Task :react-native-haptic-feedback:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+
+> Task :react-native-linear-gradient:generateDebugBuildConfig
+> Task :react-native-safe-area-context:checkKotlinGradlePluginConfigurationErrors
+> Task :react-native-linear-gradient:javaPreCompileDebug
+> Task :react-native-haptic-feedback:bundleLibCompileToJarDebug
+> Task :react-native-safe-area-context:generateDebugBuildConfig
+> Task :react-native-linear-gradient:compileDebugJavaWithJavac
+> Task :react-native-linear-gradient:bundleLibCompileToJarDebug
+> Task :react-native-screens:checkKotlinGradlePluginConfigurationErrors
+> Task :react-native-safe-area-context:javaPreCompileDebug
+> Task :react-native-screens:generateDebugBuildConfig
+> Task :react-native-screens:javaPreCompileDebug
+> Task :shopify_react-native-skia:generateDebugBuildConfig
+> Task :shopify_react-native-skia:javaPreCompileDebug
+> Task :app:javaPreCompileDebug
+
+> Task :shopify_react-native-skia:compileDebugJavaWithJavac
+Note: Some input files use or override a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+Note: Some input files use unchecked or unsafe operations.
+Note: Recompile with -Xlint:unchecked for details.
+
+> Task :shopify_react-native-skia:bundleLibCompileToJarDebug
+> Task :app:mergeDebugShaders
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :react-native-async-storage_async-storage:mergeDebugShaders
+> Task :react-native-async-storage_async-storage:compileDebugShaders NO-SOURCE
+> Task :react-native-async-storage_async-storage:generateDebugAssets UP-TO-DATE
+> Task :react-native-async-storage_async-storage:packageDebugAssets
+> Task :react-native-community_slider:mergeDebugShaders
+> Task :react-native-community_slider:compileDebugShaders NO-SOURCE
+> Task :react-native-community_slider:generateDebugAssets UP-TO-DATE
+> Task :react-native-community_slider:packageDebugAssets
+> Task :react-native-gesture-handler:mergeDebugShaders
+> Task :react-native-gesture-handler:compileDebugShaders NO-SOURCE
+> Task :react-native-gesture-handler:generateDebugAssets UP-TO-DATE
+> Task :react-native-gesture-handler:packageDebugAssets
+> Task :react-native-haptic-feedback:mergeDebugShaders
+> Task :react-native-haptic-feedback:compileDebugShaders NO-SOURCE
+> Task :react-native-haptic-feedback:generateDebugAssets UP-TO-DATE
+> Task :react-native-haptic-feedback:packageDebugAssets
+> Task :react-native-linear-gradient:mergeDebugShaders
+> Task :react-native-linear-gradient:compileDebugShaders NO-SOURCE
+> Task :react-native-linear-gradient:generateDebugAssets UP-TO-DATE
+> Task :react-native-linear-gradient:packageDebugAssets
+> Task :react-native-reanimated:mergeDebugShaders
+> Task :react-native-reanimated:compileDebugShaders NO-SOURCE
+> Task :react-native-reanimated:generateDebugAssets UP-TO-DATE
+> Task :react-native-reanimated:packageDebugAssets
+> Task :react-native-safe-area-context:mergeDebugShaders
+> Task :react-native-safe-area-context:compileDebugShaders NO-SOURCE
+> Task :react-native-safe-area-context:generateDebugAssets UP-TO-DATE
+> Task :react-native-safe-area-context:packageDebugAssets
+> Task :react-native-screens:mergeDebugShaders
+> Task :react-native-screens:compileDebugShaders NO-SOURCE
+> Task :react-native-screens:generateDebugAssets UP-TO-DATE
+> Task :react-native-screens:packageDebugAssets
+> Task :react-native-svg:mergeDebugShaders
+> Task :react-native-svg:compileDebugShaders NO-SOURCE
+> Task :react-native-svg:generateDebugAssets UP-TO-DATE
+> Task :react-native-svg:packageDebugAssets
+> Task :shopify_react-native-skia:mergeDebugShaders
+> Task :shopify_react-native-skia:compileDebugShaders NO-SOURCE
+> Task :shopify_react-native-skia:generateDebugAssets UP-TO-DATE
+> Task :shopify_react-native-skia:packageDebugAssets
+> Task :app:mergeDebugAssets
+> Task :react-native-async-storage_async-storage:bundleLibRuntimeToJarDebug
+> Task :react-native-haptic-feedback:bundleLibRuntimeToJarDebug
+> Task :react-native-community_slider:bundleLibRuntimeToJarDebug
+> Task :shopify_react-native-skia:bundleLibRuntimeToJarDebug
+> Task :app:compressDebugAssets
+> Task :react-native-linear-gradient:bundleLibRuntimeToJarDebug
+> Task :app:desugarDebugFileDependencies
+> Task :react-native-async-storage_async-storage:processDebugJavaRes NO-SOURCE
+> Task :react-native-community_slider:processDebugJavaRes NO-SOURCE
+> Task :react-native-haptic-feedback:processDebugJavaRes NO-SOURCE
+> Task :react-native-linear-gradient:processDebugJavaRes NO-SOURCE
+> Task :react-native-reanimated:processDebugJavaRes NO-SOURCE
+> Task :react-native-svg:processDebugJavaRes NO-SOURCE
+> Task :shopify_react-native-skia:processDebugJavaRes NO-SOURCE
+> Task :react-native-svg:bundleLibRuntimeToJarDebug
+> Task :react-native-reanimated:bundleLibRuntimeToJarDebug
+> Task :react-native-async-storage_async-storage:bundleLibRuntimeToDirDebug
+> Task :app:checkDebugDuplicateClasses
+> Task :react-native-community_slider:bundleLibRuntimeToDirDebug
+> Task :react-native-gesture-handler:compileDebugKotlin
+> Task :react-native-safe-area-context:compileDebugKotlin
+> Task :react-native-screens:compileDebugKotlin
+> Task :app:mergeExtDexDebug
+> Task :react-native-linear-gradient:bundleLibRuntimeToDirDebug
+> Task :react-native-haptic-feedback:bundleLibRuntimeToDirDebug
+> Task :shopify_react-native-skia:bundleLibRuntimeToDirDebug
+> Task :react-native-reanimated:bundleLibRuntimeToDirDebug
+> Task :app:mergeDebugJniLibFolders
+> Task :react-native-async-storage_async-storage:mergeDebugJniLibFolders
+> Task :react-native-async-storage_async-storage:mergeDebugNativeLibs NO-SOURCE
+> Task :react-native-async-storage_async-storage:copyDebugJniLibsProjectOnly
+> Task :react-native-community_slider:mergeDebugJniLibFolders
+> Task :react-native-community_slider:mergeDebugNativeLibs NO-SOURCE
+> Task :react-native-community_slider:copyDebugJniLibsProjectOnly
+> Task :react-native-gesture-handler:mergeDebugJniLibFolders
+> Task :react-native-gesture-handler:mergeDebugNativeLibs NO-SOURCE
+> Task :react-native-gesture-handler:copyDebugJniLibsProjectOnly
+> Task :react-native-haptic-feedback:mergeDebugJniLibFolders
+> Task :react-native-haptic-feedback:mergeDebugNativeLibs NO-SOURCE
+> Task :react-native-haptic-feedback:copyDebugJniLibsProjectOnly
+> Task :react-native-linear-gradient:mergeDebugJniLibFolders
+> Task :react-native-linear-gradient:mergeDebugNativeLibs NO-SOURCE
+> Task :react-native-linear-gradient:copyDebugJniLibsProjectOnly
+> Task :react-native-svg:bundleLibRuntimeToDirDebug
+
+> Task :react-native-safe-area-context:compileDebugKotlin
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-safe-area-context/android/src/main/java/com/th3rdwave/safeareacontext/SafeAreaContextPackage.kt:27:11 'constructor ReactModuleInfo(String, String, Boolean, Boolean, Boolean, Boolean, Boolean)' is deprecated. use ReactModuleInfo(String, String, boolean, boolean, boolean, boolean)]
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-safe-area-context/android/src/main/java/com/th3rdwave/safeareacontext/SafeAreaContextPackage.kt:33:27 'getter for hasConstants: Boolean' is deprecated. This property is unused and it's planning to be removed in a future version of
+        React Native. Please refrain from using it.
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-safe-area-context/android/src/main/java/com/th3rdwave/safeareacontext/SafeAreaView.kt:59:23 'getter for uiImplementation: UIImplementation!' is deprecated. Deprecated in Java
+
+> Task :react-native-gesture-handler:compileDebugKotlin
+e: Supertypes of the following classes cannot be resolved. Please make sure you have the required dependencies in the 
+classpath:
+    class com.facebook.react.viewmanagers.RNGestureHandlerButtonManagerInterface, unresolved supertypes: 
+ViewManagerWithGeneratedInterface
+    class com.facebook.react.viewmanagers.RNGestureHandlerRootViewManagerInterface, unresolved supertypes: 
+ViewManagerWithGeneratedInterface
+Adding -Xextended-compiler-checks argument might provide additional information.
+
+e: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansi
+on/gesturehandler/react/RNGestureHandlerButtonViewManager.kt:40:1 Cannot access 'ViewManagerWithGeneratedInterface' 
+which is a supertype of 'com.swmansion.gesturehandler.react.RNGestureHandlerButtonViewManager'. Check your module 
+classpath for missing or conflicting dependencies
+e: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansi
+on/gesturehandler/react/RNGestureHandlerButtonViewManager.kt:47:5 Cannot access 'ViewManagerWithGeneratedInterface' 
+which is a supertype of 'com.swmansion.gesturehandler.react.RNGestureHandlerButtonViewManager'. Check your module 
+classpath for missing or conflicting dependencies
+e: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansi
+on/gesturehandler/react/RNGestureHandlerButtonViewManager.kt:47:107 Cannot access 'ViewManagerWithGeneratedInterface' 
+which is a supertype of 'com.swmansion.gesturehandler.react.RNGestureHandlerButtonViewManager'. Check your module 
+classpath for missing or conflicting dependencies
+e: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansi
+on/gesturehandler/react/RNGestureHandlerButtonViewManager.kt:136:5 Cannot access 'ViewManagerWithGeneratedInterface' 
+which is a supertype of 'com.swmansion.gesturehandler.react.RNGestureHandlerButtonViewManager'. Check your module 
+classpath for missing or conflicting dependencies
+e: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansi
+on/gesturehandler/react/RNGestureHandlerButtonViewManager.kt:141:71 Cannot access 'ViewManagerWithGeneratedInterface' 
+which is a supertype of 'com.swmansion.gesturehandler.react.RNGestureHandlerButtonViewManager'. Check your module 
+classpath for missing or conflicting dependencies
+e: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansi
+on/gesturehandler/react/RNGestureHandlerRootViewManager.kt:16:1 Cannot access 'ViewManagerWithGeneratedInterface' 
+which is a supertype of 'com.swmansion.gesturehandler.react.RNGestureHandlerRootViewManager'. Check your module 
+classpath for missing or conflicting dependencies
+e: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansi
+on/gesturehandler/react/RNGestureHandlerRootViewManager.kt:23:5 Cannot access 'ViewManagerWithGeneratedInterface' 
+which is a supertype of 'com.swmansion.gesturehandler.react.RNGestureHandlerRootViewManager'. Check your module 
+classpath for missing or conflicting dependencies
+e: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansi
+on/gesturehandler/react/RNGestureHandlerRootViewManager.kt:23:116 Cannot access 'ViewManagerWithGeneratedInterface' 
+which is a supertype of 'com.swmansion.gesturehandler.react.RNGestureHandlerRootViewManager'. Check your module 
+classpath for missing or conflicting dependencies
+e: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-gesture-handler/android/src/main/java/com/swmansi
+on/gesturehandler/react/RNGestureHandlerRootViewManager.kt:26:79 Cannot access 'ViewManagerWithGeneratedInterface' 
+which is a supertype of 'com.swmansion.gesturehandler.react.RNGestureHandlerRootViewManager'. Check your module 
+classpath for missing or conflicting dependencies
+
+> Task :react-native-gesture-handler:compileDebugKotlin FAILED
+> Task :react-native-reanimated:configureCMakeDebug[arm64-v8a]
+
+> Task :react-native-screens:compileDebugKotlin
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/RNScreensPackage.kt:60:17 'constructor ReactModuleInfo(String, String, Boolean, Boolean, Boolean, Boolean, Boolean)' is deprecated. use ReactModuleInfo(String, String, boolean, boolean, boolean, boolean)]
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenContainer.kt:33:53 'FrameCallback' is deprecated. Deprecated in Java
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenContainer.kt:34:38 'FrameCallback' is deprecated. Deprecated in Java
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenStackHeaderConfig.kt:101:38 'getter for systemWindowInsetTop: Int' is deprecated. Deprecated in Java
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:62:53 'getter for statusBarColor: Int' is deprecated. Deprecated in Java
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:73:48 'getter for statusBarColor: Int' is deprecated. Deprecated in Java
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:76:32 'setter for statusBarColor: Int' is deprecated. Deprecated in Java
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:146:47 'replaceSystemWindowInsets(Int, Int, Int, Int): WindowInsetsCompat' is deprecated. Deprecated in Java
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:147:51 'getter for systemWindowInsetLeft: Int' is deprecated. Deprecated in Java
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:149:51 'getter for systemWindowInsetRight: Int' is deprecated. Deprecated in Java
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:150:51 'getter for systemWindowInsetBottom: Int' is deprecated. Deprecated in Java
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:197:72 'getter for navigationBarColor: Int' is deprecated. Deprecated in Java
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/ScreenWindowTraits.kt:203:16 'setter for navigationBarColor: Int' is deprecated. Deprecated in Java
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/SearchBarManager.kt:138:66 Elvis operator (?:) always returns the left operand of non-nullable type Boolean
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/main/java/com/swmansion/rnscreens/SearchBarView.kt:153:43 Parameter 'flag' is never used
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/paper/java/com/swmansion/rnscreens/FabricEnabledViewGroup.kt:10:25 Parameter 'wrapper' is never used
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/paper/java/com/swmansion/rnscreens/FabricEnabledViewGroup.kt:13:9 Parameter 'width' is never used
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/paper/java/com/swmansion/rnscreens/FabricEnabledViewGroup.kt:14:9 Parameter 'height' is never used
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/paper/java/com/swmansion/rnscreens/FabricEnabledViewGroup.kt:15:9 Parameter 'headerHeight' is never used
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/paper/java/com/swmansion/rnscreens/NativeProxy.kt:7:36 Parameter 'fabricUIManager' is never used
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/paper/java/com/swmansion/rnscreens/NativeProxy.kt:11:13 Parameter 'tag' is never used
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/paper/java/com/swmansion/rnscreens/NativeProxy.kt:12:13 Parameter 'view' is never used
+w: file:///D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-screens/android/src/paper/java/com/swmansion/rnscreens/NativeProxy.kt:15:33 Parameter 'tag' is never used
+
+[Incubating] Problems report is available at: file:///D:/Weiblocks/Bot_App/BotTradeApp/android/build/reports/problems/problems-report.html
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':react-native-gesture-handler:compileDebugKotlin'.
+> A failure occurred while executing 
+org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+
+You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
+
+For more on this, please refer to https://docs.gradle.org/8.13/userguide/command_line_interface.html#sec:command_line_warnings in the Gradle documentation.
+
+BUILD FAILED in 3m 59s
+215 actionable tasks: 205 executed, 10 up-to-date
+ERROR: JAVA_HOME is not set correctly.

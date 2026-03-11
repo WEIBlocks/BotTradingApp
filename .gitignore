@@ -1,0 +1,50 @@
+# Node
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+.yarn/
+
+# React Native
+BotTradeApp/android/app/build/
+BotTradeApp/android/.gradle/
+BotTradeApp/android/local.properties
+BotTradeApp/android/*.keystore
+!BotTradeApp/android/debug.keystore
+BotTradeApp/ios/build/
+BotTradeApp/ios/Pods/
+BotTradeApp/ios/*.xcworkspace/xcuserdata/
+BotTradeApp/.bundle/
+
+# Metro
+BotTradeApp/.metro/
+
+# React Native local maven (prebuilt AARs — large, not needed in git)
+BotTradeApp/local-maven/
+
+# Build outputs
+*.apk
+*.ipa
+*.aab
+
+# Gradle cache (moved to D: drive)
+gradle_home/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/settings.json
+.idea/
+*.iml
+
+# Logs
+*.log
+logs/
