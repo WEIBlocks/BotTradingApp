@@ -2,6 +2,7 @@ import React from 'react';
 import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import Svg, {Path, Circle, Rect} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
 import {mockUser} from '../../data/mockUser';
 import SectionHeader from '../../components/common/SectionHeader';
@@ -11,14 +12,57 @@ import BellIcon from '../../components/icons/BellIcon';
 import WalletIcon from '../../components/icons/WalletIcon';
 import GearIcon from '../../components/icons/GearIcon';
 
+function ActivityIcon({type, color}: {type: string; color: string}) {
+  const size = 20;
+  if (type === 'profit') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M3 17L9 11L13 15L21 7" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M15 7H21V13" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    );
+  }
+  if (type === 'purchase') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Rect x={4} y={8} width={16} height={11} rx={3} stroke="#0D7FF2" strokeWidth={1.8} />
+        <Path d="M9 8V6" stroke="#0D7FF2" strokeWidth={1.8} strokeLinecap="round" />
+        <Path d="M15 8V6" stroke="#0D7FF2" strokeWidth={1.8} strokeLinecap="round" />
+        <Circle cx={9.5} cy={13} r={1.2} fill="#0D7FF2" />
+        <Circle cx={14.5} cy={13} r={1.2} fill="#0D7FF2" />
+        <Path d="M10 17H14" stroke="#0D7FF2" strokeWidth={1.5} strokeLinecap="round" />
+      </Svg>
+    );
+  }
+  if (type === 'deposit') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M12 4V16" stroke="#10B981" strokeWidth={2} strokeLinecap="round" />
+        <Path d="M8 12L12 16L16 12" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M5 20H19" stroke="#10B981" strokeWidth={2} strokeLinecap="round" />
+      </Svg>
+    );
+  }
+  // withdrawal / default
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 20V8" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" />
+      <Path d="M8 12L12 8L16 12" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M5 4H19" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
 const SETTINGS = [
   {icon: BellIcon, label: 'Notifications', screen: 'Notifications'},
-  {icon: BellIcon, label: 'Notification Settings', screen: 'NotificationSettings'},
   {icon: WalletIcon, label: 'Wallet & Funds', screen: 'WalletFunds'},
+  {icon: WalletIcon, label: 'Connected Exchanges', screen: 'ExchangeManage'},
+  {icon: GearIcon, label: 'Subscription', screen: 'Subscription'},
+  {icon: GearIcon, label: 'Creator Studio', screen: 'CreatorStudio'},
   {icon: GiftIcon, label: 'Refer a Friend', screen: 'Referral'},
-  {icon: GearIcon, label: 'Paper Trading', screen: 'PaperTradingSetup'},
+  {icon: GearIcon, label: 'Settings', screen: 'Settings'},
 ];
 
 export default function ProfileScreen() {
@@ -88,9 +132,7 @@ export default function ProfileScreen() {
               return (
                 <View key={activity.id} style={styles.activityRow}>
                   <View style={[styles.activityIcon, {backgroundColor: isPositive ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'}]}>
-                    <Text style={{fontSize: 16}}>
-                      {activity.type === 'profit' ? '📈' : activity.type === 'purchase' ? '🤖' : activity.type === 'deposit' ? '💰' : '📤'}
-                    </Text>
+                    <ActivityIcon type={activity.type} color={color} />
                   </View>
                   <View style={styles.activityInfo}>
                     <Text style={styles.activityTitle}>{activity.title}</Text>

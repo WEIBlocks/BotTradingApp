@@ -15,7 +15,7 @@ export type MainTabParamList = {
   Dashboard: undefined;
   Market: undefined;
   AIChat: undefined;
-  Arena: undefined;
+  Portfolio: undefined;
   Profile: undefined;
 };
 
@@ -37,6 +37,18 @@ export type RootStackParamList = {
   NotificationSettings: undefined;
   QuickActions: undefined;
   VoiceAssistant: undefined;
+  ExchangeConnect: undefined;
+  ExchangeManage: undefined;
+  Subscription: undefined;
+  PaymentMethod: undefined;
+  Checkout: {type: 'bot' | 'subscription'; itemId: string; amount: number};
+  CreatorStudio: undefined;
+  BotBuilder: {fromChat?: boolean; strategyName?: string};
+  LiveTrades: undefined;
+  TrainingUpload: undefined;
+  TradingRoom: undefined;
+  Settings: undefined;
+  HelpSupport: undefined;
 };
 
 // ============ Screen Props ============
@@ -201,4 +213,115 @@ export interface ArenaResult {
   finalReturn: number;
   winRate: number;
   equityData: number[];
+}
+
+// ============ Exchange & Portfolio ============
+
+export type ExchangeProvider = 'Coinbase' | 'Binance' | 'Kraken' | 'Alpaca' | 'Interactive Brokers';
+export type ConnectionMethod = 'oauth' | 'api_key';
+export type ConnectionStatus = 'connected' | 'disconnected' | 'syncing' | 'error';
+
+export interface ExchangeConnection {
+  id: string;
+  provider: ExchangeProvider;
+  method: ConnectionMethod;
+  status: ConnectionStatus;
+  lastSync: string;
+  accountLabel: string;
+  totalBalance: number;
+}
+
+export interface ExchangeAsset {
+  symbol: string;
+  name: string;
+  amount: number;
+  valueUsd: number;
+  change24h: number;
+  allocation: number;
+  iconColor: string;
+}
+
+export interface PortfolioSummary {
+  totalValue: number;
+  totalChange24h: number;
+  totalChangePercent24h: number;
+  assets: ExchangeAsset[];
+  allocationBreakdown: AllocationItem[];
+}
+
+export interface AllocationItem {
+  label: string;
+  percent: number;
+  color: string;
+}
+
+// ============ Subscription & Payment ============
+
+export type SubscriptionTier = 'free' | 'pro';
+export type PaymentMethodType = 'card' | 'crypto';
+
+export interface SubscriptionPlan {
+  id: string;
+  name: string;
+  price: number;
+  period: 'monthly' | 'yearly';
+  features: string[];
+  discount?: number;
+}
+
+export interface PaymentMethodData {
+  id: string;
+  type: PaymentMethodType;
+  label: string;
+  last4?: string;
+  network?: string;
+  isDefault: boolean;
+}
+
+// ============ Creator Studio ============
+
+export interface CreatorStats {
+  totalRevenue: number;
+  monthlyRevenue: number;
+  totalUsers: number;
+  avgRating: number;
+  reviewCount: number;
+  churnRate: number;
+}
+
+export interface BotVersion {
+  id: string;
+  version: string;
+  isActive: boolean;
+  users: number;
+  returnPercent: number;
+  createdAt: string;
+}
+
+// ============ Bot Builder & Training ============
+
+export interface BotConfig {
+  name: string;
+  pairs: string[];
+  strategy: string;
+  riskLevel: RiskLevel;
+  stopLoss: number;
+  takeProfit: number;
+  maxPositionSize: number;
+  isLive: boolean;
+}
+
+export interface TrainingUploadItem {
+  id: string;
+  type: 'image' | 'video' | 'document';
+  name: string;
+  status: 'processing' | 'complete' | 'error';
+  uploadedAt: string;
+}
+
+// ============ Live Trades ============
+
+export interface LiveTrade extends Trade {
+  isLive: boolean;
+  reasoning?: string;
 }

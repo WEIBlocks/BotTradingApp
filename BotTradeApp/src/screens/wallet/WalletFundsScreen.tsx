@@ -1,12 +1,42 @@
 import React, {useState} from 'react';
 import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import Svg, {Path} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
 import {mockUser} from '../../data/mockUser';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import WalletIcon from '../../components/icons/WalletIcon';
 import ArrowUpIcon from '../../components/icons/ArrowUpIcon';
 import ArrowDownIcon from '../../components/icons/ArrowDownIcon';
+
+function TxIcon({type}: {type: string}) {
+  const size = 18;
+  if (type === 'deposit') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M12 4V16" stroke="#10B981" strokeWidth={2} strokeLinecap="round" />
+        <Path d="M8 12L12 16L16 12" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M5 20H19" stroke="#10B981" strokeWidth={2} strokeLinecap="round" />
+      </Svg>
+    );
+  }
+  if (type === 'withdrawal') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M12 20V8" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" />
+        <Path d="M8 12L12 8L16 12" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M5 4H19" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" />
+      </Svg>
+    );
+  }
+  // default: trend up
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M3 17L9 11L13 15L21 7" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M15 7H21V13" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
 
 type Props = NativeStackScreenProps<RootStackParamList, 'WalletFunds'>;
 
@@ -59,7 +89,7 @@ export default function WalletFundsScreen({navigation}: Props) {
         {mockUser.recentActivity.map(activity => (
           <View key={activity.id} style={styles.txRow}>
             <View style={[styles.txIcon, {backgroundColor: activity.amount >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'}]}>
-              <Text style={{fontSize: 18}}>{activity.type === 'deposit' ? '⬇️' : activity.type === 'withdrawal' ? '⬆️' : '📈'}</Text>
+              <TxIcon type={activity.type} />
             </View>
             <View style={styles.txInfo}>
               <Text style={styles.txTitle}>{activity.title}</Text>

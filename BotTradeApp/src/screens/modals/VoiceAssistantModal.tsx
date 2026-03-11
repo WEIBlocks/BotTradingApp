@@ -4,16 +4,55 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Animated, {
   useSharedValue, useAnimatedStyle, withRepeat, withSequence, withTiming, withDelay,
 } from 'react-native-reanimated';
+import Svg, {Path, Rect, Circle} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
 import XIcon from '../../components/icons/XIcon';
+
+function SuggestionIcon({type}: {type: string}) {
+  const size = 18;
+  const color = 'rgba(255,255,255,0.7)';
+  if (type === 'pause') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Rect x={6} y={5} width={4} height={14} rx={1} stroke={color} strokeWidth={2} />
+        <Rect x={14} y={5} width={4} height={14} rx={1} stroke={color} strokeWidth={2} />
+      </Svg>
+    );
+  }
+  if (type === 'dollar') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.8} />
+        <Path d="M12 7V17" stroke={color} strokeWidth={2} strokeLinecap="round" />
+        <Path d="M9 9.5C9 9.5 9.5 8.5 12 8.5C14.5 8.5 15 10 15 10.5C15 12.5 9 12.5 9 14.5C9 15.5 10 16 12 16C14 16 15 15 15 15" stroke={color} strokeWidth={1.6} strokeLinecap="round" />
+      </Svg>
+    );
+  }
+  if (type === 'trend') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Path d="M3 17L9 11L13 15L21 7" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+        <Path d="M15 7H21V13" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    );
+  }
+  // briefcase / portfolio
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Rect x={3} y={9} width={18} height={11} rx={2} stroke={color} strokeWidth={1.8} />
+      <Path d="M8 9V7C8 5.9 8.9 5 10 5H14C15.1 5 16 5.9 16 7V9" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Path d="M3 14H21" stroke={color} strokeWidth={1.5} />
+    </Svg>
+  );
+}
 
 type Props = NativeStackScreenProps<RootStackParamList, 'VoiceAssistant'>;
 
 const SUGGESTIONS = [
-  {icon: '⏸', text: 'Pause BTC bot'},
-  {icon: '💰', text: 'Total profit today?'},
-  {icon: '📈', text: 'Top performing bot'},
-  {icon: '💼', text: 'Portfolio balance'},
+  {iconType: 'pause', text: 'Pause BTC bot'},
+  {iconType: 'dollar', text: 'Total profit today?'},
+  {iconType: 'trend', text: 'Top performing bot'},
+  {iconType: 'portfolio', text: 'Portfolio balance'},
 ];
 
 const BAR_HEIGHTS = [24, 36, 52, 44, 60, 44, 32, 48, 36, 24];
@@ -68,7 +107,7 @@ export default function VoiceAssistantModal({navigation}: Props) {
       <View style={styles.suggestionsContainer}>
         {SUGGESTIONS.map(s => (
           <TouchableOpacity key={s.text} style={styles.suggestionPill} activeOpacity={0.7}>
-            <Text style={styles.suggestionIcon}>{s.icon}</Text>
+            <SuggestionIcon type={s.iconType} />
             <Text style={styles.suggestionText}>{s.text}</Text>
           </TouchableOpacity>
         ))}

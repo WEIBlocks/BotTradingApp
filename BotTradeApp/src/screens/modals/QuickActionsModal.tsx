@@ -4,19 +4,56 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Animated, {
   useSharedValue, useAnimatedStyle, withSpring, runOnJS,
 } from 'react-native-reanimated';
+import Svg, {Path, Rect, Circle, Line} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
 import EmergencyStopIcon from '../../components/icons/EmergencyStopIcon';
 import ChevronRightIcon from '../../components/icons/ChevronRightIcon';
 import XIcon from '../../components/icons/XIcon';
 
+function ActionIcon({type, color}: {type: string; color: string}) {
+  const size = 24;
+  if (type === 'pause') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Rect x={6} y={5} width={4} height={14} rx={1} stroke={color} strokeWidth={2} />
+        <Rect x={14} y={5} width={4} height={14} rx={1} stroke={color} strokeWidth={2} />
+      </Svg>
+    );
+  }
+  if (type === 'capital') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.8} />
+        <Path d="M12 7V17" stroke={color} strokeWidth={2} strokeLinecap="round" />
+        <Path d="M9 9.5C9 9.5 9.5 8.5 12 8.5C14.5 8.5 15 10 15 10.5C15 12.5 9 12.5 9 14.5C9 15.5 10 16 12 16C14 16 15 15 15 15" stroke={color} strokeWidth={1.6} strokeLinecap="round" />
+      </Svg>
+    );
+  }
+  if (type === 'trades') {
+    return (
+      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <Rect x={4} y={14} width={4} height={6} rx={1} stroke={color} strokeWidth={1.8} />
+        <Rect x={10} y={9} width={4} height={11} rx={1} stroke={color} strokeWidth={1.8} />
+        <Rect x={16} y={4} width={4} height={16} rx={1} stroke={color} strokeWidth={1.8} />
+      </Svg>
+    );
+  }
+  // strategies / lightning
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M13 2L4 14H12L11 22L20 10H12L13 2Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
 const {height} = Dimensions.get('window');
 type Props = NativeStackScreenProps<RootStackParamList, 'QuickActions'>;
 
 const ACTIONS = [
-  {label: 'Pause All', subtitle: 'Pause all active bots', icon: '⏸', bg: 'rgba(249,115,22,0.15)', color: '#F97316'},
-  {label: 'Add Capital', subtitle: 'Deposit funds to trade', icon: '💰', bg: 'rgba(16,185,129,0.15)', color: '#10B981'},
-  {label: 'Live Trades', subtitle: 'View open positions', icon: '📊', bg: 'rgba(13,127,242,0.15)', color: '#0D7FF2'},
-  {label: 'Strategies', subtitle: 'Manage bot strategies', icon: '⚡', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)'},
+  {label: 'Pause All', subtitle: 'Pause all active bots', iconType: 'pause', bg: 'rgba(249,115,22,0.15)', color: '#F97316', screen: ''},
+  {label: 'Add Capital', subtitle: 'Deposit funds to trade', iconType: 'capital', bg: 'rgba(16,185,129,0.15)', color: '#10B981', screen: 'WalletFunds'},
+  {label: 'Live Trades', subtitle: 'View open positions', iconType: 'trades', bg: 'rgba(13,127,242,0.15)', color: '#0D7FF2', screen: 'LiveTrades'},
+  {label: 'Strategies', subtitle: 'Build & manage bots', iconType: 'strategies', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)', screen: 'BotBuilder'},
 ];
 
 export default function QuickActionsModal({navigation}: Props) {
@@ -57,8 +94,10 @@ export default function QuickActionsModal({navigation}: Props) {
         {/* 2x2 action grid */}
         <View style={styles.actionGrid}>
           {ACTIONS.map(action => (
-            <TouchableOpacity key={action.label} style={[styles.actionCard, {backgroundColor: action.bg}]} activeOpacity={0.7}>
-              <Text style={styles.actionEmoji}>{action.icon}</Text>
+            <TouchableOpacity key={action.label} style={[styles.actionCard, {backgroundColor: action.bg}]} activeOpacity={0.7} onPress={() => { if (action.screen) { navigation.goBack(); setTimeout(() => navigation.navigate(action.screen as any), 100); } }}>
+              <View style={{marginBottom: 8}}>
+                <ActionIcon type={action.iconType} color={action.color} />
+              </View>
               <Text style={[styles.actionLabel, {color: action.color}]}>{action.label}</Text>
               <Text style={styles.actionSubtitle}>{action.subtitle}</Text>
             </TouchableOpacity>

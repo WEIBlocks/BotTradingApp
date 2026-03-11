@@ -4,7 +4,11 @@ import {
   TextInput, KeyboardAvoidingView, Platform, Dimensions, ScrollView,
 } from 'react-native';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
+import {useNavigation} from '@react-navigation/native';
+import {NativeStackNavigationProp} from '@react-navigation/native-stack';
+import {RootStackParamList} from '../../types';
 
+type NavProp = NativeStackNavigationProp<RootStackParamList>;
 const {width} = Dimensions.get('window');
 
 interface Message {
@@ -121,6 +125,7 @@ function StrategyBarChart({chartWidth}: {chartWidth: number}) {
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function AIChatScreen() {
+  const navigation = useNavigation<NavProp>();
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState('');
   const flatListRef = useRef<FlatList>(null);
@@ -183,13 +188,19 @@ export default function AIChatScreen() {
                 </View>
                 <Text style={styles.perfLabel}>30D PERFORMANCE</Text>
                 <StrategyBarChart chartWidth={strategyCardWidth} />
+                <TouchableOpacity
+                  style={styles.deployBtn}
+                  onPress={() => navigation.navigate('BotBuilder', {fromChat: true, strategyName: 'Custom BTC Dip Buyer'})}
+                  activeOpacity={0.8}>
+                  <Text style={styles.deployBtnText}>Deploy as Bot</Text>
+                </TouchableOpacity>
               </View>
             )}
           </View>
         </View>
       </View>
     );
-  }, [strategyCardWidth]);
+  }, [strategyCardWidth, navigation]);
 
   return (
     <KeyboardAvoidingView
@@ -344,6 +355,11 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.3)',
     letterSpacing: 0.8, marginBottom: 8,
   },
+  deployBtn: {
+    marginTop: 12, backgroundColor: '#10B981', borderRadius: 10,
+    paddingVertical: 10, alignItems: 'center',
+  },
+  deployBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
 
   // Suggestions
   suggestionsScroll: {height: 46},

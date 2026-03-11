@@ -365,7 +365,7 @@ export default function MarketplaceScreen() {
         {!isFiltering && (
           <>
             <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>🔥 Trending</Text>
+              <Text style={styles.sectionTitle}>Trending</Text>
               <TouchableOpacity activeOpacity={0.7}>
                 <Text style={styles.viewAll}>View All</Text>
               </TouchableOpacity>
@@ -385,7 +385,7 @@ export default function MarketplaceScreen() {
         {/* Low Risk Picks / search results */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>
-            {isFiltering ? '🔍 Results' : '🏆 Low Risk Picks'}
+            {isFiltering ? 'Results' : 'Low Risk Picks'}
           </Text>
         </View>
         <View style={styles.gridRow}>

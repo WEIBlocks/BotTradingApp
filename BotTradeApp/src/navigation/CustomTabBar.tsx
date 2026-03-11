@@ -4,14 +4,14 @@ import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {BottomTabBarProps} from '@react-navigation/bottom-tabs';
 import HomeIcon from '../components/icons/HomeIcon';
 import MarketIcon from '../components/icons/MarketIcon';
-import ArenaIcon from '../components/icons/ArenaIcon';
+import PortfolioIcon from '../components/icons/PortfolioIcon';
 import ProfileIcon from '../components/icons/ProfileIcon';
 import BotIcon from '../components/icons/BotIcon';
 
 const ICONS = {
   Dashboard: HomeIcon,
   Market: MarketIcon,
-  Arena: ArenaIcon,
+  Portfolio: PortfolioIcon,
   Profile: ProfileIcon,
 };
 
@@ -19,7 +19,7 @@ const LABELS: Record<string, string> = {
   Dashboard: 'Home',
   Market: 'Market',
   AIChat: 'AI',
-  Arena: 'Arena',
+  Portfolio: 'Portfolio',
   Profile: 'Profile',
 };
 

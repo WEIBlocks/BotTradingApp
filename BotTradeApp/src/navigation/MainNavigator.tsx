@@ -6,7 +6,7 @@ import CustomTabBar from './CustomTabBar';
 import DashboardScreen from '../screens/dashboard/DashboardScreen';
 import MarketplaceScreen from '../screens/marketplace/MarketplaceScreen';
 import AIChatScreen from '../screens/chat/AIChatScreen';
-import ArenaSetupScreen from '../screens/arena/ArenaSetupScreen';
+import PortfolioScreen from '../screens/portfolio/PortfolioScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -19,7 +19,7 @@ export default function MainNavigator() {
       <Tab.Screen name="Dashboard" component={DashboardScreen} />
       <Tab.Screen name="Market" component={MarketplaceScreen} />
       <Tab.Screen name="AIChat" component={AIChatScreen} />
-      <Tab.Screen name="Arena" component={ArenaSetupScreen} />
+      <Tab.Screen name="Portfolio" component={PortfolioScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );

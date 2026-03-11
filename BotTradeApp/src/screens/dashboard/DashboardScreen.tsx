@@ -254,15 +254,18 @@ export default function DashboardScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.avatarRow}>
-          <View style={styles.avatarWrap}>
-            <WalletIcon size={20} />
+        <TouchableOpacity
+          style={styles.avatarRow}
+          onPress={() => navigation.dispatch(CommonActions.navigate({name: 'Main', params: {screen: 'Profile'}}))}
+          activeOpacity={0.7}>
+          <View style={[styles.avatarWrap, {backgroundColor: user.avatarColor}]}>
+            <Text style={styles.avatarInitials}>{user.avatarInitials}</Text>
           </View>
           <View>
-            <Text style={styles.appLabel}>TRADINGAPP</Text>
-            <Text style={styles.screenTitle}>Portfolio</Text>
+            <Text style={styles.appLabel}>WELCOME BACK</Text>
+            <Text style={styles.screenTitle}>{user.name}</Text>
           </View>
-        </View>
+        </TouchableOpacity>
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.iconBtn} onPress={handleSearch}>
             <SearchIconSvg size={18} />
@@ -425,6 +428,42 @@ export default function DashboardScreen() {
           </View>
         </View>
 
+        {/* Arena Banner */}
+        <TouchableOpacity
+          style={styles.arenaBanner}
+          onPress={() => navigation.navigate('ArenaSetup')}
+          activeOpacity={0.8}>
+          <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+            <Path d="M14.5 17.5L3 6V3h3l11.5 11.5" stroke="#10B981" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+            <Path d="M13 19l6-6M20.5 3.5l-6 6" stroke="#10B981" strokeWidth={1.8} strokeLinecap="round" />
+          </Svg>
+          <View style={{flex: 1, marginLeft: 12}}>
+            <Text style={styles.arenaBannerTitle}>Bot Battle Arena</Text>
+            <Text style={styles.arenaBannerSub}>Compete your bots in a 30-day trading challenge</Text>
+          </View>
+          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+            <Path d="M9 5l7 7-7 7" stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        </TouchableOpacity>
+
+        {/* Connect Exchange */}
+        <TouchableOpacity
+          style={styles.exchangeBanner}
+          onPress={() => navigation.navigate('ExchangeConnect')}
+          activeOpacity={0.8}>
+          <View style={styles.exchangeBannerIcon}>
+            <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+              <Path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" stroke="#10B981" strokeWidth={1.8} strokeLinecap="round" />
+              <Path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" stroke="#10B981" strokeWidth={1.8} strokeLinecap="round" />
+            </Svg>
+          </View>
+          <View style={{flex: 1, marginLeft: 12}}>
+            <Text style={styles.exchangeBannerTitle}>Connect Exchange</Text>
+            <Text style={styles.exchangeBannerSub}>Sync your assets for live trading</Text>
+          </View>
+          <Text style={styles.exchangeConnectText}>Connect</Text>
+        </TouchableOpacity>
+
         <View style={{height: 24}} />
       </ScrollView>
 
@@ -447,9 +486,11 @@ const styles = StyleSheet.create({
   },
   avatarRow: {flexDirection: 'row', alignItems: 'center', gap: 12},
   avatarWrap: {
-    width: 40, height: 40, borderRadius: 12,
-    backgroundColor: '#10B981',
+    width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
+  },
+  avatarInitials: {
+    fontFamily: 'Inter-Bold', fontSize: 15, color: '#FFFFFF',
   },
   appLabel: {
     fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1.2,
@@ -552,6 +593,32 @@ const styles = StyleSheet.create({
   tradeRight: {alignItems: 'flex-end'},
   tradeAmount: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
   tradeQty: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2},
+
+  // Arena banner
+  arenaBanner: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: 14,
+    padding: 16, marginBottom: 10,
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.2)',
+  },
+  arenaBannerTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
+  arenaBannerSub: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2},
+
+  // Exchange banner
+  exchangeBanner: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#161B22', borderRadius: 14,
+    padding: 16, marginBottom: 10,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+  },
+  exchangeBannerIcon: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: 'rgba(16,185,129,0.12)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  exchangeBannerTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
+  exchangeBannerSub: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2},
+  exchangeConnectText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#10B981'},
 
   // FAB
   fab: {

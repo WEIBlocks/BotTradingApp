@@ -103,7 +103,7 @@ export default function ShadowModeResultsScreen({navigation, route}: Props) {
             <Text style={styles.ctaAmount}>$2,500</Text>
             <TouchableOpacity style={styles.goLiveBtn} onPress={() => navigation.navigate('BotPurchase', {botId})} activeOpacity={0.85}>
               <LinearGradient colors={['#10B981', '#059669']} style={styles.goLiveGradient} start={{x: 0, y: 0}} end={{x: 1, y: 0}}>
-                <Text style={styles.goLiveText}>🚀 Go Live Now</Text>
+                <Text style={styles.goLiveText}>Go Live Now</Text>
               </LinearGradient>
             </TouchableOpacity>
             <Text style={styles.noLockText}>INSTANT ACTIVATION • NO LOCK-UP PERIOD</Text>

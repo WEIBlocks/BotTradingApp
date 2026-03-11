@@ -108,7 +108,7 @@ function PolicyModal({visible, type, onClose}: {visible: boolean; type: PolicyTy
         <View style={modal.pill} />
         <ScrollView style={modal.scroll} contentContainerStyle={modal.scrollContent} showsVerticalScrollIndicator={false}>
           <View style={modal.badge}>
-            <Text style={modal.badgeText}>{isTerms ? '📋 Legal Agreement' : '🔒 Your Privacy Matters'}</Text>
+            <Text style={modal.badgeText}>{isTerms ? 'Legal Agreement' : 'Your Privacy Matters'}</Text>
           </View>
           <Text style={modal.body}>{content}</Text>
         </ScrollView>
