@@ -117,6 +117,7 @@ export interface Gladiator {
   id: string;
   name: string;
   strategy: string;
+  statLabel?: string;
   winRate: number;
   level: number;
   avatarColor: string;

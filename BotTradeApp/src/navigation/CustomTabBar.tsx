@@ -1,5 +1,6 @@
 import React from 'react';
 import {View, TouchableOpacity, StyleSheet, Text, Platform} from 'react-native';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {BottomTabBarProps} from '@react-navigation/bottom-tabs';
 import HomeIcon from '../components/icons/HomeIcon';
 import MarketIcon from '../components/icons/MarketIcon';
@@ -23,8 +24,11 @@ const LABELS: Record<string, string> = {
 };
 
 export default function CustomTabBar({state, descriptors, navigation}: BottomTabBarProps) {
+  const insets = useSafeAreaInsets();
+  const bottomPad = Math.max(insets.bottom, Platform.OS === 'android' ? 8 : 0);
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, {paddingBottom: bottomPad, height: 60 + bottomPad}]}>
       {state.routes.map((route, index) => {
         const isFocused = state.index === index;
         const isCenter = route.name === 'AIChat';
@@ -44,7 +48,7 @@ export default function CustomTabBar({state, descriptors, navigation}: BottomTab
               onPress={onPress}
               activeOpacity={0.85}>
               <View style={[styles.fab, isFocused && styles.fabActive]}>
-                <BotIcon size={22} color="#FFFFFF" />
+                <BotIcon size={44} color="#FFFFFF" />
               </View>
             </TouchableOpacity>
           );
@@ -67,16 +71,14 @@ export default function CustomTabBar({state, descriptors, navigation}: BottomTab
     </View>
   );
 }
-
+              
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     backgroundColor: '#0A0D14',
     borderTopWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.06)',
-    paddingBottom: Platform.OS === 'android' ? 8 : 0,
-    paddingTop: 8,
-    height: Platform.OS === 'android' ? 68 : 80,
+    paddingTop: 5,
   },
   tab: {
     flex: 1,
@@ -91,13 +93,13 @@ const styles = StyleSheet.create({
     paddingTop: 0,
   },
   fab: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
+    width: 58,
+    height: 58,
+    borderRadius: 31,
     backgroundColor: '#10B981',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -16,
+    marginTop: -24,
     shadowColor: '#10B981',
     shadowOffset: {width: 0, height: 4},
     shadowOpacity: 0.5,
@@ -113,3 +115,4 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 });
+ 

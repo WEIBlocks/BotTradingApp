@@ -1,5 +1,5 @@
 import React, {useMemo} from 'react';
-import {Canvas, Path} from '@shopify/react-native-skia';
+import Svg, {Path} from 'react-native-svg';
 
 interface MiniLineChartProps {
   data: number[];
@@ -29,8 +29,8 @@ export default function MiniLineChart({data, width = 60, height = 30, color = '#
   if (!path) return null;
 
   return (
-    <Canvas style={{width, height}}>
-      <Path path={path} style="stroke" strokeWidth={1.5} color={color} />
-    </Canvas>
+    <Svg width={width} height={height}>
+      <Path d={path} stroke={color} strokeWidth={1.5} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
   );
 }

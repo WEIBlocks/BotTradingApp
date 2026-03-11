@@ -14,8 +14,8 @@ export const mockUser: UserProfile = {
   totalBalance: 24830.42,
   accountBalance: 12450.00,
   buyingPower: 8200.00,
-  totalProfit: 4830.42,
-  totalProfitPercent: 6.35,
+  totalProfit: 342.12,
+  totalProfitPercent: 1.4,
   activeBots: [
     {
       id: 'bot1', name: 'Trend Follower v2', pair: 'BTC/USDT',

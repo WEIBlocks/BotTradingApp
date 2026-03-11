@@ -1,6 +1,5 @@
 import React, {useMemo} from 'react';
-import {View} from 'react-native';
-import {Canvas, Path} from '@shopify/react-native-skia';
+import Svg, {Path} from 'react-native-svg';
 
 const LINE_COLORS = ['#39FF14', '#A855F7', '#EC4899', '#22D3EE', '#EAB308'];
 
@@ -40,18 +39,20 @@ export default function ArenaMultilineChart({datasets, width, height = 200}: Are
   }, [datasets, width, height]);
 
   return (
-    <Canvas style={{width, height}}>
+    <Svg width={width} height={height}>
       {paths.map((path, i) =>
         path ? (
           <Path
             key={i}
-            path={path}
-            style="stroke"
-            strokeWidth={2}
-            color={LINE_COLORS[i % LINE_COLORS.length]}
+            d={path}
+            stroke={LINE_COLORS[i % LINE_COLORS.length]}
+            strokeWidth={2.5}
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
         ) : null,
       )}
-    </Canvas>
+    </Svg>
   );
 }
