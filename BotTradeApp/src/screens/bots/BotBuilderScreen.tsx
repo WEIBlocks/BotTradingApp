@@ -36,6 +36,21 @@ function BackArrow() {
   );
 }
 
+function BrainIcon() {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 2C9.24 2 7 4.24 7 7V8C5.34 8 4 9.34 4 11C4 12.3 4.84 13.4 6 13.82V17C6 19.76 8.24 22 11 22H13C15.76 22 18 19.76 18 17V13.82C19.16 13.4 20 12.3 20 11C20 9.34 18.66 8 17 8V7C17 4.24 14.76 2 12 2Z"
+        stroke="#10B981"
+        strokeWidth={1.8}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path d="M9 12H15M9 16H15" stroke="#10B981" strokeWidth={1.5} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 function RocketIcon() {
   return (
     <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
@@ -273,6 +288,21 @@ export default function BotBuilderScreen() {
           </TouchableOpacity>
         </View>
 
+        {/* Train with Data */}
+        <TouchableOpacity
+          style={styles.trainBtn}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('TrainingUpload' as any)}>
+          <BrainIcon />
+          <View style={{flex: 1, marginLeft: 12}}>
+            <Text style={styles.trainBtnTitle}>Train with Data</Text>
+            <Text style={styles.trainBtnSub}>Upload datasets to improve AI accuracy</Text>
+          </View>
+          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+            <Path d="M9 5l7 7-7 7" stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        </TouchableOpacity>
+
         {/* Deploy Button */}
         <TouchableOpacity
           style={styles.deployBtn}
@@ -478,6 +508,27 @@ const styles = StyleSheet.create({
   modeBtnTextSelected: {
     color: '#FFFFFF',
     fontFamily: 'Inter-SemiBold',
+  },
+  trainBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(16,185,129,0.08)',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.2)',
+  },
+  trainBtnTitle: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  trainBtnSub: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 2,
   },
   deployBtn: {
     backgroundColor: '#10B981',
