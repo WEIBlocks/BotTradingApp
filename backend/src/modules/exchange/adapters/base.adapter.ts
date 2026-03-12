@@ -1,0 +1,53 @@
+export interface ExchangeCredentials {
+  apiKey: string;
+  apiSecret: string;
+}
+
+export interface Balance {
+  currency: string;
+  free: number;
+  total: number;
+}
+
+export interface Ticker {
+  symbol: string;
+  last: number;
+  bid: number;
+  ask: number;
+  change24h: number;
+}
+
+export interface Market {
+  symbol: string;
+  base: string;
+  quote: string;
+  active: boolean;
+}
+
+export interface OrderResult {
+  id: string;
+  symbol: string;
+  side: 'buy' | 'sell';
+  type: string;
+  amount: number;
+  price: number;
+  status: string;
+  timestamp: number;
+}
+
+export interface ExchangeAdapter {
+  readonly name: string;
+  connect(credentials: ExchangeCredentials): Promise<void>;
+  disconnect(): Promise<void>;
+  testConnection(): Promise<boolean>;
+  getBalances(): Promise<Balance[]>;
+  getTicker(symbol: string): Promise<Ticker>;
+  getMarkets(): Promise<Market[]>;
+  createOrder(
+    symbol: string,
+    side: 'buy' | 'sell',
+    type: 'market' | 'limit',
+    amount: number,
+    price?: number,
+  ): Promise<OrderResult>;
+}

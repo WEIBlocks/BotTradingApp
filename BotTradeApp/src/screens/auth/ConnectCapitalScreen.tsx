@@ -3,6 +3,7 @@ import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Svg, {Circle, Path, Rect} from 'react-native-svg';
 import {AuthStackParamList} from '../../types';
+import {useAuth} from '../../context/AuthContext';
 import Badge from '../../components/common/Badge';
 import LockIcon from '../../components/icons/LockIcon';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
@@ -102,9 +103,12 @@ const BROKERAGES = [
 ];
 
 export default function ConnectCapitalScreen({navigation}: Props) {
+  const {completeOnboarding} = useAuth();
+
   const handleNavigateMain = useCallback(() => {
-    navigation.getParent()?.navigate('Main');
-  }, [navigation]);
+    // Complete onboarding — this flips the flag and AppNavigator switches to Main
+    completeOnboarding();
+  }, [completeOnboarding]);
 
   return (
     <View style={styles.container}>

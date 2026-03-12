@@ -5,6 +5,7 @@ import Slider from '@react-native-community/slider';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, {Path, Circle, Rect, Line, Polyline} from 'react-native-svg';
 import {AuthStackParamList} from '../../types';
+import {useAuth} from '../../context/AuthContext';
 import ProgressBar from '../../components/common/ProgressBar';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import CheckCircleIcon from '../../components/icons/CheckCircleIcon';
@@ -126,10 +127,13 @@ const STEPS: {title: string; options: StepOption[]}[] = [
 const GOALS = ['House', 'Retirement', 'Wealth', 'Education', 'Business'];
 
 export default function InvestorQuizScreen({navigation}: Props) {
+  const {saveQuizResults} = useAuth();
+
   const [step, setStep] = useState(0);
   const [selectedOptions, setSelectedOptions] = useState<number[]>([]);
   const [riskTolerance, setRiskTolerance] = useState(50);
   const [selectedGoal, setSelectedGoal] = useState('Wealth');
+  const [saving, setSaving] = useState(false);
 
   const isLastStep = step === STEPS.length - 1;
   const isCurrentStepAnswered = selectedOptions[step] !== undefined;
@@ -142,13 +146,29 @@ export default function InvestorQuizScreen({navigation}: Props) {
     });
   }, [step]);
 
-  const handleNext = useCallback(() => {
+  const handleNext = useCallback(async () => {
     if (isLastStep) {
+      // Map step 2 (time horizon) selection to a label
+      const timeHorizons = ['short', 'medium', 'long'];
+      const timeHorizon = timeHorizons[selectedOptions[2]] || 'medium';
+
+      setSaving(true);
+      try {
+        await saveQuizResults({
+          riskTolerance,
+          investmentGoal: selectedGoal,
+          timeHorizon,
+        });
+      } catch {
+        // Non-critical — quiz data is nice-to-have, don't block onboarding
+      } finally {
+        setSaving(false);
+      }
       navigation.navigate('ConnectCapital');
     } else {
       setStep(s => s + 1);
     }
-  }, [isLastStep, navigation]);
+  }, [isLastStep, navigation, riskTolerance, selectedGoal, selectedOptions, saveQuizResults]);
 
   const handleBack = useCallback(() => {
     if (step === 0) navigation.goBack();
@@ -253,14 +273,14 @@ export default function InvestorQuizScreen({navigation}: Props) {
         <TouchableOpacity
           style={[styles.nextBtn, !isCurrentStepAnswered && styles.nextBtnDisabled]}
           onPress={handleNext}
-          disabled={!isCurrentStepAnswered}
+          disabled={!isCurrentStepAnswered || saving}
           activeOpacity={0.85}>
           <LinearGradient
             colors={isCurrentStepAnswered ? ['#10B981', '#059669'] : ['#2D3748', '#2D3748']}
             style={styles.nextGradient}
             start={{x: 0, y: 0}}
             end={{x: 1, y: 0}}>
-            <Text style={styles.nextText}>{isLastStep ? 'Finish' : 'Next Question'}</Text>
+            <Text style={styles.nextText}>{saving ? 'Saving...' : isLastStep ? 'Finish' : 'Next Question'}</Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>

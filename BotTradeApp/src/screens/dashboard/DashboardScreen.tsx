@@ -5,6 +5,7 @@ import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {CommonActions} from '@react-navigation/native';
 import Svg, {Path, Rect, Circle, Polygon} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
+import {useAuth} from '../../context/AuthContext';
 import {mockUser} from '../../data/mockUser';
 import {mockTrades} from '../../data/mockTrades';
 import {dashboardEquityData} from '../../data/mockEquityData';
@@ -209,7 +210,14 @@ export default function DashboardScreen() {
   const {width} = useWindowDimensions();
   const navigation = useNavigation<NavProp>();
   const [selectedTF, setSelectedTF] = useState('1W');
+  const {user: authUser, isNewUser} = useAuth();
   const user = mockUser;
+
+  // Real user data for header (rest of dashboard still uses mock data for now)
+  const displayName = authUser?.name || user.name;
+  const firstName = displayName.split(' ')[0];
+  const avatarInitials = displayName.split(' ').map((w: string) => w[0]).join('').substring(0, 2).toUpperCase();
+  const greetingLabel = isNewUser ? 'WELCOME' : 'WELCOME BACK';
 
   const isPositive = user.totalProfitPercent >= 0;
   const profitColor = isPositive ? '#10B981' : '#EF4444';
@@ -258,12 +266,12 @@ export default function DashboardScreen() {
           style={styles.avatarRow}
           onPress={() => navigation.dispatch(CommonActions.navigate({name: 'Main', params: {screen: 'Profile'}}))}
           activeOpacity={0.7}>
-          <View style={[styles.avatarWrap, {backgroundColor: user.avatarColor}]}>
-            <Text style={styles.avatarInitials}>{user.avatarInitials}</Text>
+          <View style={[styles.avatarWrap, {backgroundColor: '#10B981'}]}>
+            <Text style={styles.avatarInitials}>{avatarInitials}</Text>
           </View>
           <View>
-            <Text style={styles.appLabel}>WELCOME BACK</Text>
-            <Text style={styles.screenTitle}>{user.name}</Text>
+            <Text style={styles.appLabel}>{greetingLabel}</Text>
+            <Text style={styles.screenTitle}>{firstName}</Text>
           </View>
         </TouchableOpacity>
         <View style={styles.headerActions}>

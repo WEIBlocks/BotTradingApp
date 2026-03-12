@@ -1,7 +1,11 @@
-import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, SafeAreaView} from 'react-native';
+import React, {useState, useCallback, useEffect} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, SafeAreaView, Keyboard, Alert} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {GoogleSignin, statusCodes} from '@react-native-google-signin/google-signin';
 import {AuthStackParamList} from '../../types';
+import {useAuth} from '../../context/AuthContext';
+import {ApiError} from '../../services/api';
+import {GOOGLE_WEB_CLIENT_ID} from '../../config/google';
 import Input from '../../components/common/Input';
 import Button from '../../components/common/Button';
 import OAuthButton from '../../components/common/OAuthButton';
@@ -102,7 +106,7 @@ function PolicyModal({visible, type, onClose}: {visible: boolean; type: PolicyTy
           <View style={modal.headerLeft} />
           <Text style={modal.title}>{title}</Text>
           <TouchableOpacity onPress={onClose} style={modal.closeBtn} activeOpacity={0.7}>
-            <Text style={modal.closeX}>✕</Text>
+            <Text style={modal.closeX}>{'\u2715'}</Text>
           </TouchableOpacity>
         </View>
         <View style={modal.pill} />
@@ -123,14 +127,120 @@ function PolicyModal({visible, type, onClose}: {visible: boolean; type: PolicyTy
 }
 
 export default function CreateAccountScreen({navigation}: Props) {
+  const {register, googleSignIn} = useAuth();
+
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [errors, setErrors] = useState<{name?: string; email?: string; password?: string; general?: string}>({});
   const [activePolicy, setActivePolicy] = useState<PolicyType>(null);
 
-  const handleCreate = useCallback(() => {
-    navigation.navigate('InvestorQuiz');
-  }, [navigation]);
+  useEffect(() => {
+    GoogleSignin.configure({webClientId: GOOGLE_WEB_CLIENT_ID});
+  }, []);
+
+  const handleGoogleSignIn = useCallback(async () => {
+    setGoogleLoading(true);
+    setErrors({});
+    try {
+      await GoogleSignin.hasPlayServices({showPlayServicesUpdateDialog: true});
+      const response = await GoogleSignin.signIn();
+      if (response.type === 'cancelled') {
+        setGoogleLoading(false);
+        return;
+      }
+      const idToken = response.data?.idToken;
+      if (!idToken) {
+        setErrors({general: 'Failed to get Google credentials. Please try again.'});
+        setGoogleLoading(false);
+        return;
+      }
+      await googleSignIn(idToken);
+      // Navigation happens automatically via AuthContext
+    } catch (err: any) {
+      if (err?.code === statusCodes.SIGN_IN_CANCELLED) {
+        // User cancelled
+      } else if (err?.code === statusCodes.IN_PROGRESS) {
+        // Already in progress
+      } else if (err?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        setErrors({general: 'Google Play Services is not available on this device.'});
+      } else if (err instanceof ApiError) {
+        setErrors({general: err.message});
+      } else {
+        setErrors({general: 'Google Sign-In failed. Please try again.'});
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  }, [googleSignIn]);
+
+  const validate = useCallback((): boolean => {
+    const next: typeof errors = {};
+
+    if (!name.trim()) {
+      next.name = 'Name is required';
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail) {
+      next.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      next.email = 'Enter a valid email address';
+    }
+
+    if (!password) {
+      next.password = 'Password is required';
+    } else if (password.length < 8) {
+      next.password = 'Password must be at least 8 characters';
+    }
+
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  }, [name, email, password]);
+
+  const handleCreate = useCallback(async () => {
+    if (!validate()) return;
+
+    Keyboard.dismiss();
+    setLoading(true);
+    setErrors({});
+
+    try {
+      await register(name.trim(), email.trim().toLowerCase(), password);
+      // After successful registration, go to quiz
+      // The user is now authenticated but we navigate within the auth flow
+      navigation.navigate('InvestorQuiz');
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 409) {
+          setErrors({email: 'This email is already registered'});
+        } else if (err.status === 422 && err.details) {
+          setErrors({
+            name: err.details.name?.[0],
+            email: err.details.email?.[0],
+            password: err.details.password?.[0],
+          });
+        } else if (err.code === 'NETWORK_ERROR' || err.code === 'TIMEOUT') {
+          setErrors({general: err.message});
+        } else {
+          setErrors({general: err.message});
+        }
+      } else {
+        setErrors({general: 'Something went wrong. Please try again.'});
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [name, email, password, validate, register, navigation]);
+
+  const clearFieldError = useCallback((field: 'name' | 'email' | 'password') => {
+    setErrors(prev => {
+      if (!prev[field] && !prev.general) return prev;
+      return {...prev, [field]: undefined, general: undefined};
+    });
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -146,18 +256,60 @@ export default function CreateAccountScreen({navigation}: Props) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>Create Account</Text>
         <Text style={styles.subtitle}>Join 50,000+ traders using AI bots</Text>
 
-        <OAuthButton provider="google" onPress={() => {}} />
-        <OAuthButton provider="apple" onPress={() => {}} />
+        <OAuthButton provider="google" onPress={handleGoogleSignIn} disabled={googleLoading || loading} loading={googleLoading} />
+        <OAuthButton provider="apple" onPress={() => Alert.alert('Coming Soon', 'Apple Sign-In is not yet available on Android.')} disabled={loading || googleLoading} />
 
         <Divider label="Or sign up with email" />
 
-        <Input label="Full Name" placeholder="Your name" value={name} onChangeText={setName} autoCapitalize="words" />
-        <Input label="Email Address" placeholder="you@example.com" value={email} onChangeText={setEmail} keyboardType="email-address" />
-        <Input label="Password" placeholder="Create a strong password" value={password} onChangeText={setPassword} secureTextEntry />
+        {errors.general ? (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorBannerText}>{errors.general}</Text>
+          </View>
+        ) : null}
+
+        <Input
+          label="Full Name"
+          placeholder="Your name"
+          value={name}
+          onChangeText={text => {
+            setName(text);
+            clearFieldError('name');
+          }}
+          autoCapitalize="words"
+          error={errors.name}
+
+        />
+        <Input
+          label="Email Address"
+          placeholder="you@example.com"
+          value={email}
+          onChangeText={text => {
+            setEmail(text);
+            clearFieldError('email');
+          }}
+          keyboardType="email-address"
+          error={errors.email}
+
+        />
+        <Input
+          label="Password"
+          placeholder="Create a strong password"
+          value={password}
+          onChangeText={text => {
+            setPassword(text);
+            clearFieldError('password');
+          }}
+          secureTextEntry
+          error={errors.password}
+
+        />
 
         <Text style={styles.terms}>
           By creating an account, you agree to our{' '}
@@ -166,7 +318,13 @@ export default function CreateAccountScreen({navigation}: Props) {
           <Text style={styles.termsLink} onPress={() => setActivePolicy('privacy')}>Privacy Policy</Text>
         </Text>
 
-        <Button title="Create Account" onPress={handleCreate} style={styles.createBtn} />
+        <Button
+          title="Create Account"
+          onPress={handleCreate}
+          loading={loading}
+          disabled={loading || googleLoading}
+          style={styles.createBtn}
+        />
 
         <TouchableOpacity style={styles.loginRow} onPress={() => navigation.navigate('Login')}>
           <Text style={styles.loginText}>
@@ -189,6 +347,20 @@ const styles = StyleSheet.create({
   scroll: {paddingHorizontal: 24, paddingTop: 16, paddingBottom: 40},
   title: {fontFamily: 'Inter-Bold', fontSize: 28, color: '#FFFFFF', marginBottom: 8, letterSpacing: -0.5},
   subtitle: {fontFamily: 'Inter-Regular', fontSize: 15, color: 'rgba(255,255,255,0.5)', marginBottom: 28},
+  errorBanner: {
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.25)',
+    padding: 14,
+    marginBottom: 16,
+  },
+  errorBannerText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: '#EF4444',
+    textAlign: 'center',
+  },
   terms: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 18, marginBottom: 20},
   termsLink: {color: '#10B981', fontFamily: 'Inter-SemiBold'},
   createBtn: {marginBottom: 16},

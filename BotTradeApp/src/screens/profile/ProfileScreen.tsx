@@ -1,10 +1,11 @@
-import React from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
-import {useNavigation} from '@react-navigation/native';
+import React, {useState, useCallback, useEffect} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, RefreshControl} from 'react-native';
+import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
-import {mockUser} from '../../data/mockUser';
+import {useAuth} from '../../context/AuthContext';
+import {userApi, UserProfile, WalletData, ActivityItem} from '../../services/user';
 import SectionHeader from '../../components/common/SectionHeader';
 import ChevronRightIcon from '../../components/icons/ChevronRightIcon';
 import GiftIcon from '../../components/icons/GiftIcon';
@@ -12,9 +13,9 @@ import BellIcon from '../../components/icons/BellIcon';
 import WalletIcon from '../../components/icons/WalletIcon';
 import GearIcon from '../../components/icons/GearIcon';
 
-function ActivityIcon({type, color}: {type: string; color: string}) {
+function ActivityIcon({type}: {type: string}) {
   const size = 20;
-  if (type === 'profit') {
+  if (type === 'profit' || type === 'trade_profit') {
     return (
       <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
         <Path d="M3 17L9 11L13 15L21 7" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
@@ -22,7 +23,7 @@ function ActivityIcon({type, color}: {type: string; color: string}) {
       </Svg>
     );
   }
-  if (type === 'purchase') {
+  if (type === 'purchase' || type === 'bot_purchase') {
     return (
       <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
         <Rect x={4} y={8} width={16} height={11} rx={3} stroke="#0D7FF2" strokeWidth={1.8} />
@@ -43,7 +44,6 @@ function ActivityIcon({type, color}: {type: string; color: string}) {
       </Svg>
     );
   }
-  // withdrawal / default
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path d="M12 20V8" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" />
@@ -67,8 +67,83 @@ const SETTINGS = [
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NavProp>();
-  const user = mockUser;
-  const totalReturn = user.totalProfitPercent >= 0;
+  const {user: authUser, logout} = useAuth();
+
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [wallet, setWallet] = useState<WalletData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [profileData, walletData] = await Promise.all([
+        userApi.getProfile(),
+        userApi.getWallet(),
+      ]);
+      setProfile(profileData);
+      setWallet(walletData);
+    } catch {
+      // If fetch fails, use authUser as fallback for basic info
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  // Fetch on first focus and re-fetch when screen comes back into focus
+  useFocusEffect(
+    useCallback(() => {
+      fetchData();
+    }, [fetchData]),
+  );
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchData();
+  }, [fetchData]);
+
+  const handleLogout = useCallback(async () => {
+    Alert.alert(
+      'Log Out',
+      'Are you sure you want to log out?',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {
+          text: 'Log Out',
+          style: 'destructive',
+          onPress: async () => {
+            setLoggingOut(true);
+            try {
+              await logout();
+              // Navigation switches automatically via AuthContext → AppNavigator
+            } catch {
+              setLoggingOut(false);
+              Alert.alert('Error', 'Failed to log out. Please try again.');
+            }
+          },
+        },
+      ],
+    );
+  }, [logout]);
+
+  // Derive display values
+  const displayName = profile?.name || authUser?.name || 'User';
+  const displayEmail = profile?.email || authUser?.email || '';
+  const avatarColor = profile?.avatarColor || '#10B981';
+  const avatarInitials = profile?.avatarInitials || displayName.split(' ').map(w => w[0]).join('').substring(0, 2).toUpperCase();
+  const totalBalance = wallet ? parseFloat(wallet.totalBalance) : 0;
+  const investmentGoal = profile?.investmentGoal || 'Not set';
+  const referralCode = profile?.referralCode || '—';
+  const recentActivity = wallet?.recentActivity || [];
+
+  if (loading) {
+    return (
+      <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
+        <ActivityIndicator size="large" color="#10B981" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -76,42 +151,51 @@ export default function ProfileScreen() {
         <Text style={styles.headerTitle}>Profile</Text>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor="#10B981"
+            colors={['#10B981']}
+          />
+        }>
         {/* Profile card */}
         <View style={styles.profileCard}>
-          <View style={[styles.avatar, {backgroundColor: user.avatarColor}]}>
-            <Text style={styles.avatarText}>{user.avatarInitials}</Text>
+          <View style={[styles.avatar, {backgroundColor: avatarColor}]}>
+            <Text style={styles.avatarText}>{avatarInitials}</Text>
           </View>
-          <Text style={styles.userName}>{user.name}</Text>
-          <Text style={styles.userEmail}>{user.email}</Text>
+          <Text style={styles.userName}>{displayName}</Text>
+          <Text style={styles.userEmail}>{displayEmail}</Text>
 
           {/* Balance */}
           <View style={styles.balanceRow}>
             <View style={styles.balanceItem}>
-              <Text style={styles.balanceValue}>${user.totalBalance.toLocaleString('en-US', {minimumFractionDigits: 2})}</Text>
+              <Text style={styles.balanceValue}>
+                ${totalBalance.toLocaleString('en-US', {minimumFractionDigits: 2})}
+              </Text>
               <Text style={styles.balanceLabel}>Total Balance</Text>
             </View>
             <View style={styles.balanceDivider} />
             <View style={styles.balanceItem}>
-              <Text style={[styles.balanceValue, {color: totalReturn ? '#10B981' : '#EF4444'}]}>
-                {totalReturn ? '+' : ''}{user.totalProfitPercent.toFixed(2)}%
-              </Text>
+              <Text style={[styles.balanceValue, {color: '#10B981'}]}>0.00%</Text>
               <Text style={styles.balanceLabel}>All Time Return</Text>
             </View>
           </View>
 
-          {/* Active bots count */}
+          {/* Stats */}
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <Text style={styles.statNum}>{user.activeBots.length}</Text>
+              <Text style={styles.statNum}>0</Text>
               <Text style={styles.statLbl}>Active Bots</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statNum}>{user.investmentGoal}</Text>
+              <Text style={styles.statNum}>{investmentGoal}</Text>
               <Text style={styles.statLbl}>Goal</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statNum}>{user.referralCode}</Text>
+              <Text style={styles.statNum}>{referralCode}</Text>
               <Text style={styles.statLbl}>Ref. Code</Text>
             </View>
           </View>
@@ -125,25 +209,34 @@ export default function ProfileScreen() {
             onAction={() => navigation.navigate('TradeHistory')}
           />
           <View style={styles.card}>
-            {user.recentActivity.map(activity => {
-              const isPositive = activity.amount >= 0;
-              const color = isPositive ? '#10B981' : '#EF4444';
-              const sign = isPositive ? '+' : '';
-              return (
-                <View key={activity.id} style={styles.activityRow}>
-                  <View style={[styles.activityIcon, {backgroundColor: isPositive ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'}]}>
-                    <ActivityIcon type={activity.type} color={color} />
+            {recentActivity.length === 0 ? (
+              <View style={styles.emptyRow}>
+                <Text style={styles.emptyText}>No recent activity</Text>
+              </View>
+            ) : (
+              recentActivity.map(activity => {
+                const amount = parseFloat(activity.amount || '0');
+                const isPositive = amount >= 0;
+                const color = isPositive ? '#10B981' : '#EF4444';
+                const sign = isPositive ? '+' : '';
+                return (
+                  <View key={activity.id} style={styles.activityRow}>
+                    <View style={[styles.activityIcon, {backgroundColor: isPositive ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'}]}>
+                      <ActivityIcon type={activity.type} />
+                    </View>
+                    <View style={styles.activityInfo}>
+                      <Text style={styles.activityTitle}>{activity.title}</Text>
+                      <Text style={styles.activitySubtitle}>
+                        {new Date(activity.createdAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <Text style={[styles.activityAmount, {color}]}>
+                      {sign}${Math.abs(amount).toFixed(2)}
+                    </Text>
                   </View>
-                  <View style={styles.activityInfo}>
-                    <Text style={styles.activityTitle}>{activity.title}</Text>
-                    <Text style={styles.activitySubtitle}>{activity.subtitle}</Text>
-                  </View>
-                  <Text style={[styles.activityAmount, {color}]}>
-                    {sign}${Math.abs(activity.amount).toFixed(2)}
-                  </Text>
-                </View>
-              );
-            })}
+                );
+              })
+            )}
           </View>
         </View>
 
@@ -168,8 +261,16 @@ export default function ProfileScreen() {
         </View>
 
         {/* Logout */}
-        <TouchableOpacity style={styles.logoutBtn}>
-          <Text style={styles.logoutText}>Log Out</Text>
+        <TouchableOpacity
+          style={styles.logoutBtn}
+          onPress={handleLogout}
+          disabled={loggingOut}
+          activeOpacity={0.7}>
+          {loggingOut ? (
+            <ActivityIndicator size="small" color="#EF4444" />
+          ) : (
+            <Text style={styles.logoutText}>Log Out</Text>
+          )}
         </TouchableOpacity>
 
         <View style={{height: 32}} />
@@ -210,6 +311,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
     paddingHorizontal: 16,
   },
+  emptyRow: {paddingVertical: 24, alignItems: 'center'},
+  emptyText: {fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)'},
   activityRow: {flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)'},
   activityIcon: {width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12},
   activityInfo: {flex: 1},

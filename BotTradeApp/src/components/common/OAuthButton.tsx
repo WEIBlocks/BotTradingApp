@@ -1,11 +1,13 @@
 import React, {useCallback} from 'react';
-import {TouchableOpacity, Text, StyleSheet, View} from 'react-native';
+import {TouchableOpacity, Text, StyleSheet, View, ActivityIndicator} from 'react-native';
 import Animated, {useAnimatedStyle, useSharedValue, withSpring} from 'react-native-reanimated';
 import Svg, {Path, G} from 'react-native-svg';
 
 interface OAuthButtonProps {
   provider: 'google' | 'apple';
   onPress?: () => void;
+  disabled?: boolean;
+  loading?: boolean;
 }
 
 const AnimatedTouch = Animated.createAnimatedComponent(TouchableOpacity);
@@ -31,7 +33,7 @@ function AppleLogo() {
   );
 }
 
-export default function OAuthButton({provider, onPress}: OAuthButtonProps) {
+export default function OAuthButton({provider, onPress, disabled, loading}: OAuthButtonProps) {
   const scale = useSharedValue(1);
   const animatedStyle = useAnimatedStyle(() => ({transform: [{scale: scale.value}]}));
 
@@ -40,16 +42,25 @@ export default function OAuthButton({provider, onPress}: OAuthButtonProps) {
 
   return (
     <AnimatedTouch
-      style={[styles.button, animatedStyle]}
+      style={[styles.button, animatedStyle, disabled && styles.buttonDisabled]}
       onPress={onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
+      disabled={disabled}
       activeOpacity={1}>
-      <View style={styles.logoContainer}>
-        {provider === 'google' ? <GoogleLogo /> : <AppleLogo />}
-      </View>
-      <Text style={styles.label}>
-        {provider === 'google' ? 'Continue with Google' : 'Continue with Apple'}
+      {loading ? (
+        <ActivityIndicator size="small" color="#FFFFFF" style={{marginRight: 10}} />
+      ) : (
+        <View style={styles.logoContainer}>
+          {provider === 'google' ? <GoogleLogo /> : <AppleLogo />}
+        </View>
+      )}
+      <Text style={[styles.label, disabled && styles.labelDisabled]}>
+        {loading
+          ? 'Signing in...'
+          : provider === 'google'
+            ? 'Continue with Google'
+            : 'Continue with Apple'}
       </Text>
     </AnimatedTouch>
   );
@@ -67,10 +78,12 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.1)',
     marginBottom: 12,
   },
+  buttonDisabled: {opacity: 0.5},
   logoContainer: {marginRight: 10},
   label: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 15,
     color: '#FFFFFF',
   },
+  labelDisabled: {color: 'rgba(255,255,255,0.6)'},
 });

@@ -55,6 +55,33 @@
         }
       }
     },
+    "@react-native-google-signin/google-signin": {
+      "root": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\@react-native-google-signin\\google-signin",
+      "name": "@react-native-google-signin/google-signin",
+      "platforms": {
+        "ios": {
+          "podspecPath": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\@react-native-google-signin\\google-signin\\RNGoogleSignin.podspec",
+          "version": "13.3.1",
+          "configurations": [],
+          "scriptPhases": []
+        },
+        "android": {
+          "sourceDir": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\@react-native-google-signin\\google-signin\\android",
+          "packageImportPath": "import com.reactnativegooglesignin.RNGoogleSigninPackage;",
+          "packageInstance": "new RNGoogleSigninPackage()",
+          "buildTypes": [],
+          "libraryName": "RNGoogleSignInCGen",
+          "componentDescriptors": [
+            "RNGoogleSigninButtonComponentDescriptor"
+          ],
+          "cmakeListsPath": "D:/Weiblocks/Bot_App/BotTradeApp/node_modules/@react-native-google-signin/google-signin/android/build/generated/source/codegen/jni/CMakeLists.txt",
+          "cxxModuleCMakeListsModuleName": null,
+          "cxxModuleCMakeListsPath": null,
+          "cxxModuleHeaderName": null,
+          "isPureCxxDependency": false
+        }
+      }
+    },
     "@shopify/react-native-skia": {
       "root": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\@shopify\\react-native-skia",
       "name": "@shopify/react-native-skia",

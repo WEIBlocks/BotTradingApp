@@ -1,7 +1,11 @@
-import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
+import React, {useState, useCallback, useEffect} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Keyboard, Alert} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {GoogleSignin, statusCodes} from '@react-native-google-signin/google-signin';
 import {AuthStackParamList} from '../../types';
+import {useAuth} from '../../context/AuthContext';
+import {ApiError} from '../../services/api';
+import {GOOGLE_WEB_CLIENT_ID} from '../../config/google';
 import Input from '../../components/common/Input';
 import Button from '../../components/common/Button';
 import OAuthButton from '../../components/common/OAuthButton';
@@ -11,53 +15,169 @@ import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
 export default function LoginScreen({navigation}: Props) {
+  const {login, googleSignIn} = useAuth();
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [errors, setErrors] = useState<{email?: string; password?: string; general?: string}>({});
 
-  const handleLogin = useCallback(() => {
-    // Navigate to main app (stub)
-    navigation.getParent()?.navigate('Main');
-  }, [navigation]);
+  useEffect(() => {
+    GoogleSignin.configure({webClientId: GOOGLE_WEB_CLIENT_ID});
+  }, []);
+
+  const handleGoogleSignIn = useCallback(async () => {
+    setGoogleLoading(true);
+    setErrors({});
+    try {
+      await GoogleSignin.hasPlayServices({showPlayServicesUpdateDialog: true});
+      const response = await GoogleSignin.signIn();
+      if (response.type === 'cancelled') {
+        setGoogleLoading(false);
+        return;
+      }
+      const idToken = response.data?.idToken;
+      if (!idToken) {
+        setErrors({general: 'Failed to get Google credentials. Please try again.'});
+        setGoogleLoading(false);
+        return;
+      }
+      await googleSignIn(idToken);
+    } catch (err: any) {
+      if (err?.code === statusCodes.SIGN_IN_CANCELLED) {
+        // User cancelled
+      } else if (err?.code === statusCodes.IN_PROGRESS) {
+        // Already in progress
+      } else if (err?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+        setErrors({general: 'Google Play Services is not available on this device.'});
+      } else if (err instanceof ApiError) {
+        setErrors({general: err.message});
+      } else {
+        setErrors({general: 'Google Sign-In failed. Please try again.'});
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  }, [googleSignIn]);
+
+  const validate = useCallback((): boolean => {
+    const next: typeof errors = {};
+
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail) {
+      next.email = 'Email is required';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      next.email = 'Enter a valid email address';
+    }
+
+    if (!password) {
+      next.password = 'Password is required';
+    }
+
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  }, [email, password]);
+
+  const handleLogin = useCallback(async () => {
+    if (!validate()) return;
+
+    Keyboard.dismiss();
+    setLoading(true);
+    setErrors({});
+
+    try {
+      await login(email.trim().toLowerCase(), password);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 401) {
+          setErrors({general: 'Invalid email or password'});
+        } else if (err.status === 422 && err.details) {
+          setErrors({
+            email: err.details.email?.[0],
+            password: err.details.password?.[0],
+          });
+        } else if (err.code === 'NETWORK_ERROR' || err.code === 'TIMEOUT') {
+          setErrors({general: err.message});
+        } else {
+          setErrors({general: err.message});
+        }
+      } else {
+        setErrors({general: 'Something went wrong. Please try again.'});
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [email, password, validate, login]);
+
+  const clearFieldError = useCallback((field: 'email' | 'password') => {
+    setErrors(prev => {
+      if (!prev[field] && !prev.general) return prev;
+      return {...prev, [field]: undefined, general: undefined};
+    });
+  }, []);
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ChevronLeftIcon size={24} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled">
         <Text style={styles.title}>Welcome Back</Text>
         <Text style={styles.subtitle}>Sign in to your trading account</Text>
 
-        <OAuthButton provider="google" onPress={() => {}} />
-        <OAuthButton provider="apple" onPress={() => {}} />
+        <OAuthButton provider="google" onPress={handleGoogleSignIn} disabled={googleLoading || loading} loading={googleLoading} />
+        <OAuthButton provider="apple" onPress={() => Alert.alert('Coming Soon', 'Apple Sign-In is not yet available on Android.')} disabled={loading || googleLoading} />
 
         <Divider label="Or sign in with email" />
+
+        {errors.general ? (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorBannerText}>{errors.general}</Text>
+          </View>
+        ) : null}
 
         <Input
           label="Email Address"
           placeholder="you@example.com"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={text => {
+            setEmail(text);
+            clearFieldError('email');
+          }}
           keyboardType="email-address"
           autoCapitalize="none"
+          error={errors.email}
         />
         <Input
           label="Password"
           placeholder="Enter your password"
           value={password}
-          onChangeText={setPassword}
+          onChangeText={text => {
+            setPassword(text);
+            clearFieldError('password');
+          }}
           secureTextEntry
+          error={errors.password}
         />
 
         <TouchableOpacity style={styles.forgotBtn}>
           <Text style={styles.forgotText}>Forgot Password?</Text>
         </TouchableOpacity>
 
-        <Button title="Log In" onPress={handleLogin} style={styles.loginBtn} />
+        <Button
+          title="Log In"
+          onPress={handleLogin}
+          loading={loading}
+          disabled={loading || googleLoading}
+          style={styles.loginBtn}
+        />
 
         <TouchableOpacity
           style={styles.signupRow}
@@ -89,6 +209,20 @@ const styles = StyleSheet.create({
   scroll: {paddingHorizontal: 24, paddingTop: 16, paddingBottom: 40},
   title: {fontFamily: 'Inter-Bold', fontSize: 28, color: '#FFFFFF', marginBottom: 8, letterSpacing: -0.5},
   subtitle: {fontFamily: 'Inter-Regular', fontSize: 15, color: 'rgba(255,255,255,0.5)', marginBottom: 28},
+  errorBanner: {
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.25)',
+    padding: 14,
+    marginBottom: 16,
+  },
+  errorBannerText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: '#EF4444',
+    textAlign: 'center',
+  },
   forgotBtn: {alignSelf: 'flex-end', marginBottom: 24, marginTop: -8},
   forgotText: {fontFamily: 'Inter-Medium', fontSize: 13, color: '#10B981'},
   loginBtn: {marginBottom: 16},

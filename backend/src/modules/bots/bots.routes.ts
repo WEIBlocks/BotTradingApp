@@ -1,0 +1,205 @@
+import { FastifyInstance } from 'fastify';
+import { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { authenticate } from '../../middleware/authenticate.js';
+import {
+  createBot,
+  pauseBot,
+  stopBot,
+  resumeBot,
+  purchaseBot,
+  startShadowMode,
+  getShadowResults,
+  getUserShadowSessions,
+  getUserActiveBots,
+  addReview,
+  backtestBot,
+  getPaperTradingStatus,
+} from './bots.service.js';
+import {
+  botIdParamsSchema,
+  createBotBodySchema,
+  purchaseBotBodySchema,
+  shadowModeBodySchema,
+  reviewBodySchema,
+  backtestBodySchema,
+  paperTradingSetupBodySchema,
+  dataResponseSchema,
+} from './bots.schema.js';
+
+export async function botsRoutes(app: FastifyInstance) {
+  const zApp = app.withTypeProvider<ZodTypeProvider>();
+  zApp.addHook('onRequest', authenticate);
+
+  // POST /create
+  zApp.post('/create', {
+    schema: {
+      body: createBotBodySchema,
+      response: { 201: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const bot = await createBot(request.user.userId, request.body);
+    return reply.status(201).send({ data: bot });
+  });
+
+  // POST /:id/pause
+  zApp.post('/:id/pause', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await pauseBot(request.user.userId, id);
+    return { data: result };
+  });
+
+  // POST /:id/stop
+  zApp.post('/:id/stop', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await stopBot(request.user.userId, id);
+    return { data: result };
+  });
+
+  // POST /:id/resume
+  zApp.post('/:id/resume', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await resumeBot(request.user.userId, id);
+    return { data: result };
+  });
+
+  // POST /:id/purchase
+  zApp.post('/:id/purchase', {
+    schema: {
+      params: botIdParamsSchema,
+      body: purchaseBotBodySchema,
+      response: { 201: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const { mode } = request.body;
+    const result = await purchaseBot(request.user.userId, id, mode);
+    return reply.status(201).send({ data: result });
+  });
+
+  // POST /:id/shadow-mode
+  zApp.post('/:id/shadow-mode', {
+    schema: {
+      params: botIdParamsSchema,
+      body: shadowModeBodySchema,
+      response: { 201: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await startShadowMode(request.user.userId, id, request.body);
+    return reply.status(201).send({ data: result });
+  });
+
+  // GET /user/active
+  zApp.get('/user/active', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const result = await getUserActiveBots(request.user.userId);
+    return { data: result };
+  });
+
+  // POST /:id/reviews
+  zApp.post('/:id/reviews', {
+    schema: {
+      params: botIdParamsSchema,
+      body: reviewBodySchema,
+      response: { 201: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const { rating, text } = request.body;
+    const result = await addReview(request.user.userId, id, rating, text);
+    return reply.status(201).send({ data: result });
+  });
+
+  // GET /shadow-sessions - List user's shadow trading sessions
+  zApp.get('/shadow-sessions', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const result = await getUserShadowSessions(request.user.userId);
+    return { data: result };
+  });
+
+  // GET /shadow-sessions/:id/results - Get shadow mode results
+  zApp.get('/shadow-sessions/:id/results', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await getShadowResults(request.user.userId, id);
+    return { data: result };
+  });
+
+  // POST /:id/backtest - Run a backtest simulation
+  zApp.post('/:id/backtest', {
+    schema: {
+      params: botIdParamsSchema,
+      body: backtestBodySchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await backtestBot(request.user.userId, id, request.body);
+    return { data: result };
+  });
+
+  // GET /paper-trading/status - Get paper trading status
+  zApp.get('/paper-trading/status', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const result = await getPaperTradingStatus(request.user.userId);
+    return { data: result };
+  });
+
+  // POST /paper-trading/setup - Setup paper trading
+  zApp.post('/paper-trading/setup', {
+    schema: {
+      body: paperTradingSetupBodySchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { initialFunds } = request.body;
+    return reply.status(200).send({
+      data: {
+        success: true,
+        virtualBalance: initialFunds || 10_000,
+        message: 'Paper trading environment ready. Start a shadow mode on any bot to begin trading.',
+      },
+    });
+  });
+}
