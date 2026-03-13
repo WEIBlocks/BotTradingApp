@@ -87,6 +87,17 @@ export async function userRoutes(app: FastifyInstance) {
     return reply.status(200).send(updated);
   });
 
+  // GET /investor-profile - Get investor quiz profile
+  zApp.get('/investor-profile', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const result = await userService.getInvestorProfile(request.user.userId);
+    return reply.status(200).send({ data: result });
+  });
+
   // POST /quiz - Save investor quiz results
   zApp.post('/quiz', {
     schema: {

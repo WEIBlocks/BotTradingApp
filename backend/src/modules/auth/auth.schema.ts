@@ -61,6 +61,8 @@ export const authResponseSchema = z.object({
     email: z.string(),
     role: z.string(),
   }),
+  isNewUser: z.boolean().optional(),
+  onboardingComplete: z.boolean().optional(),
 });
 
 export type RegisterBody = z.infer<typeof registerSchema.body>;

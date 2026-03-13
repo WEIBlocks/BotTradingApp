@@ -44,17 +44,20 @@ export default function LoginScreen({navigation}: Props) {
         return;
       }
       await googleSignIn(idToken);
+      // Navigation happens automatically via AuthContext state change
     } catch (err: any) {
+      console.log('[GoogleSignIn] Error:', JSON.stringify(err, null, 2));
       if (err?.code === statusCodes.SIGN_IN_CANCELLED) {
-        // User cancelled
+        // User cancelled — no error to show
       } else if (err?.code === statusCodes.IN_PROGRESS) {
         // Already in progress
       } else if (err?.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
         setErrors({general: 'Google Play Services is not available on this device.'});
       } else if (err instanceof ApiError) {
-        setErrors({general: err.message});
+        setErrors({general: err.message || 'Server error during Google Sign-In.'});
       } else {
-        setErrors({general: 'Google Sign-In failed. Please try again.'});
+        const msg = err?.message || 'Unknown error';
+        setErrors({general: `Google Sign-In failed: ${msg}`});
       }
     } finally {
       setGoogleLoading(false);

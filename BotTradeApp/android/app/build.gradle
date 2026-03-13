@@ -27,6 +27,12 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        release {
+            storeFile file('bottrade-release.keystore')
+            storePassword 'BotTrade2024'
+            keyAlias 'bottrade-key'
+            keyPassword 'BotTrade2024'
+        }
     }
 
     buildTypes {
@@ -34,7 +40,7 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.release
             minifyEnabled false
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
         }

@@ -15,6 +15,7 @@ export interface AuthResponse {
   refreshToken: string;
   user: AuthUser;
   isNewUser?: boolean;
+  onboardingComplete?: boolean;
 }
 
 // ─── Auth API ────────────────────────────────────────────────────────────────
@@ -70,7 +71,7 @@ export const authApi = {
   },
 
   /** Check if we have a valid session from stored tokens */
-  async restoreSession(): Promise<AuthUser | null> {
+  async restoreSession(): Promise<{user: AuthUser; onboardingComplete: boolean} | null> {
     const token = await storage.getAccessToken();
     if (!token) return null;
 
@@ -80,6 +81,7 @@ export const authApi = {
         name: string;
         email: string;
         role: string;
+        onboardingComplete: boolean;
       }>('/user/profile');
       const user: AuthUser = {
         id: data.id,
@@ -88,7 +90,7 @@ export const authApi = {
         role: data.role,
       };
       await storage.setUser(user);
-      return user;
+      return { user, onboardingComplete: data.onboardingComplete ?? false };
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         await storage.clearTokens();

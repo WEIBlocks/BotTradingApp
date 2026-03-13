@@ -6,6 +6,7 @@ import React, {
   useEffect,
   useMemo,
 } from 'react';
+import {GoogleSignin} from '@react-native-google-signin/google-signin';
 import {authApi, AuthUser} from '../services/auth';
 import {ApiError} from '../services/api';
 
@@ -45,9 +46,21 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
   // Restore session on mount
   useEffect(() => {
     let mounted = true;
-    authApi.restoreSession().then(user => {
+    authApi.restoreSession().then(result => {
       if (mounted) {
-        setState({user, isLoading: false, isAuthReady: true, isOnboarding: false, isNewUser: false});
+        if (result) {
+          // If user hasn't completed onboarding, send them back through the quiz
+          const needsOnboarding = !result.onboardingComplete;
+          setState({
+            user: result.user,
+            isLoading: false,
+            isAuthReady: true,
+            isOnboarding: needsOnboarding,
+            isNewUser: false,
+          });
+        } else {
+          setState({user: null, isLoading: false, isAuthReady: true, isOnboarding: false, isNewUser: false});
+        }
       }
     });
     return () => { mounted = false; };
@@ -55,7 +68,13 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
 
   const login = useCallback(async (email: string, password: string) => {
     const result = await authApi.login(email, password);
-    setState(prev => ({...prev, user: result.user}));
+    const needsOnboarding = !result.onboardingComplete;
+    setState(prev => ({
+      ...prev,
+      user: result.user,
+      isOnboarding: needsOnboarding,
+      isNewUser: false,
+    }));
   }, []);
 
   const register = useCallback(async (name: string, email: string, password: string) => {
@@ -66,7 +85,14 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
 
   const googleSignIn = useCallback(async (idToken: string) => {
     const result = await authApi.googleSignIn(idToken);
-    setState(prev => ({...prev, user: result.user}));
+    // If new user or onboarding not complete, show quiz flow
+    const needsOnboarding = result.isNewUser || !result.onboardingComplete;
+    setState(prev => ({
+      ...prev,
+      user: result.user,
+      isOnboarding: needsOnboarding,
+      isNewUser: result.isNewUser ?? false,
+    }));
   }, []);
 
   const appleSignIn = useCallback(async (
@@ -74,12 +100,21 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     fullName?: {firstName?: string; lastName?: string},
   ) => {
     const result = await authApi.appleSignIn(identityToken, fullName);
-    setState(prev => ({...prev, user: result.user}));
+    // If new user or onboarding not complete, show quiz flow
+    const needsOnboarding = result.isNewUser || !result.onboardingComplete;
+    setState(prev => ({
+      ...prev,
+      user: result.user,
+      isOnboarding: needsOnboarding,
+      isNewUser: result.isNewUser ?? false,
+    }));
   }, []);
 
   const logout = useCallback(async () => {
     await authApi.logout();
-    setState(prev => ({...prev, user: null}));
+    // Clear cached Google session so account picker shows next time
+    try { await GoogleSignin.signOut(); } catch {}
+    setState(prev => ({...prev, user: null, isOnboarding: false, isNewUser: false}));
   }, []);
 
   const saveQuizResults = useCallback(async (data: {

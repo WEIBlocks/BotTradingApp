@@ -79,6 +79,7 @@ async function findOrCreateSocialUser(opts: {
       email: users.email,
       role: users.role,
       isActive: users.isActive,
+      onboardingComplete: users.onboardingComplete,
     })
     .from(users)
     .where(eq(users[idField], providerId))
@@ -98,6 +99,7 @@ async function findOrCreateSocialUser(opts: {
         role: byProvider.role!,
       },
       isNewUser: false,
+      onboardingComplete: byProvider.onboardingComplete ?? false,
     };
   }
 
@@ -109,6 +111,7 @@ async function findOrCreateSocialUser(opts: {
       email: users.email,
       role: users.role,
       isActive: users.isActive,
+      onboardingComplete: users.onboardingComplete,
     })
     .from(users)
     .where(eq(users.email, email.toLowerCase()))
@@ -134,6 +137,7 @@ async function findOrCreateSocialUser(opts: {
         role: byEmail.role!,
       },
       isNewUser: false,
+      onboardingComplete: byEmail.onboardingComplete ?? false,
     };
   }
 
@@ -168,6 +172,7 @@ async function findOrCreateSocialUser(opts: {
       role: newUser.role!,
     },
     isNewUser: true,
+    onboardingComplete: false,
   };
 }
 
@@ -215,6 +220,8 @@ export async function register(name: string, email: string, password: string) {
       email: newUser.email,
       role: newUser.role!,
     },
+    isNewUser: true,
+    onboardingComplete: false,
   };
 }
 
@@ -227,6 +234,7 @@ export async function login(email: string, password: string) {
       role: users.role,
       passwordHash: users.passwordHash,
       isActive: users.isActive,
+      onboardingComplete: users.onboardingComplete,
     })
     .from(users)
     .where(eq(users.email, email.toLowerCase()))
@@ -255,6 +263,8 @@ export async function login(email: string, password: string) {
       email: user.email,
       role: user.role!,
     },
+    isNewUser: false,
+    onboardingComplete: user.onboardingComplete ?? false,
   };
 }
 

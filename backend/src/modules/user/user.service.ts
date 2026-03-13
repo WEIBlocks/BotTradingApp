@@ -1,11 +1,20 @@
 import { eq, sql, desc, count } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { users } from '../../db/schema/users.js';
+import { investorProfiles } from '../../db/schema/investor-profiles.js';
 import { exchangeConnections } from '../../db/schema/exchanges.js';
 import { activityLog } from '../../db/schema/training.js';
 import { notificationSettings } from '../../db/schema/notifications.js';
 import { NotFoundError } from '../../lib/errors.js';
 import type { UpdateProfileBody, UpdateSettingsBody } from './user.schema.js';
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function computeRiskLevel(riskTolerance: number): 'conservative' | 'moderate' | 'aggressive' {
+  if (riskTolerance <= 33) return 'conservative';
+  if (riskTolerance <= 66) return 'moderate';
+  return 'aggressive';
+}
 
 // ─── Investor Quiz ──────────────────────────────────────────────────────────
 
@@ -13,7 +22,51 @@ export async function saveQuizResults(
   userId: string,
   data: { riskTolerance: number; investmentGoal?: string; timeHorizon?: string },
 ) {
-  const [updated] = await db
+  // Check if user exists
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!user) throw new NotFoundError('User');
+
+  const riskLevel = computeRiskLevel(data.riskTolerance);
+
+  // Upsert investor profile
+  const [existing] = await db
+    .select({ id: investorProfiles.id })
+    .from(investorProfiles)
+    .where(eq(investorProfiles.userId, userId))
+    .limit(1);
+
+  let profile;
+  if (existing) {
+    [profile] = await db
+      .update(investorProfiles)
+      .set({
+        riskTolerance: data.riskTolerance,
+        riskLevel,
+        investmentGoal: data.investmentGoal,
+        timeHorizon: data.timeHorizon,
+        updatedAt: new Date(),
+      })
+      .where(eq(investorProfiles.userId, userId))
+      .returning();
+  } else {
+    [profile] = await db
+      .insert(investorProfiles)
+      .values({
+        userId,
+        riskTolerance: data.riskTolerance,
+        riskLevel,
+        investmentGoal: data.investmentGoal,
+        timeHorizon: data.timeHorizon,
+      })
+      .returning();
+  }
+
+  // Also update users table for backward compat + mark onboarding complete
+  await db
     .update(users)
     .set({
       riskTolerance: data.riskTolerance,
@@ -21,18 +74,28 @@ export async function saveQuizResults(
       onboardingComplete: true,
       updatedAt: new Date(),
     })
-    .where(eq(users.id, userId))
-    .returning({
-      id: users.id,
-      name: users.name,
-      email: users.email,
-      riskTolerance: users.riskTolerance,
-      investmentGoal: users.investmentGoal,
-      onboardingComplete: users.onboardingComplete,
-    });
+    .where(eq(users.id, userId));
 
-  if (!updated) throw new NotFoundError('User');
-  return updated;
+  return {
+    id: user.id,
+    riskTolerance: profile.riskTolerance,
+    riskLevel: profile.riskLevel,
+    investmentGoal: profile.investmentGoal,
+    timeHorizon: profile.timeHorizon,
+    onboardingComplete: true,
+  };
+}
+
+// ─── Get Investor Profile ───────────────────────────────────────────────────
+
+export async function getInvestorProfile(userId: string) {
+  const [profile] = await db
+    .select()
+    .from(investorProfiles)
+    .where(eq(investorProfiles.userId, userId))
+    .limit(1);
+
+  return profile || null;
 }
 
 // ─── Referral ───────────────────────────────────────────────────────────────
