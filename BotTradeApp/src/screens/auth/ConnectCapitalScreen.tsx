@@ -1,5 +1,5 @@
 import React, {useCallback} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Svg, {Circle, Path, Rect} from 'react-native-svg';
 import {AuthStackParamList} from '../../types';
@@ -118,7 +118,7 @@ export default function ConnectCapitalScreen({navigation}: Props) {
           <ChevronLeftIcon size={20} color="#10B981" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Account Setup</Text>
-        <TouchableOpacity style={styles.infoBtn}>
+        <TouchableOpacity style={styles.infoBtn} onPress={() => Alert.alert('About Capital Connection', 'Connect your brokerage account to enable live automated trading, or start with paper trading to practice risk-free.')}>
           <InfoIcon size={20} color="#10B981" />
         </TouchableOpacity>
       </View>
@@ -165,14 +165,14 @@ export default function ConnectCapitalScreen({navigation}: Props) {
               <Text style={styles.brokerName}>{b.name}</Text>
               <Text style={styles.brokerSubtitle}>{b.subtitle}</Text>
             </View>
-            <TouchableOpacity style={styles.connectBtn} activeOpacity={0.7}>
+            <TouchableOpacity style={styles.connectBtn} activeOpacity={0.7} onPress={() => Alert.alert('Coming Soon', `${b.name} integration is coming soon. Start with paper trading to get started immediately!`)}>
               <Text style={styles.connectText}>Connect</Text>
             </TouchableOpacity>
           </View>
         ))}
 
         {/* Request brokerage */}
-        <TouchableOpacity style={styles.requestRow} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.requestRow} activeOpacity={0.7} onPress={() => Alert.alert('Request Brokerage', 'Your request has been noted! We\'ll notify you when new brokerages become available.')}>
           <Svg width={16} height={16} viewBox="0 0 16 16" fill="none">
             <Circle cx={8} cy={8} r={7} stroke="rgba(255,255,255,0.3)" strokeWidth={1.2} />
             <Path d="M8 5 L8 11 M5 8 L11 8" stroke="rgba(255,255,255,0.3)" strokeWidth={1.2} strokeLinecap="round" />

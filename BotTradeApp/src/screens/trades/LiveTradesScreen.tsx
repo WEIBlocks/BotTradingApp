@@ -5,11 +5,13 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
-import {useNavigation} from '@react-navigation/native';
+import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList, LiveTrade} from '../../types';
-import {mockLiveTrades} from '../../data/mockLiveTrades';
+import {tradesApi} from '../../services/trades';
 import Svg, {Path, Circle} from 'react-native-svg';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -68,8 +70,25 @@ type FilterType = (typeof FILTERS)[number];
 export default function LiveTradesScreen() {
   const navigation = useNavigation<Nav>();
   const [activeFilter, setActiveFilter] = useState<FilterType>('All');
+  const [liveTrades, setLiveTrades] = useState<LiveTrade[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const filteredTrades = mockLiveTrades; // all shown regardless of filter for mock
+  const fetchData = useCallback(() => {
+    tradesApi
+      .getLiveFeed(20)
+      .then(setLiveTrades)
+      .catch(() => setLiveTrades([]))
+      .finally(() => { setLoading(false); setRefreshing(false); });
+  }, []);
+
+  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+
+  const filteredTrades = activeFilter === 'All'
+    ? liveTrades
+    : activeFilter === 'My Bots'
+      ? liveTrades.filter(t => t.isOwned)
+      : liveTrades.filter(t => !t.isOwned);
 
   const renderSeparator = useCallback(
     () => <View style={styles.separator} />,
@@ -136,16 +155,18 @@ export default function LiveTradesScreen() {
     );
   }, []);
 
+  const uniqueBots = new Set(liveTrades.map(t => t.botName)).size;
+
   const ListHeader = useCallback(
     () => (
       <View style={styles.liveBanner}>
         <View style={styles.liveBannerDot} />
         <Text style={styles.liveBannerText}>
-          8 trades today {'\u00B7'} 3 active bots
+          {liveTrades.length} trades today {'\u00B7'} {uniqueBots} active bot{uniqueBots !== 1 ? 's' : ''}
         </Text>
       </View>
     ),
-    [],
+    [liveTrades.length, uniqueBots],
   );
 
   return (
@@ -187,15 +208,37 @@ export default function LiveTradesScreen() {
       </View>
 
       {/* Trade Feed */}
-      <FlatList
-        data={filteredTrades}
-        keyExtractor={item => item.id}
-        renderItem={renderTrade}
-        ListHeaderComponent={ListHeader}
-        ItemSeparatorComponent={renderSeparator}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-      />
+      {loading ? (
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
+          <ActivityIndicator size="large" color="#10B981" />
+        </View>
+      ) : filteredTrades.length === 0 ? (
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32}}>
+          <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 16, color: 'rgba(255,255,255,0.5)', marginBottom: 6}}>No live trades yet</Text>
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)', textAlign: 'center', lineHeight: 19}}>
+            When your bots execute trades, they'll appear here in real-time.
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredTrades}
+          keyExtractor={item => item.id}
+          renderItem={renderTrade}
+          ListHeaderComponent={ListHeader}
+          ItemSeparatorComponent={renderSeparator}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); fetchData(); }}
+              tintColor="#10B981"
+              colors={['#10B981']}
+              progressBackgroundColor="#161B22"
+            />
+          }
+        />
+      )}
     </View>
   );
 }

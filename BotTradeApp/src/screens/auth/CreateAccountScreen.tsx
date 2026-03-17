@@ -160,7 +160,6 @@ export default function CreateAccountScreen({navigation}: Props) {
       await googleSignIn(idToken);
       // Navigation happens automatically via AuthContext
     } catch (err: any) {
-      console.log('[GoogleSignIn] Error:', JSON.stringify(err, null, 2));
       if (err?.code === statusCodes.SIGN_IN_CANCELLED) {
         // User cancelled — no error to show
       } else if (err?.code === statusCodes.IN_PROGRESS) {

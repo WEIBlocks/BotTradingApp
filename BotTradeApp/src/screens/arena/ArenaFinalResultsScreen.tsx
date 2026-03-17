@@ -1,4 +1,4 @@
-import React, {useEffect, useRef} from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -15,8 +16,8 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {RootStackParamList} from '../../types';
-import {mockGladiators} from '../../data/mockGladiators';
+import {RootStackParamList, Gladiator} from '../../types';
+import {arenaApi} from '../../services/arena';
 import MiniLineChart from '../../components/charts/MiniLineChart';
 import TrophyIcon from '../../components/icons/TrophyIcon';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
@@ -31,11 +32,20 @@ const PODIUM_LABELS = ['1ST', '2ND', '3RD'];
 
 export default function ArenaFinalResultsScreen({navigation, route}: Props) {
   const {winnerId} = route.params;
+  const [allGladiators, setAllGladiators] = useState<Gladiator[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Use all gladiators sorted by return as final results
-  const allGladiators = [...mockGladiators].sort(
-    (a, b) => (b.currentReturn || 0) - (a.currentReturn || 0),
-  );
+  useEffect(() => {
+    arenaApi.getAvailableBots()
+      .then(bots => {
+        const sorted = [...bots].sort(
+          (a, b) => (b.currentReturn || 0) - (a.currentReturn || 0),
+        );
+        setAllGladiators(sorted);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   const winner = allGladiators[0];
   const podiumThree = allGladiators.slice(0, 3);
@@ -57,6 +67,24 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
   }));
   const podiumStyle = useAnimatedStyle(() => ({opacity: podiumOpacity.value}));
   const statsStyle = useAnimatedStyle(() => ({opacity: statsOpacity.value}));
+
+  if (loading) {
+    return (
+      <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
+        <ActivityIndicator size="large" color="#10B981" />
+      </View>
+    );
+  }
+
+  if (allGladiators.length === 0) {
+    return (
+      <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
+        <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)'}}>
+          No results available.
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

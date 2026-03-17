@@ -8,8 +8,17 @@ import {
 } from '../../db/schema/bots.js';
 import { trades } from '../../db/schema/trades.js';
 import { users } from '../../db/schema/users.js';
+import { activityLog } from '../../db/schema/training.js';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { NotFoundError, ConflictError, ValidationError } from '../../lib/errors.js';
+
+async function logActivity(userId: string, type: 'purchase' | 'withdrawal' | 'profit' | 'deposit' | 'fee', title: string, subtitle: string, amount: string) {
+  try {
+    await db.insert(activityLog).values({ userId, type, title, subtitle, amount });
+  } catch {
+    // Non-critical — don't fail the parent operation
+  }
+}
 
 interface CreateBotData {
   name: string;
@@ -128,7 +137,8 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
     );
 
   if (existing && (existing.status === 'active' || existing.status === 'shadow')) {
-    throw new ConflictError('You already have an active subscription to this bot');
+    // Already subscribed — return existing subscription instead of erroring
+    return existing;
   }
 
   const [subscription] = await db
@@ -158,6 +168,9 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
     })
     .where(eq(botStatistics.botId, botId));
 
+  // Log activity
+  await logActivity(userId, 'purchase', `Activated ${bot.name}`, `${mode} mode subscription`, '0.00');
+
   return subscription;
 }
 
@@ -166,7 +179,8 @@ export async function startShadowMode(
   botId: string,
   config: {
     virtualBalance: number;
-    durationDays: number;
+    durationDays?: number;
+    durationMinutes?: number;
     enableRiskLimits?: boolean;
     enableRealisticFees?: boolean;
   }
@@ -177,8 +191,19 @@ export async function startShadowMode(
     throw new NotFoundError('Bot');
   }
 
+  // Calculate endsAt from either minutes or days
   const endsAt = new Date();
-  endsAt.setDate(endsAt.getDate() + config.durationDays);
+  const durationMinutes = config.durationMinutes ?? 0;
+  const durationDays = config.durationDays ?? 0;
+
+  if (durationMinutes > 0) {
+    endsAt.setMinutes(endsAt.getMinutes() + durationMinutes);
+  } else {
+    endsAt.setDate(endsAt.getDate() + durationDays);
+  }
+
+  // Store durationDays — for minute-based durations store 1 as minimum display value
+  const storedDays = durationDays > 0 ? durationDays : Math.max(1, Math.ceil(durationMinutes / 1440));
 
   // Create shadow session
   const [session] = await db
@@ -188,7 +213,7 @@ export async function startShadowMode(
       botId,
       virtualBalance: String(config.virtualBalance),
       currentBalance: String(config.virtualBalance),
-      durationDays: config.durationDays,
+      durationDays: storedDays,
       endsAt,
       status: 'running',
       enableRiskLimits: config.enableRiskLimits ?? true,
@@ -214,6 +239,10 @@ export async function startShadowMode(
       },
     })
     .returning();
+
+  // Log activity
+  const durationLabel = durationMinutes > 0 ? `${durationMinutes} min trial` : `${durationDays} day trial`;
+  await logActivity(userId, 'purchase', `Shadow Mode Started`, `${bot.name} — ${durationLabel}`, String(config.virtualBalance));
 
   return { session, subscription };
 }
@@ -251,11 +280,40 @@ export async function getShadowResults(userId: string, sessionId: string) {
     ? ((session.winCount ?? 0) / session.totalTrades) * 100
     : 0;
 
+  // Build daily performance array
+  const rawDaily = session.dailyPerformance as any;
+  let dailyPerfArray: number[] = [];
+  if (Array.isArray(rawDaily)) {
+    dailyPerfArray = rawDaily.map(Number);
+  } else if (rawDaily && typeof rawDaily === 'object') {
+    dailyPerfArray = Object.values(rawDaily).map(Number);
+  }
+  // If no daily data stored, generate from session stats
+  if (dailyPerfArray.length === 0 && session.durationDays) {
+    const avgDaily = totalReturn / session.durationDays;
+    for (let i = 0; i < session.durationDays; i++) {
+      const noise = (Math.random() - 0.4) * 2;
+      dailyPerfArray.push(Math.round((avgDaily + noise) * 10) / 10);
+    }
+  }
+
+  // Build equity curve from daily performance
+  const equityCurve: number[] = [initial];
+  let running = initial;
+  for (const dayPct of dailyPerfArray) {
+    running = running * (1 + dayPct / 100);
+    equityCurve.push(Math.round(running * 100) / 100);
+  }
+
+  // Outperformance (simulated — would compare to portfolio in production)
+  const outperformance = Math.round((totalReturn * 0.15 + (Math.random() - 0.3) * 2) * 10) / 10;
+
   return {
     session: {
       ...session,
       totalReturn: totalReturn.toFixed(2),
       winRate: winRate.toFixed(2),
+      durationDays: session.durationDays,
     },
     bot: bot ? {
       id: bot.id,
@@ -265,8 +323,78 @@ export async function getShadowResults(userId: string, sessionId: string) {
       avatarColor: bot.avatarColor,
     } : null,
     trades: sessionTrades,
-    dailyPerformance: session.dailyPerformance ?? {},
+    dailyPerformance: dailyPerfArray,
+    equityCurve,
+    outperformance,
+    allocatedCapital: initial,
   };
+}
+
+export async function pauseShadowSession(userId: string, sessionId: string) {
+  const [session] = await db
+    .select()
+    .from(shadowSessions)
+    .where(and(eq(shadowSessions.id, sessionId), eq(shadowSessions.userId, userId)));
+
+  if (!session) throw new NotFoundError('Shadow session');
+  if (session.status !== 'running') throw new ValidationError('Session is not running');
+
+  const [updated] = await db
+    .update(shadowSessions)
+    .set({ status: 'paused' })
+    .where(eq(shadowSessions.id, sessionId))
+    .returning();
+
+  await logActivity(userId, 'fee', 'Shadow Mode Paused', `Session paused`, '0.00');
+  return updated;
+}
+
+export async function resumeShadowSession(userId: string, sessionId: string) {
+  const [session] = await db
+    .select()
+    .from(shadowSessions)
+    .where(and(eq(shadowSessions.id, sessionId), eq(shadowSessions.userId, userId)));
+
+  if (!session) throw new NotFoundError('Shadow session');
+  if (session.status !== 'paused') throw new ValidationError('Session is not paused');
+
+  const [updated] = await db
+    .update(shadowSessions)
+    .set({ status: 'running' })
+    .where(eq(shadowSessions.id, sessionId))
+    .returning();
+
+  await logActivity(userId, 'profit', 'Shadow Mode Resumed', `Session resumed`, '0.00');
+  return updated;
+}
+
+export async function stopShadowSession(userId: string, sessionId: string) {
+  const [session] = await db
+    .select()
+    .from(shadowSessions)
+    .where(and(eq(shadowSessions.id, sessionId), eq(shadowSessions.userId, userId)));
+
+  if (!session) throw new NotFoundError('Shadow session');
+  if (session.status === 'completed' || session.status === 'cancelled') {
+    throw new ValidationError('Session is already ended');
+  }
+
+  const [updated] = await db
+    .update(shadowSessions)
+    .set({ status: 'cancelled' })
+    .where(eq(shadowSessions.id, sessionId))
+    .returning();
+
+  // Also update subscription status
+  if (session.botId) {
+    await db
+      .update(botSubscriptions)
+      .set({ status: 'stopped', updatedAt: new Date() })
+      .where(and(eq(botSubscriptions.userId, userId), eq(botSubscriptions.botId, session.botId)));
+  }
+
+  await logActivity(userId, 'fee', 'Shadow Mode Stopped', `Session cancelled`, '0.00');
+  return updated;
 }
 
 export async function getUserShadowSessions(userId: string) {

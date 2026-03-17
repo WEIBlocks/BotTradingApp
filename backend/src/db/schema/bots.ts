@@ -52,6 +52,7 @@ export const subscriptionModeEnum = pgEnum("subscription_mode", [
 
 export const shadowStatusEnum = pgEnum("shadow_status", [
   "running",
+  "paused",
   "completed",
   "cancelled",
 ]);

@@ -7,11 +7,17 @@ interface MonthlyReturnBarsProps {
 }
 
 export default function MonthlyReturnBars({data}: MonthlyReturnBarsProps) {
-  const maxAbs = Math.max(...data.map(d => Math.abs(d.percent)), 1);
+  if (!data || data.length === 0) return null;
+
+  const safeData = data.map(d => ({
+    month: d.month ?? '',
+    percent: Number(d.percent) || 0,
+  }));
+  const maxAbs = Math.max(...safeData.map(d => Math.abs(d.percent)), 1);
 
   return (
     <View style={styles.container}>
-      {data.map(item => {
+      {safeData.map(item => {
         const isPositive = item.percent >= 0;
         const barHeight = (Math.abs(item.percent) / maxAbs) * 60;
         const color = isPositive ? '#10B981' : '#EF4444';

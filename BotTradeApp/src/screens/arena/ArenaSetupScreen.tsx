@@ -1,10 +1,10 @@
-import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
+import React, {useState, useCallback, useEffect} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 import {RootStackParamList, Gladiator} from '../../types';
-import {mockGladiators} from '../../data/mockGladiators';
+import {arenaApi} from '../../services/arena';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 const MAX_GLADIATORS = 5;
@@ -113,7 +113,15 @@ const pbSt = StyleSheet.create({
 
 export default function ArenaSetupScreen() {
   const navigation = useNavigation<NavProp>();
-  const [gladiators, setGladiators] = useState<Gladiator[]>(mockGladiators);
+  const [gladiators, setGladiators] = useState<Gladiator[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    arenaApi.getAvailableBots()
+      .then(bots => setGladiators(bots))
+      .catch(() => Alert.alert('Error', 'Failed to load arena bots. Please try again.'))
+      .finally(() => setLoading(false));
+  }, []);
 
   const selectedCount = gladiators.filter(g => g.selected).length;
   const progress = selectedCount / MAX_GLADIATORS;
@@ -130,7 +138,14 @@ export default function ArenaSetupScreen() {
 
   const handleEnterArena = useCallback(() => {
     const ids = gladiators.filter(g => g.selected).map(g => g.id);
-    navigation.navigate('ArenaLive', {gladiatorIds: ids});
+    Alert.alert(
+      'Enter Arena',
+      `Start a battle with ${ids.length} bots? This will begin a live trading competition.`,
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'Enter Arena', onPress: () => navigation.navigate('ArenaLive', {gladiatorIds: ids})},
+      ],
+    );
   }, [gladiators, navigation]);
 
   return (
@@ -142,7 +157,7 @@ export default function ArenaSetupScreen() {
           <BackArrow />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>BOT BATTLE ARENA</Text>
-        <TouchableOpacity style={styles.headerBtn}>
+        <TouchableOpacity style={styles.headerBtn} onPress={() => Alert.alert('Bot Battle Arena', 'Select 2-5 bots to compete in a real-time trading arena. Bots trade simultaneously and are ranked by performance. The arena runs until a winner emerges!')}>
           <InfoCircleIcon />
         </TouchableOpacity>
       </View>
@@ -156,6 +171,14 @@ export default function ArenaSetupScreen() {
         <Text style={styles.subtitle}>
           Pick up to {MAX_GLADIATORS} bots to compete in the high-stakes trading arena.
         </Text>
+
+        {loading ? (
+          <ActivityIndicator size="large" color="#10B981" style={{marginTop: 40}} />
+        ) : gladiators.length === 0 ? (
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginTop: 40}}>
+            No bots available for arena battles right now.
+          </Text>
+        ) : null}
 
         {gladiators.map(item => (
           <TouchableOpacity

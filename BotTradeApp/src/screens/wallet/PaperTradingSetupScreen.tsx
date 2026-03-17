@@ -6,6 +6,8 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -17,6 +19,7 @@ import {RootStackParamList} from '../../types';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import CheckCircleIcon from '../../components/icons/CheckCircleIcon';
 import InfoIcon from '../../components/icons/InfoIcon';
+import {botsService} from '../../services/bots';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PaperTradingSetup'>;
 
@@ -36,22 +39,43 @@ export default function PaperTradingSetupScreen({navigation}: Props) {
   const [enableRiskLimits, setEnableRiskLimits] = useState(true);
   const [enableRealistic, setEnableRealistic] = useState(true);
   const [step, setStep] = useState<'setup' | 'confirm'>('setup');
+  const [submitting, setSubmitting] = useState(false);
 
   const btnScale = useSharedValue(1);
   const btnStyle = useAnimatedStyle(() => ({
     transform: [{scale: btnScale.value}],
   }));
 
-  const handleStart = () => {
-    btnScale.value = withSpring(0.96, {}, () => {
-      btnScale.value = withSpring(1);
-    });
-    setStep('confirm');
-  };
-
   const displayBalance = customBalance
     ? parseInt(customBalance.replace(/,/g, ''), 10) || selectedBalance
     : selectedBalance;
+
+  const handleStart = async () => {
+    if (displayBalance < 100) {
+      Alert.alert('Invalid Amount', 'Starting balance must be at least $100.');
+      return;
+    }
+    if (displayBalance > 10000000) {
+      Alert.alert('Invalid Amount', 'Starting balance cannot exceed $10,000,000.');
+      return;
+    }
+    btnScale.value = withSpring(0.96, {}, () => {
+      btnScale.value = withSpring(1);
+    });
+    setSubmitting(true);
+    try {
+      await botsService.setupPaperTrading({
+        botId: 'paper-default',
+        virtualBalance: displayBalance,
+        durationDays: selectedDuration,
+      });
+      setStep('confirm');
+    } catch (e: any) {
+      Alert.alert('Setup Failed', e?.message || 'Could not start paper trading.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   if (step === 'confirm') {
     return (
@@ -107,7 +131,9 @@ export default function PaperTradingSetupScreen({navigation}: Props) {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scroll}>
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag">
         {/* Info banner */}
         <View style={styles.infoBanner}>
           <InfoIcon size={18} color="#0D7FF2" />
@@ -241,8 +267,12 @@ export default function PaperTradingSetupScreen({navigation}: Props) {
 
         {/* CTA */}
         <Animated.View style={btnStyle}>
-          <TouchableOpacity style={styles.startBtn} onPress={handleStart}>
-            <Text style={styles.startBtnText}>Start Paper Trading</Text>
+          <TouchableOpacity style={styles.startBtn} onPress={handleStart} disabled={submitting}>
+            {submitting ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.startBtnText}>Start Paper Trading</Text>
+            )}
           </TouchableOpacity>
         </Animated.View>
         <Text style={styles.disclaimer}>

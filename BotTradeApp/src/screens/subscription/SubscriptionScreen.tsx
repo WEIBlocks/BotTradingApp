@@ -1,5 +1,6 @@
-import React, {useState} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
+import React, {useState, useCallback} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, RefreshControl} from 'react-native';
+import {subscriptionApi, SubPlan, CurrentSubscription} from '../../services/subscription';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import Svg, {Path, Circle, Rect, Line} from 'react-native-svg';
@@ -47,7 +48,28 @@ const comparisonRows: {feature: string; free: string | boolean; pro: string | bo
 ];
 
 export default function SubscriptionScreen({navigation}: Props) {
-  const [isPro, setIsPro] = useState(false);
+  const [plans, setPlans] = useState<SubPlan[]>([]);
+  const [current, setCurrent] = useState<CurrentSubscription | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchData = useCallback(() => {
+    Promise.all([
+      subscriptionApi.getPlans().catch(() => []),
+      subscriptionApi.getCurrent().catch(() => null),
+    ]).then(([p, c]) => {
+      setPlans(p);
+      setCurrent(c);
+    }).finally(() => { setLoading(false); setRefreshing(false); });
+  }, []);
+
+  // Auto-refresh on focus — no useFocusEffect needed for a mostly-static screen
+  // but we add it for consistency
+  React.useEffect(() => { fetchData(); }, [fetchData]);
+
+  const isPro = current?.tier === 'pro' && current?.status === 'active';
+  const proPlan = plans.find(p => p.tier === 'pro') || null;
+  const proPrice = proPlan?.priceMonthly || 4.94;
 
   return (
     <View style={styles.container}>
@@ -59,7 +81,21 @@ export default function SubscriptionScreen({navigation}: Props) {
         <View style={{width: 40}} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); fetchData(); }}
+            tintColor="#10B981"
+            colors={['#10B981']}
+            progressBackgroundColor="#161B22"
+          />
+        }>
+        {loading && (
+          <ActivityIndicator size="large" color="#10B981" style={{marginTop: 40, marginBottom: 20}} />
+        )}
         {/* Current plan badge */}
         <View style={styles.badgeRow}>
           <View style={[styles.planBadge, isPro && styles.planBadgePro]}>
@@ -76,7 +112,7 @@ export default function SubscriptionScreen({navigation}: Props) {
             <Text style={styles.heroTitle}>TradingApp Pro</Text>
           </View>
           <View style={styles.priceRow}>
-            <Text style={styles.priceAmount}>$4.94</Text>
+            <Text style={styles.priceAmount}>${proPrice.toFixed(2)}</Text>
             <Text style={styles.priceUnit}>/month</Text>
           </View>
 
@@ -148,18 +184,44 @@ export default function SubscriptionScreen({navigation}: Props) {
 
       {/* Subscribe CTA */}
       <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.subscribeBtn}
-          activeOpacity={0.85}
-          onPress={() =>
-            navigation.navigate('Checkout', {
-              type: 'subscription',
-              itemId: 'pro',
-              amount: 4.94,
-            })
-          }>
-          <Text style={styles.subscribeBtnText}>Subscribe — $4.94/mo</Text>
-        </TouchableOpacity>
+        {isPro ? (
+          <TouchableOpacity
+            style={[styles.subscribeBtn, {backgroundColor: '#EF4444'}]}
+            activeOpacity={0.85}
+            onPress={() => {
+              Alert.alert(
+                'Cancel Subscription',
+                'Are you sure you want to cancel your Pro subscription? You will lose access to all Pro features at the end of your billing period.',
+                [
+                  {text: 'Keep Pro', style: 'cancel'},
+                  {text: 'Cancel', style: 'destructive', onPress: async () => {
+                    try {
+                      await subscriptionApi.cancel();
+                      Alert.alert('Cancelled', 'Your subscription has been cancelled.');
+                      setCurrent(null);
+                    } catch (e: any) {
+                      Alert.alert('Error', e?.message || 'Could not cancel subscription.');
+                    }
+                  }},
+                ],
+              );
+            }}>
+            <Text style={styles.subscribeBtnText}>Cancel Subscription</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={styles.subscribeBtn}
+            activeOpacity={0.85}
+            onPress={() =>
+              navigation.navigate('Checkout', {
+                type: 'subscription',
+                itemId: proPlan?.id || 'pro',
+                amount: proPrice,
+              })
+            }>
+            <Text style={styles.subscribeBtnText}>Subscribe — ${proPrice.toFixed(2)}/mo</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );

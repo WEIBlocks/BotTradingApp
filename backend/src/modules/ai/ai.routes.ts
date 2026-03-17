@@ -24,6 +24,17 @@ export async function aiRoutes(app: FastifyInstance) {
     return { data: aiService.getProviderStatus() };
   });
 
+  // GET /ai/chat/history - Load latest conversation
+  zApp.get('/chat/history', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request) => {
+    const result = await aiService.getChatHistory(request.user.userId);
+    return { data: result };
+  });
+
   // POST /ai/chat - Conversational AI trading assistant
   zApp.post('/chat', {
     schema: {

@@ -82,9 +82,16 @@ export default function ProfileScreen() {
         userApi.getWallet(),
       ]);
       setProfile(profileData);
+      // If wallet response has recentActivity, use as-is; otherwise fetch separately
+      if (walletData && (!walletData.recentActivity || walletData.recentActivity.length === 0)) {
+        try {
+          const activityRes = await userApi.getActivity(1, 10);
+          walletData.recentActivity = activityRes.items ?? [];
+        } catch {}
+      }
       setWallet(walletData);
-    } catch {
-      // If fetch fails, use authUser as fallback for basic info
+    } catch (err) {
+      console.warn('[Profile] fetch error:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);

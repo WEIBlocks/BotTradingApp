@@ -1,9 +1,9 @@
-import React from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions} from 'react-native';
+import React, {useState, useEffect, useRef} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse, Polygon} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
-import {mockGladiators} from '../../data/mockGladiators';
+import {arenaApi, ArenaSession} from '../../services/arena';
 import ArenaMultilineChart from '../../components/charts/ArenaMultilineChart';
 
 const {width} = Dimensions.get('window');
@@ -86,17 +86,58 @@ function rankLabel(rank: number): string {
 
 export default function ArenaLiveScreen({navigation, route}: Props) {
   const {gladiatorIds} = route.params;
-  const activeGladiators = mockGladiators
-    .filter(g => gladiatorIds.includes(g.id))
+  const [session, setSession] = useState<ArenaSession | null>(null);
+  const [loading, setLoading] = useState(true);
+  const sessionIdRef = useRef<string | null>(null);
+
+  // Create session on mount
+  useEffect(() => {
+    arenaApi.createSession(gladiatorIds)
+      .then(s => {
+        sessionIdRef.current = s.id;
+        setSession(s);
+      })
+      .catch(() => Alert.alert('Error', 'Failed to create arena session. Please try again.'))
+      .finally(() => setLoading(false));
+  }, [gladiatorIds]);
+
+  // Poll for updates every 5 seconds
+  useEffect(() => {
+    if (!sessionIdRef.current) return;
+    const interval = setInterval(() => {
+      if (!sessionIdRef.current) return;
+      arenaApi.getSession(sessionIdRef.current)
+        .then(s => {
+          setSession(s);
+          if (s.status === 'completed') {
+            clearInterval(interval);
+            const winner = [...s.gladiators].sort((a, b) => (b.currentReturn || 0) - (a.currentReturn || 0))[0];
+            navigation.replace('ArenaResults', {winnerId: winner?.id ?? ''});
+          }
+        })
+        .catch(() => {});
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [session?.id, navigation]);
+
+  const activeGladiators = (session?.gladiators ?? [])
     .map((g, i) => ({...g, lineColor: LINE_COLORS[i]}));
 
   const datasets = activeGladiators.map(g => g.equityData || []);
-  const currentDay = 22;
-  const totalDays = 30;
-  const progressPct = (currentDay / totalDays) * 100;
+  const progressPct = (session?.progress ?? 0) * 100;
+  const totalDays = Math.ceil((session?.durationSeconds ?? 300) / 86400) || 30;
+  const currentDay = Math.ceil((session?.elapsedSeconds ?? 0) / 86400) || 1;
 
   const ranked = [...activeGladiators].sort((a, b) => (b.currentReturn || 0) - (a.currentReturn || 0));
   const chartWidth = width - 40;
+
+  if (loading) {
+    return (
+      <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
+        <ActivityIndicator size="large" color="#10B981" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

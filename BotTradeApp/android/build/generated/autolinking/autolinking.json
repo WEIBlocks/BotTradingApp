@@ -28,6 +28,31 @@
         }
       }
     },
+    "@react-native-community/netinfo": {
+      "root": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\@react-native-community\\netinfo",
+      "name": "@react-native-community/netinfo",
+      "platforms": {
+        "ios": {
+          "podspecPath": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\@react-native-community\\netinfo\\react-native-netinfo.podspec",
+          "version": "12.0.1",
+          "configurations": [],
+          "scriptPhases": []
+        },
+        "android": {
+          "sourceDir": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\@react-native-community\\netinfo\\android",
+          "packageImportPath": "import com.reactnativecommunity.netinfo.NetInfoPackage;",
+          "packageInstance": "new NetInfoPackage()",
+          "buildTypes": [],
+          "libraryName": "RNCNetInfoSpec",
+          "componentDescriptors": [],
+          "cmakeListsPath": "D:/Weiblocks/Bot_App/BotTradeApp/node_modules/@react-native-community/netinfo/android/build/generated/source/codegen/jni/CMakeLists.txt",
+          "cxxModuleCMakeListsModuleName": null,
+          "cxxModuleCMakeListsPath": null,
+          "cxxModuleHeaderName": null,
+          "isPureCxxDependency": false
+        }
+      }
+    },
     "@react-native-community/slider": {
       "root": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\@react-native-community\\slider",
       "name": "@react-native-community/slider",
@@ -143,7 +168,7 @@
       "platforms": {
         "ios": {
           "podspecPath": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\react-native-haptic-feedback\\RNReactNativeHapticFeedback.podspec",
-          "version": "2.3.3",
+          "version": "2.3.4",
           "configurations": [],
           "scriptPhases": []
         },

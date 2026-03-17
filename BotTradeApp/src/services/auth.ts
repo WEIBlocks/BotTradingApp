@@ -52,10 +52,16 @@ export const authApi = {
     return data;
   },
 
+  async requestPasswordReset(email: string): Promise<void> {
+    await api.post('/auth/forgot-password', {email}, {auth: false});
+  },
+
   async logout(): Promise<void> {
     const refreshToken = await storage.getRefreshToken();
     try {
-      await api.post('/auth/logout', {refreshToken});
+      if (refreshToken) {
+        await api.post('/auth/logout', {refreshToken});
+      }
     } catch {
       // Even if logout API fails, clear local tokens
     }

@@ -1,8 +1,7 @@
 import { FastifyRequest } from 'fastify';
 import { WebSocket } from 'ws';
-import Redis from 'ioredis';
 import { verifyAccessToken, TokenPayload } from '../../lib/jwt.js';
-import { env } from '../../config/env.js';
+import { getSubscriber } from '../../config/redis.js';
 import { db } from '../../config/database.js';
 import { trades } from '../../db/schema/trades.js';
 import { notifications } from '../../db/schema/notifications.js';
@@ -28,29 +27,63 @@ function sendJson(socket: WebSocket, data: unknown): void {
   }
 }
 
-/**
- * Create a dedicated Redis subscriber for a single WebSocket connection.
- * Returns null if Redis is not available (graceful degradation).
- */
-function createConnectionSubscriber(): Redis | null {
-  try {
-    const sub = new Redis(env.REDIS_URL, {
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-      retryStrategy: (times) => {
-        if (times > 2) return null;
-        return Math.min(times * 200, 1000);
-      },
-      lazyConnect: true,
+// ─── Shared subscriber with per-channel listener tracking ────────────────────
+// Uses a single Redis subscriber connection for ALL WebSocket clients.
+// Each channel maps to a set of listener callbacks.
+
+const channelListeners = new Map<string, Set<(message: string) => void>>();
+let subscriberReady = false;
+
+function getSharedSubscriber() {
+  const sub = getSubscriber();
+  if (!subscriberReady) {
+    sub.on('message', (channel: string, message: string) => {
+      const listeners = channelListeners.get(channel);
+      if (listeners) {
+        for (const fn of listeners) {
+          try { fn(message); } catch { /* ignore */ }
+        }
+      }
     });
-    sub.on('error', () => {
-      // Suppress errors for individual connection subscribers
-    });
-    return sub;
-  } catch {
-    return null;
+    subscriberReady = true;
+  }
+  return sub;
+}
+
+async function subscribeChannel(channel: string, listener: (message: string) => void): Promise<void> {
+  let listeners = channelListeners.get(channel);
+  const isNew = !listeners || listeners.size === 0;
+  if (!listeners) {
+    listeners = new Set();
+    channelListeners.set(channel, listeners);
+  }
+  listeners.add(listener);
+
+  if (isNew) {
+    try {
+      const sub = getSharedSubscriber();
+      await sub.subscribe(channel);
+    } catch {
+      console.warn(`Redis subscribe failed for channel: ${channel}`);
+    }
   }
 }
+
+async function unsubscribeChannel(channel: string, listener: (message: string) => void): Promise<void> {
+  const listeners = channelListeners.get(channel);
+  if (!listeners) return;
+  listeners.delete(listener);
+
+  if (listeners.size === 0) {
+    channelListeners.delete(channel);
+    try {
+      const sub = getSharedSubscriber();
+      await sub.unsubscribe(channel);
+    } catch { /* ignore */ }
+  }
+}
+
+// ─── WebSocket Handlers ──────────────────────────────────────────────────────
 
 /**
  * Live Trades Feed: /ws/trades
@@ -79,34 +112,13 @@ export async function handleTradesWs(socket: WebSocket, request: FastifyRequest)
 
   // Subscribe to Redis pub/sub for live trade updates
   const channel = `trades:${user.userId}`;
-  const subscriber = createConnectionSubscriber();
-  let subscribed = false;
+  const listener = (message: string) => {
+    try { sendJson(socket, JSON.parse(message)); } catch { /* ignore */ }
+  };
+  await subscribeChannel(channel, listener);
 
-  if (subscriber) {
-    try {
-      await subscriber.connect();
-      subscriber.on('message', (ch: string, message: string) => {
-        if (ch === channel) {
-          try {
-            sendJson(socket, JSON.parse(message));
-          } catch {
-            // Ignore malformed messages
-          }
-        }
-      });
-      await subscriber.subscribe(channel);
-      subscribed = true;
-    } catch {
-      console.warn('Redis subscriber not available for trades feed');
-    }
-  }
-
-  // Cleanup on close
   const cleanup = async () => {
-    if (subscriber && subscribed) {
-      await subscriber.unsubscribe(channel).catch(() => {});
-      await subscriber.quit().catch(() => {});
-    }
+    await unsubscribeChannel(channel, listener);
   };
 
   socket.on('close', cleanup);
@@ -143,35 +155,15 @@ export async function handleArenaWs(socket: WebSocket, request: FastifyRequest):
   }
 
   const channel = `arena:${sessionId}`;
-  const subscriber = createConnectionSubscriber();
-  let subscribed = false;
-
-  if (subscriber) {
-    try {
-      await subscriber.connect();
-      subscriber.on('message', (ch: string, message: string) => {
-        if (ch === channel) {
-          try {
-            sendJson(socket, JSON.parse(message));
-          } catch {
-            // Ignore malformed messages
-          }
-        }
-      });
-      await subscriber.subscribe(channel);
-      subscribed = true;
-    } catch {
-      console.warn('Redis subscriber not available for arena feed');
-    }
-  }
+  const listener = (message: string) => {
+    try { sendJson(socket, JSON.parse(message)); } catch { /* ignore */ }
+  };
+  await subscribeChannel(channel, listener);
 
   sendJson(socket, { type: 'connected', sessionId });
 
   const cleanup = async () => {
-    if (subscriber && subscribed) {
-      await subscriber.unsubscribe(channel).catch(() => {});
-      await subscriber.quit().catch(() => {});
-    }
+    await unsubscribeChannel(channel, listener);
   };
 
   socket.on('close', cleanup);
@@ -214,33 +206,13 @@ export async function handleNotificationsWs(socket: WebSocket, request: FastifyR
   }
 
   const channel = `notifications:${user.userId}`;
-  const subscriber = createConnectionSubscriber();
-  let subscribed = false;
-
-  if (subscriber) {
-    try {
-      await subscriber.connect();
-      subscriber.on('message', (ch: string, message: string) => {
-        if (ch === channel) {
-          try {
-            sendJson(socket, JSON.parse(message));
-          } catch {
-            // Ignore malformed messages
-          }
-        }
-      });
-      await subscriber.subscribe(channel);
-      subscribed = true;
-    } catch {
-      console.warn('Redis subscriber not available for notifications feed');
-    }
-  }
+  const listener = (message: string) => {
+    try { sendJson(socket, JSON.parse(message)); } catch { /* ignore */ }
+  };
+  await subscribeChannel(channel, listener);
 
   const cleanup = async () => {
-    if (subscriber && subscribed) {
-      await subscriber.unsubscribe(channel).catch(() => {});
-      await subscriber.quit().catch(() => {});
-    }
+    await unsubscribeChannel(channel, listener);
   };
 
   socket.on('close', cleanup);

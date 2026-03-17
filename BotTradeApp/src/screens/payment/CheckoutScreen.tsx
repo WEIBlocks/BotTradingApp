@@ -1,9 +1,12 @@
-import React from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert} from 'react-native';
+import React, {useState, useEffect} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {RootStackParamList} from '../../types';
+import {RootStackParamList, PaymentMethodData} from '../../types';
 import Svg, {Path, Rect, Circle} from 'react-native-svg';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
+import {paymentsApi} from '../../services/payments';
+import {configApi} from '../../services/config';
+import {subscriptionApi} from '../../services/subscription';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Checkout'>;
 
@@ -37,20 +40,67 @@ const ShieldIcon = () => (
 
 export default function CheckoutScreen({navigation, route}: Props) {
   const {type, itemId, amount} = route.params;
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodData | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [loadingPm, setLoadingPm] = useState(true);
+  const [platformFeeRate, setPlatformFeeRate] = useState(0.07);
+  const [proDiscount, setProDiscount] = useState(0);
+
+  useEffect(() => {
+    Promise.all([
+      paymentsApi.getMethods().catch(() => []),
+      configApi.getPlatformConfig().catch(() => ({platformFeeRate: 0.07, proDiscountRate: 0.03})),
+      subscriptionApi.getCurrent().catch(() => null),
+    ]).then(([methods, config, sub]) => {
+      if (methods.length > 0) setPaymentMethod(methods[0]);
+      setPlatformFeeRate(config.platformFeeRate ?? 0.07);
+      // Pro subscribers get discount on bot profit fees
+      const isPro = sub?.tier === 'pro' && sub?.status === 'active';
+      if (isPro && type !== 'subscription') {
+        setProDiscount(config.proDiscountRate ?? 0.03);
+      }
+    }).finally(() => setLoadingPm(false));
+  }, [type]);
 
   const itemName =
     type === 'subscription' ? 'TradingApp Pro Subscription' : `Bot — ${itemId}`;
 
-  const platformFeeRate = 0.07;
   const subtotal = amount;
-  const platformFee = parseFloat((subtotal * platformFeeRate).toFixed(2));
-  const discount = type === 'subscription' ? 0 : 0;
-  const total = parseFloat((subtotal + platformFee - discount).toFixed(2));
+  const effectiveFeeRate = Math.max(0, platformFeeRate - proDiscount);
+  const platformFee = parseFloat((subtotal * effectiveFeeRate).toFixed(2));
+  const total = parseFloat((subtotal + platformFee).toFixed(2));
 
   const handleConfirm = () => {
-    Alert.alert('Payment successful!', 'Your payment has been processed.', [
-      {text: 'OK', onPress: () => navigation.navigate('Main')},
-    ]);
+    if (!paymentMethod) {
+      Alert.alert('No Payment Method', 'Please add a payment method first.');
+      return;
+    }
+    if (processing) return; // Prevent duplicate taps
+    Alert.alert(
+      'Confirm Payment',
+      `Pay $${total.toFixed(2)} using ${paymentMethod.label}${paymentMethod.last4 ? ` \u2022\u2022\u2022\u2022 ${paymentMethod.last4}` : ''}?`,
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'Pay Now', onPress: async () => {
+          setProcessing(true);
+          try {
+            await paymentsApi.confirmCheckout({
+              paymentMethodId: paymentMethod.id,
+              type,
+              itemId,
+              amount: total,
+            });
+            Alert.alert('Payment Successful!', 'Your payment has been processed.', [
+              {text: 'OK', onPress: () => navigation.navigate('Main')},
+            ]);
+          } catch (e: any) {
+            Alert.alert('Payment Failed', e?.message || 'Could not process payment.');
+          } finally {
+            setProcessing(false);
+          }
+        }},
+      ],
+    );
   };
 
   return (
@@ -79,8 +129,18 @@ export default function CheckoutScreen({navigation, route}: Props) {
               <CreditCardSmallIcon size={20} color="#10B981" />
             </View>
             <View style={styles.paymentInfo}>
-              <Text style={styles.paymentLabel}>Visa {'\u2022\u2022\u2022\u2022'} 4242</Text>
-              <Text style={styles.paymentSub}>Default payment method</Text>
+              {loadingPm ? (
+                <ActivityIndicator size="small" color="#10B981" />
+              ) : (
+                <>
+                  <Text style={styles.paymentLabel}>
+                    {paymentMethod ? `${paymentMethod.label}${paymentMethod.last4 ? ` \u2022\u2022\u2022\u2022 ${paymentMethod.last4}` : ''}` : 'No payment method'}
+                  </Text>
+                  <Text style={styles.paymentSub}>
+                    {paymentMethod ? 'Default payment method' : 'Add a payment method to continue'}
+                  </Text>
+                </>
+              )}
             </View>
             <TouchableOpacity
               onPress={() => navigation.navigate('PaymentMethod')}
@@ -98,14 +158,14 @@ export default function CheckoutScreen({navigation, route}: Props) {
             <Text style={styles.breakdownValue}>${subtotal.toFixed(2)}</Text>
           </View>
           <View style={styles.breakdownRow}>
-            <Text style={styles.breakdownLabel}>Platform Fee (7%)</Text>
+            <Text style={styles.breakdownLabel}>Platform Fee ({Math.round(effectiveFeeRate * 100)}%)</Text>
             <Text style={styles.breakdownValue}>${platformFee.toFixed(2)}</Text>
           </View>
-          {discount > 0 && (
+          {proDiscount > 0 && (
             <View style={styles.breakdownRow}>
-              <Text style={styles.breakdownLabel}>Discount</Text>
+              <Text style={styles.breakdownLabel}>Pro Discount</Text>
               <Text style={[styles.breakdownValue, {color: '#10B981'}]}>
-                -${discount.toFixed(2)}
+                -{Math.round(proDiscount * 100)}% fee reduction
               </Text>
             </View>
           )}
@@ -124,10 +184,15 @@ export default function CheckoutScreen({navigation, route}: Props) {
           <Text style={styles.secText}>Secure payment {'\u00B7'} 256-bit encryption</Text>
         </View>
         <TouchableOpacity
-          style={styles.confirmBtn}
+          style={[styles.confirmBtn, processing && {opacity: 0.6}]}
           activeOpacity={0.85}
-          onPress={handleConfirm}>
-          <Text style={styles.confirmBtnText}>Confirm Payment</Text>
+          onPress={handleConfirm}
+          disabled={processing}>
+          {processing ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={styles.confirmBtnText}>Confirm Payment</Text>
+          )}
         </TouchableOpacity>
       </View>
     </View>

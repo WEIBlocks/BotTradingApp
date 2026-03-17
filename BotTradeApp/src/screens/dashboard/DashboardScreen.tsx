@@ -1,18 +1,16 @@
-import React, {useState} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, useWindowDimensions, Alert} from 'react-native';
-import {useNavigation} from '@react-navigation/native';
+import React, {useState, useCallback} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, useWindowDimensions, Alert, ActivityIndicator, RefreshControl} from 'react-native';
+import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {CommonActions} from '@react-navigation/native';
 import Svg, {Path, Rect, Circle, Polygon} from 'react-native-svg';
-import {RootStackParamList} from '../../types';
+import {RootStackParamList, Trade} from '../../types';
 import {useAuth} from '../../context/AuthContext';
-import {mockUser} from '../../data/mockUser';
-import {mockTrades} from '../../data/mockTrades';
-import {dashboardEquityData} from '../../data/mockEquityData';
-import EquityChart from '../../components/charts/EquityChart';
+import {dashboardApi, DashboardSummary, ActiveBot as DashActiveBot} from '../../services/dashboard';
+import {botsService} from '../../services/bots';
+import {tradesApi} from '../../services/trades';
+import InteractiveChart from '../../components/charts/InteractiveChart';
 import PlusIcon from '../../components/icons/PlusIcon';
-
-const TIMEFRAMES = ['1D', '1W', '1M', 'ALL'];
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -209,17 +207,50 @@ function formatTimeAgo(date: Date): string {
 export default function DashboardScreen() {
   const {width} = useWindowDimensions();
   const navigation = useNavigation<NavProp>();
-  const [selectedTF, setSelectedTF] = useState('1W');
+  const [selectedTF, setSelectedTF] = useState('1D');
   const {user: authUser, isNewUser} = useAuth();
-  const user = mockUser;
 
-  // Real user data for header (rest of dashboard still uses mock data for now)
-  const displayName = authUser?.name || user.name;
+  const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [activeBots, setActiveBots] = useState<DashActiveBot[]>([]);
+  const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
+  const [equityData, setEquityData] = useState<number[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [s, bots, trades, equity] = await Promise.all([
+        dashboardApi.getSummary(),
+        dashboardApi.getActiveBots(),
+        tradesApi.getRecent(5).catch(() => [] as Trade[]),
+        dashboardApi.getEquityHistory(30).catch(() => [] as number[]),
+      ]);
+      setSummary(s);
+      setActiveBots(bots);
+      setRecentTrades(trades);
+      setEquityData(equity);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to load dashboard data. Pull down to retry.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+
+  const displayName = authUser?.name || 'Trader';
   const firstName = displayName.split(' ')[0];
   const avatarInitials = displayName.split(' ').map((w: string) => w[0]).join('').substring(0, 2).toUpperCase();
   const greetingLabel = isNewUser ? 'WELCOME' : 'WELCOME BACK';
 
-  const isPositive = user.totalProfitPercent >= 0;
+  const totalBalance = summary?.totalBalance ?? 0;
+  const totalProfitPercent = summary?.totalProfitPercent ?? 0;
+  const totalProfit = summary?.totalProfit ?? 0;
+  const accountBalance = summary?.accountBalance ?? 0;
+  const buyingPower = summary?.buyingPower ?? 0;
+
+  const isPositive = totalProfitPercent >= 0;
   const profitColor = isPositive ? '#10B981' : '#EF4444';
   const profitSign = isPositive ? '+' : '';
   const CHART_WIDTH = width - 40;
@@ -242,7 +273,9 @@ export default function DashboardScreen() {
       `Pause "${botName}"? It will stop trading until resumed.`,
       [
         {text: 'Cancel', style: 'cancel'},
-        {text: 'Pause', style: 'default', onPress: () => {}},
+        {text: 'Pause', style: 'default', onPress: () => {
+          botsService.pause(botId).then(fetchData).catch(() => Alert.alert('Error', 'Failed to pause bot.'));
+        }},
       ],
     );
   };
@@ -253,10 +286,20 @@ export default function DashboardScreen() {
       `Stop "${botName}" permanently? This will close all open positions.`,
       [
         {text: 'Cancel', style: 'cancel'},
-        {text: 'Stop', style: 'destructive', onPress: () => {}},
+        {text: 'Stop', style: 'destructive', onPress: () => {
+          botsService.stop(botId).then(fetchData).catch(() => Alert.alert('Error', 'Failed to stop bot.'));
+        }},
       ],
     );
   };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
+        <ActivityIndicator size="large" color="#10B981" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -286,22 +329,33 @@ export default function DashboardScreen() {
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); fetchData(); }}
+            tintColor="#10B981"
+            colors={['#10B981']}
+            progressBackgroundColor="#161B22"
+          />
+        }>
         {/* Balance section */}
         <View style={styles.balanceSection}>
           <Text style={styles.balanceLabel}>Total Balance</Text>
           <View style={styles.balanceRow}>
             <Text style={styles.balanceValue}>
-              ${user.totalBalance.toLocaleString('en-US', {minimumFractionDigits: 2})}
+              ${totalBalance.toLocaleString('en-US', {minimumFractionDigits: 2})}
             </Text>
             <View style={styles.pctBadge}>
               <Text style={styles.pctBadgeText}>
-                {profitSign}{user.totalProfitPercent.toFixed(1)}%
+                {profitSign}{totalProfitPercent.toFixed(1)}%
               </Text>
             </View>
           </View>
           <Text style={[styles.todayProfit, {color: profitColor}]}>
-            {profitSign}${user.totalProfit.toFixed(2)} today
+            {profitSign}${totalProfit.toFixed(2)} today
           </Text>
         </View>
 
@@ -309,30 +363,28 @@ export default function DashboardScreen() {
         <View style={styles.metricsRow}>
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>ACCOUNT BALANCE</Text>
-            <Text style={styles.metricValue}>${user.accountBalance.toLocaleString()}</Text>
+            <Text style={styles.metricValue}>${accountBalance.toLocaleString()}</Text>
           </View>
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>BUYING POWER</Text>
-            <Text style={styles.metricValue}>${user.buyingPower.toLocaleString()}</Text>
+            <Text style={styles.metricValue}>${buyingPower.toLocaleString()}</Text>
           </View>
         </View>
 
         {/* Chart card */}
         <View style={styles.chartCard}>
-          <View style={styles.chartHeader}>
-            <Text style={styles.chartTitle}>EQUITY CURVE</Text>
-            <View style={styles.tfRow}>
-              {TIMEFRAMES.map(tf => (
-                <TouchableOpacity
-                  key={tf}
-                  style={[styles.tfBtn, selectedTF === tf && styles.tfBtnActive]}
-                  onPress={() => setSelectedTF(tf)}>
-                  <Text style={[styles.tfText, selectedTF === tf && styles.tfTextActive]}>{tf}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </View>
-          <EquityChart data={dashboardEquityData} width={CHART_WIDTH - 32} height={140} />
+          <InteractiveChart
+            data={equityData.length >= 2 ? equityData : [totalBalance, totalBalance]}
+            width={CHART_WIDTH - 32}
+            height={180}
+            selectedTimeframe={selectedTF}
+            onTimeframeChange={setSelectedTF}
+            label="EQUITY CURVE"
+            showGrid
+            showCrosshair
+            showYLabels
+            showXLabels
+          />
         </View>
 
         {/* Active Bots */}
@@ -344,11 +396,26 @@ export default function DashboardScreen() {
             </TouchableOpacity>
           </View>
           <View style={styles.botList}>
-            {user.activeBots.map(bot => {
-              const BotIcon = BOT_ICONS[bot.id] || LightningIcon;
+            {activeBots.length === 0 && (
+              <TouchableOpacity
+                style={[styles.botCard, {borderLeftColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', paddingVertical: 24}]}
+                onPress={goToMarket}
+                activeOpacity={0.7}>
+                <View style={{alignItems: 'center', flex: 1}}>
+                  <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 4}}>No active bots yet</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: '#10B981'}}>Browse the marketplace</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+            {activeBots.map((bot: DashActiveBot) => {
               const returnColor = bot.totalReturn >= 0 ? '#10B981' : '#EF4444';
               const returnSign = bot.totalReturn >= 0 ? '+' : '';
-              const accentColor = bot.status === 'live' ? '#10B981' : '#F59E0B';
+              const isShadow = bot.subStatus === 'shadow';
+              const isPaused = bot.subStatus === 'paused';
+              const isLive = bot.subStatus === 'active' && bot.status === 'live';
+              const accentColor = isShadow ? '#0D7FF2' : isPaused ? '#F97316' : isLive ? '#10B981' : '#F59E0B';
+              const badgeLabel = isShadow ? 'SHADOW' : isPaused ? 'PAUSED' : isLive ? 'LIVE' : 'PAPER';
+              const badgeColor = isShadow ? '#0D7FF2' : isPaused ? '#F97316' : isLive ? '#10B981' : '#F59E0B';
               return (
                 <TouchableOpacity
                   key={bot.id}
@@ -356,14 +423,17 @@ export default function DashboardScreen() {
                   onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
                   activeOpacity={0.7}>
                   <View style={[styles.botAvatar, {backgroundColor: bot.avatarColor}]}>
-                    <BotIcon />
+                    <Text style={styles.botAvatarText}>{bot.avatarLetter}</Text>
                   </View>
                   <View style={styles.botInfo}>
                     <View style={styles.botNameRow}>
-                      <Text style={styles.botName}>{bot.name}</Text>
-                      <View style={[styles.liveDot, {backgroundColor: accentColor}]} />
+                      <Text style={styles.botName} numberOfLines={1}>{bot.name}</Text>
+                      <View style={[styles.statusBadge, {backgroundColor: `${badgeColor}20`}]}>
+                        <View style={[styles.statusBadgeDot, {backgroundColor: badgeColor}]} />
+                        <Text style={[styles.statusBadgeText, {color: badgeColor}]}>{badgeLabel}</Text>
+                      </View>
                     </View>
-                    <Text style={styles.botPair}>
+                    <Text style={styles.botPair} numberOfLines={1}>
                       {bot.pair}
                       {'  '}
                       <Text style={{color: returnColor, fontFamily: 'Inter-SemiBold'}}>
@@ -371,20 +441,32 @@ export default function DashboardScreen() {
                       </Text>
                     </Text>
                   </View>
-                  <View style={styles.botActions}>
+                  {!isShadow && !isPaused && (
+                    <View style={styles.botActions}>
+                      <TouchableOpacity
+                        style={styles.botActionBtn}
+                        onPress={() => handlePauseBot(bot.subscriptionId, bot.name)}
+                        activeOpacity={0.7}>
+                        <PauseIcon size={13} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.botActionBtn, styles.botStopBtn]}
+                        onPress={() => handleStopBot(bot.subscriptionId, bot.name)}
+                        activeOpacity={0.7}>
+                        <StopSquareIcon size={12} />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {isPaused && (
                     <TouchableOpacity
-                      style={styles.botActionBtn}
-                      onPress={() => handlePauseBot(bot.id, bot.name)}
+                      style={styles.resumeSmallBtn}
+                      onPress={() => {
+                        botsService.resume(bot.subscriptionId).then(fetchData).catch(() => Alert.alert('Error', 'Failed to resume bot.'));
+                      }}
                       activeOpacity={0.7}>
-                      <PauseIcon size={13} />
+                      <Text style={styles.resumeSmallText}>Resume</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.botActionBtn, styles.botStopBtn]}
-                      onPress={() => handleStopBot(bot.id, bot.name)}
-                      activeOpacity={0.7}>
-                      <StopSquareIcon size={12} />
-                    </TouchableOpacity>
-                  </View>
+                  )}
                 </TouchableOpacity>
               );
             })}
@@ -400,10 +482,15 @@ export default function DashboardScreen() {
             </TouchableOpacity>
           </View>
           <View style={styles.sectionCard}>
-            {mockTrades.slice(0, 5).map((trade, idx) => {
+            {recentTrades.length === 0 && (
+              <View style={{paddingVertical: 24, alignItems: 'center'}}>
+                <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.35)'}}>No recent trades</Text>
+              </View>
+            )}
+            {recentTrades.map((trade: Trade, idx: number) => {
               const isBuy = trade.side === 'BUY';
               const coin = trade.symbol.split('/')[0];
-              const isLast = idx === Math.min(mockTrades.length - 1, 4);
+              const isLast = idx === recentTrades.length - 1;
               return (
                 <View
                   key={trade.id}
@@ -574,7 +661,7 @@ const styles = StyleSheet.create({
   botAvatar: {width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12},
   botInfo: {flex: 1, marginRight: 8},
   botNameRow: {flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3},
-  botName: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
+  botName: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', flexShrink: 1},
   liveDot: {width: 7, height: 7, borderRadius: 4},
   botPair: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
   botActions: {flexDirection: 'row', gap: 6},
@@ -584,6 +671,19 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   botStopBtn: {backgroundColor: 'rgba(239,68,68,0.1)'},
+  botAvatarText: {fontFamily: 'Inter-Bold', fontSize: 16, color: '#FFFFFF'},
+  statusBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6,
+    flexShrink: 0,
+  },
+  statusBadgeDot: {width: 5, height: 5, borderRadius: 3},
+  statusBadgeText: {fontFamily: 'Inter-Bold', fontSize: 9, letterSpacing: 0.5},
+  resumeSmallBtn: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8,
+    backgroundColor: '#10B981',
+  },
+  resumeSmallText: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: '#FFFFFF'},
 
   // Trade rows
   tradeRow: {flexDirection: 'row', alignItems: 'center', paddingVertical: 12},

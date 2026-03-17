@@ -1,16 +1,43 @@
-import React from 'react';
-import {View, Text, StyleSheet, FlatList, TouchableOpacity} from 'react-native';
+import React, {useState, useCallback} from 'react';
+import {View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {useFocusEffect} from '@react-navigation/native';
 import {RootStackParamList} from '../../types';
-import {mockTrades} from '../../data/mockTrades';
+import type {Trade} from '../../types';
+import {tradesApi, TradeSummary} from '../../services/trades';
 import TradeRow from '../../components/common/TradeRow';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TradeHistory'>;
 
 export default function TradeHistoryScreen({navigation}: Props) {
-  const totalPnl = mockTrades.reduce((sum, t) => sum + (t.pnl || 0), 0);
-  const wins = mockTrades.filter(t => (t.pnl || 0) > 0).length;
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [summary, setSummary] = useState<TradeSummary>({totalPnl: 0, totalTrades: 0, winRate: 0});
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [historyRes, summaryRes] = await Promise.all([tradesApi.getHistory(), tradesApi.getSummary()]);
+      setTrades(historyRes.trades);
+      setSummary(summaryRes);
+    } catch {
+      Alert.alert('Error', 'Failed to load trade history. Pull down to retry.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+
+  if (loading) {
+    return (
+      <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
+        <ActivityIndicator size="large" color="#10B981" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -25,26 +52,41 @@ export default function TradeHistoryScreen({navigation}: Props) {
       {/* Summary */}
       <View style={styles.summary}>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>${totalPnl.toFixed(2)}</Text>
+          <Text style={styles.summaryValue}>${summary.totalPnl.toFixed(2)}</Text>
           <Text style={styles.summaryLabel}>Total P&L</Text>
         </View>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>{mockTrades.length}</Text>
+          <Text style={styles.summaryValue}>{summary.totalTrades}</Text>
           <Text style={styles.summaryLabel}>Total Trades</Text>
         </View>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>{Math.round((wins / mockTrades.length) * 100)}%</Text>
+          <Text style={styles.summaryValue}>{Math.round(summary.winRate)}%</Text>
           <Text style={styles.summaryLabel}>Win Rate</Text>
         </View>
       </View>
 
-      <FlatList
-        data={mockTrades}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        renderItem={({item}) => <TradeRow trade={item} />}
-      />
+      {trades.length === 0 ? (
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
+          <Text style={{color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter-Regular', fontSize: 14}}>No trades yet</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={trades}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          renderItem={({item}) => <TradeRow trade={item} />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); fetchData(); }}
+              tintColor="#10B981"
+              colors={['#10B981']}
+              progressBackgroundColor="#161B22"
+            />
+          }
+        />
+      )}
     </View>
   );
 }

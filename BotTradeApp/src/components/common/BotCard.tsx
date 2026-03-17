@@ -29,7 +29,9 @@ export default function BotCard({bot, onPress, style, compact = false}: BotCardP
       onPress={onPress}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
-      activeOpacity={1}>
+      activeOpacity={1}
+      accessibilityLabel={`${bot.name}, ${bot.strategy}, ${returnSign}${bot.returnPercent.toFixed(1)}% return, ${bot.risk} risk`}
+      accessibilityRole="button">
       {/* Top row */}
       <View style={styles.topRow}>
         <View style={[styles.avatar, {backgroundColor: bot.avatarColor}]}>

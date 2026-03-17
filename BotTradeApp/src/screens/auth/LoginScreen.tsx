@@ -5,6 +5,7 @@ import {GoogleSignin, statusCodes} from '@react-native-google-signin/google-sign
 import {AuthStackParamList} from '../../types';
 import {useAuth} from '../../context/AuthContext';
 import {ApiError} from '../../services/api';
+import {authApi} from '../../services/auth';
 import {GOOGLE_WEB_CLIENT_ID} from '../../config/google';
 import Input from '../../components/common/Input';
 import Button from '../../components/common/Button';
@@ -46,7 +47,6 @@ export default function LoginScreen({navigation}: Props) {
       await googleSignIn(idToken);
       // Navigation happens automatically via AuthContext state change
     } catch (err: any) {
-      console.log('[GoogleSignIn] Error:', JSON.stringify(err, null, 2));
       if (err?.code === statusCodes.SIGN_IN_CANCELLED) {
         // User cancelled — no error to show
       } else if (err?.code === statusCodes.IN_PROGRESS) {
@@ -170,7 +170,30 @@ export default function LoginScreen({navigation}: Props) {
           error={errors.password}
         />
 
-        <TouchableOpacity style={styles.forgotBtn}>
+        <TouchableOpacity
+          style={styles.forgotBtn}
+          onPress={() => {
+            const trimmedEmail = email.trim().toLowerCase();
+            if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+              Alert.alert('Reset Password', 'Please enter your email address above, then tap "Forgot Password?" again.');
+              return;
+            }
+            Alert.alert(
+              'Reset Password',
+              `We'll send a password reset link to:\n${trimmedEmail}`,
+              [
+                {text: 'Cancel', style: 'cancel'},
+                {text: 'Send Link', onPress: async () => {
+                  try {
+                    await authApi.requestPasswordReset(trimmedEmail);
+                  } catch {
+                    // Always show success to prevent email enumeration
+                  }
+                  Alert.alert('Email Sent', 'If an account exists with that email, you will receive a password reset link shortly.');
+                }},
+              ],
+            );
+          }}>
           <Text style={styles.forgotText}>Forgot Password?</Text>
         </TouchableOpacity>
 

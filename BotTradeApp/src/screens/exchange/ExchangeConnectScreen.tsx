@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   View,
   Text,
@@ -7,11 +7,13 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import Svg, {Path, Rect, Circle, Line} from 'react-native-svg';
+import {exchangeApi, ExchangeInfo as ExchangeInfoApi} from '../../services/exchange';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -121,7 +123,7 @@ interface ExchangeInfo {
   color: string;
 }
 
-const EXCHANGES: ExchangeInfo[] = [
+const DEFAULT_EXCHANGES: ExchangeInfo[] = [
   {name: 'Coinbase', subtitle: 'Crypto Assets', color: '#0052FF'},
   {name: 'Binance', subtitle: 'Crypto Assets', color: '#F3BA2F'},
   {name: 'Kraken', subtitle: 'Crypto Assets', color: '#5741D9'},
@@ -137,24 +139,31 @@ const ExchangeConnectScreen = () => {
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
+  const [exchanges, setExchanges] = useState<ExchangeInfo[]>(DEFAULT_EXCHANGES);
+  const [loading, setLoading] = useState(true);
+  const [connecting, setConnecting] = useState(false);
+  const [testing, setTesting] = useState(false);
 
-  const handleConnect = (exchangeName: string) => {
-    Alert.alert('Connection Initiated', `Connecting to ${exchangeName} via OAuth...`);
+  useEffect(() => {
+    exchangeApi.getAvailable()
+      .then(data => setExchanges(data.length > 0 ? data.map(d => ({name: d.name, subtitle: d.subtitle, color: d.color})) : DEFAULT_EXCHANGES))
+      .catch(() => setExchanges(DEFAULT_EXCHANGES))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleConnect = async (exchangeName: string) => {
+    setConnecting(true);
+    try {
+      await exchangeApi.initiateOAuth(exchangeName);
+      Alert.alert('OAuth Initiated', `Please complete the authorization for ${exchangeName}.`);
+    } catch (e: any) {
+      Alert.alert('Connection Failed', e?.message || 'Could not initiate OAuth.');
+    } finally {
+      setConnecting(false);
+    }
   };
 
-  const handleTestConnection = () => {
-    if (!selectedExchange) {
-      Alert.alert('Select Exchange', 'Please select an exchange first.');
-      return;
-    }
-    if (!apiKey.trim()) {
-      Alert.alert('Missing API Key', 'Please enter your API key.');
-      return;
-    }
-    Alert.alert('Testing Connection', `Testing API connection to ${selectedExchange}...`);
-  };
-
-  const handleSaveConnect = () => {
+  const handleTestConnection = async () => {
     if (!selectedExchange) {
       Alert.alert('Select Exchange', 'Please select an exchange first.');
       return;
@@ -163,14 +172,46 @@ const ExchangeConnectScreen = () => {
       Alert.alert('Missing Fields', 'Please fill in both API Key and API Secret.');
       return;
     }
-    Alert.alert('Connection Initiated', `Saving API credentials for ${selectedExchange}...`);
+    setTesting(true);
+    try {
+      const res = await exchangeApi.testConnection(selectedExchange, apiKey.trim(), apiSecret.trim());
+      Alert.alert('Connection Successful', res?.data?.message || `${selectedExchange} API keys are valid!`);
+    } catch (e: any) {
+      Alert.alert('Connection Failed', e?.message || 'Could not connect. Please check your API credentials.');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleSaveConnect = async () => {
+    if (!selectedExchange) {
+      Alert.alert('Select Exchange', 'Please select an exchange first.');
+      return;
+    }
+    if (!apiKey.trim() || !apiSecret.trim()) {
+      Alert.alert('Missing Fields', 'Please fill in both API Key and API Secret.');
+      return;
+    }
+    setConnecting(true);
+    try {
+      await exchangeApi.connectApiKey(selectedExchange, apiKey.trim(), apiSecret.trim());
+      Alert.alert('Connected!', `${selectedExchange} has been connected successfully.`, [
+        {text: 'OK', onPress: () => navigation.goBack()},
+      ]);
+    } catch (e: any) {
+      Alert.alert('Connection Failed', e?.message || 'Could not connect exchange.');
+    } finally {
+      setConnecting(false);
+    }
   };
 
   // ─── OAuth Tab ──────────────────────────────────────────────────────────
 
   const renderOAuthTab = () => (
     <View style={styles.tabContent}>
-      {EXCHANGES.map((exchange) => {
+      {loading ? (
+        <ActivityIndicator size="large" color="#10B981" style={{marginTop: 40}} />
+      ) : exchanges.map((exchange) => {
         const ExIcon = EXCHANGE_ICONS[exchange.name];
         return (
         <View key={exchange.name} style={styles.exchangeCard}>
@@ -183,10 +224,15 @@ const ExchangeConnectScreen = () => {
               <Text style={styles.exchangeSubtitle}>{exchange.subtitle}</Text>
             </View>
             <TouchableOpacity
-              style={styles.connectBtn}
+              style={[styles.connectBtn, connecting && {opacity: 0.5}]}
               activeOpacity={0.7}
-              onPress={() => handleConnect(exchange.name)}>
-              <Text style={styles.connectBtnText}>Connect</Text>
+              onPress={() => handleConnect(exchange.name)}
+              disabled={connecting}>
+              {connecting ? (
+                <ActivityIndicator size="small" color="#10B981" />
+              ) : (
+                <Text style={styles.connectBtnText}>Connect</Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -202,7 +248,7 @@ const ExchangeConnectScreen = () => {
       {/* Exchange Selector */}
       <Text style={styles.sectionLabel}>Select Exchange</Text>
       <View style={styles.exchangeSelectorRow}>
-        {EXCHANGES.map((exchange) => {
+        {exchanges.map((exchange) => {
           const isSelected = selectedExchange === exchange.name;
           return (
             <TouchableOpacity
@@ -269,17 +315,27 @@ const ExchangeConnectScreen = () => {
 
       {/* Action Buttons */}
       <TouchableOpacity
-        style={styles.testBtn}
+        style={[styles.testBtn, testing && {opacity: 0.6}]}
         activeOpacity={0.7}
-        onPress={handleTestConnection}>
-        <Text style={styles.testBtnText}>Test Connection</Text>
+        onPress={handleTestConnection}
+        disabled={testing || connecting}>
+        {testing ? (
+          <ActivityIndicator size="small" color="#10B981" />
+        ) : (
+          <Text style={styles.testBtnText}>Test Connection</Text>
+        )}
       </TouchableOpacity>
 
       <TouchableOpacity
-        style={styles.saveCta}
+        style={[styles.saveCta, connecting && {opacity: 0.6}]}
         activeOpacity={0.8}
-        onPress={handleSaveConnect}>
-        <Text style={styles.saveCtaText}>Save & Connect</Text>
+        onPress={handleSaveConnect}
+        disabled={connecting}>
+        {connecting ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : (
+          <Text style={styles.saveCtaText}>Save & Connect</Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -324,7 +380,9 @@ const ExchangeConnectScreen = () => {
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag">
         {activeTab === 'oauth' ? renderOAuthTab() : renderApiTab()}
       </ScrollView>
 

@@ -1,11 +1,12 @@
-import React, {useEffect, useCallback} from 'react';
-import {View, Text, StyleSheet, TouchableOpacity, Dimensions, Pressable} from 'react-native';
+import React, {useEffect, useCallback, useState} from 'react';
+import {View, Text, StyleSheet, TouchableOpacity, Dimensions, Pressable, Alert} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Animated, {
   useSharedValue, useAnimatedStyle, withSpring, runOnJS,
 } from 'react-native-reanimated';
 import Svg, {Path, Rect, Circle, Line} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
+import {botsService} from '../../services/bots';
 import EmergencyStopIcon from '../../components/icons/EmergencyStopIcon';
 import ChevronRightIcon from '../../components/icons/ChevronRightIcon';
 import XIcon from '../../components/icons/XIcon';
@@ -68,7 +69,47 @@ const ACTIONS = [
 ];
 
 export default function QuickActionsModal({navigation}: Props) {
+  const [pausing, setPausing] = useState(false);
   const translateY = useSharedValue(500);
+
+  const handlePauseAll = async () => {
+    setPausing(true);
+    try {
+      const res = await botsService.getActive();
+      const activeBots = res?.subscriptions || [];
+      if (activeBots.length === 0) {
+        Alert.alert('No Active Bots', 'You have no active bots to pause.');
+        return;
+      }
+      await Promise.all(activeBots.map((sub: any) => botsService.pause(sub.id)));
+      Alert.alert('All Bots Paused', `${activeBots.length} bot(s) have been paused.`);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'Could not pause bots.');
+    } finally {
+      setPausing(false);
+    }
+  };
+
+  const handleEmergencyStop = () => {
+    Alert.alert(
+      'Emergency Stop',
+      'This will close all positions and stop all bots. Are you sure?',
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'Stop Everything', style: 'destructive', onPress: async () => {
+          try {
+            const res = await botsService.getActive();
+            const activeBots = res?.subscriptions || [];
+            await Promise.all(activeBots.map((sub: any) => botsService.stop(sub.id)));
+            Alert.alert('All Stopped', 'All bots have been stopped.');
+            navigation.goBack();
+          } catch (e: any) {
+            Alert.alert('Error', e?.message || 'Could not stop bots.');
+          }
+        }},
+      ]
+    );
+  };
 
   useEffect(() => {
     translateY.value = withSpring(0, {damping: 22, stiffness: 180});
@@ -105,7 +146,7 @@ export default function QuickActionsModal({navigation}: Props) {
         {/* 2x2 action grid */}
         <View style={styles.actionGrid}>
           {ACTIONS.map(action => (
-            <TouchableOpacity key={action.label} style={[styles.actionCard, {backgroundColor: action.bg}]} activeOpacity={0.7} onPress={() => { if (action.screen) { navigation.goBack(); setTimeout(() => navigation.navigate(action.screen as any), 100); } }}>
+            <TouchableOpacity key={action.label} style={[styles.actionCard, {backgroundColor: action.bg}]} activeOpacity={0.7} onPress={() => { if (action.label === 'Pause All') { handlePauseAll(); } else if (action.screen) { navigation.goBack(); setTimeout(() => navigation.navigate(action.screen as any), 100); } }}>
               <View style={{marginBottom: 8}}>
                 <ActionIcon type={action.iconType} color={action.color} />
               </View>
@@ -116,7 +157,7 @@ export default function QuickActionsModal({navigation}: Props) {
         </View>
 
         {/* Emergency stop */}
-        <TouchableOpacity style={styles.emergencyCard} activeOpacity={0.8}>
+        <TouchableOpacity style={styles.emergencyCard} activeOpacity={0.8} onPress={handleEmergencyStop}>
           <View style={styles.emergencyLeft}>
             <EmergencyStopIcon size={22} color="#EF4444" />
             <View>

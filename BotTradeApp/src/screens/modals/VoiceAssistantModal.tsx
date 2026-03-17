@@ -1,4 +1,4 @@
-import React, {useEffect} from 'react';
+import React, {useEffect, useState} from 'react';
 import {View, Text, StyleSheet, TouchableOpacity} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Animated, {
@@ -7,6 +7,7 @@ import Animated, {
 import Svg, {Path, Rect, Circle} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
 import XIcon from '../../components/icons/XIcon';
+import {aiApi} from '../../services/ai';
 
 function SuggestionIcon({type}: {type: string}) {
   const size = 18;
@@ -81,6 +82,25 @@ function WaveformBar({delay, height}: {delay: number; height: number}) {
 }
 
 export default function VoiceAssistantModal({navigation}: Props) {
+  const [transcript, setTranscript] = useState('');
+  const [reply, setReply] = useState('');
+  const [listening, setListening] = useState(true);
+  const [processing, setProcessing] = useState(false);
+
+  const handleSuggestion = async (text: string) => {
+    setTranscript(text);
+    setListening(false);
+    setProcessing(true);
+    try {
+      const res = await aiApi.voiceCommand(text);
+      setReply(res.reply);
+    } catch {
+      setReply('Sorry, I could not process that command.');
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Close button */}
@@ -90,23 +110,32 @@ export default function VoiceAssistantModal({navigation}: Props) {
 
       {/* Transcript */}
       <View style={styles.transcriptSection}>
-        <Text style={styles.transcript}>"I want to see my top performing bot..."</Text>
+        <Text style={styles.transcript}>{transcript || "Tap a suggestion below..."}</Text>
       </View>
 
       {/* Waveform */}
-      <View style={styles.waveformContainer}>
-        {BAR_HEIGHTS.map((h, i) => (
-          <WaveformBar key={i} delay={DELAYS[i]} height={h} />
-        ))}
-      </View>
+      {listening && !reply && (
+        <View style={styles.waveformContainer}>
+          {BAR_HEIGHTS.map((h, i) => (
+            <WaveformBar key={i} delay={DELAYS[i]} height={h} />
+          ))}
+        </View>
+      )}
+
+      {/* Reply */}
+      {reply ? (
+        <View style={{paddingHorizontal: 20, marginBottom: 24}}>
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 15, color: 'rgba(255,255,255,0.8)', textAlign: 'center', lineHeight: 22}}>{reply}</Text>
+        </View>
+      ) : null}
 
       {/* Listening label */}
-      <Text style={styles.listeningText}>LISTENING</Text>
+      <Text style={styles.listeningText}>{processing ? 'PROCESSING...' : listening ? 'LISTENING' : 'DONE'}</Text>
 
       {/* Suggestions */}
       <View style={styles.suggestionsContainer}>
         {SUGGESTIONS.map(s => (
-          <TouchableOpacity key={s.text} style={styles.suggestionPill} activeOpacity={0.7}>
+          <TouchableOpacity key={s.text} style={styles.suggestionPill} activeOpacity={0.7} onPress={() => handleSuggestion(s.text)}>
             <SuggestionIcon type={s.iconType} />
             <Text style={styles.suggestionText}>{s.text}</Text>
           </TouchableOpacity>

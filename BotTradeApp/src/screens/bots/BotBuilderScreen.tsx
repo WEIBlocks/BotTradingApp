@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,10 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
+import {botsService} from '../../services/bots';
+import {configApi} from '../../services/config';
 import Svg, {Path} from 'react-native-svg';
 import {useNavigation, useRoute, RouteProp} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -16,9 +19,9 @@ import {RootStackParamList} from '../../types';
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Route = RouteProp<RootStackParamList, 'BotBuilder'>;
 
-const TRADING_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'MATIC/USDT'];
-const STRATEGIES = ['Trend Following', 'Scalping', 'Grid', 'Arbitrage', 'DCA'];
-const RISK_LEVELS = ['Very Low', 'Low', 'Med', 'High', 'Very High'] as const;
+const DEFAULT_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'MATIC/USDT'];
+const DEFAULT_STRATEGIES = ['Trend Following', 'Scalping', 'Grid', 'Arbitrage', 'DCA'];
+const DEFAULT_RISK_LEVELS = ['Very Low', 'Low', 'Med', 'High', 'Very High'];
 
 // ─── Icons ──────────────────────────────────────────────────────────────────
 
@@ -78,19 +81,33 @@ export default function BotBuilderScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
 
-  const fromChat = route.params?.fromChat;
   const strategyName = route.params?.strategyName;
+
+  const [tradingPairs, setTradingPairs] = useState<string[]>(DEFAULT_PAIRS);
+  const [strategies, setStrategies] = useState<string[]>(DEFAULT_STRATEGIES);
+  const [riskLevels, setRiskLevels] = useState<string[]>(DEFAULT_RISK_LEVELS);
 
   const [botName, setBotName] = useState(strategyName || '');
   const [selectedPairs, setSelectedPairs] = useState<string[]>(['BTC/USDT']);
   const [selectedStrategy, setSelectedStrategy] = useState(
-    strategyName && STRATEGIES.includes(strategyName) ? strategyName : '',
+    strategyName && DEFAULT_STRATEGIES.includes(strategyName) ? strategyName : '',
   );
   const [riskLevel, setRiskLevel] = useState<string>('Med');
   const [stopLoss, setStopLoss] = useState('');
   const [takeProfit, setTakeProfit] = useState('');
   const [maxPosition, setMaxPosition] = useState('');
   const [tradingMode, setTradingMode] = useState<'paper' | 'live'>('paper');
+  const [deploying, setDeploying] = useState(false);
+
+  useEffect(() => {
+    configApi.getPlatformConfig()
+      .then(config => {
+        if (config.tradingPairs?.length) setTradingPairs(config.tradingPairs);
+        if (config.strategies?.length) setStrategies(config.strategies);
+        if (config.riskLevels?.length) setRiskLevels(config.riskLevels);
+      })
+      .catch(() => {});
+  }, []);
 
   const togglePair = (pair: string) => {
     setSelectedPairs(prev =>
@@ -98,14 +115,87 @@ export default function BotBuilderScreen() {
     );
   };
 
-  const handleDeploy = () => {
-    Alert.alert('Bot deployed successfully!', undefined, [
-      {text: 'OK', onPress: () => navigation.goBack()},
-    ]);
+  const handleDeploy = async () => {
+    if (!botName.trim()) {
+      Alert.alert('Missing Name', 'Please enter a bot name.');
+      return;
+    }
+    if (!selectedStrategy) {
+      Alert.alert('Missing Strategy', 'Please select a strategy.');
+      return;
+    }
+    if (selectedPairs.length === 0) {
+      Alert.alert('Missing Pairs', 'Please select at least one trading pair.');
+      return;
+    }
+    // Validate numeric inputs
+    if (stopLoss) {
+      const sl = parseFloat(stopLoss);
+      if (isNaN(sl) || sl <= 0 || sl > 50) {
+        Alert.alert('Invalid Stop Loss', 'Stop loss must be between 0.1% and 50%.');
+        return;
+      }
+    }
+    if (takeProfit) {
+      const tp = parseFloat(takeProfit);
+      if (isNaN(tp) || tp <= 0 || tp > 500) {
+        Alert.alert('Invalid Take Profit', 'Take profit must be between 0.1% and 500%.');
+        return;
+      }
+    }
+    if (maxPosition) {
+      const mp = parseFloat(maxPosition);
+      if (isNaN(mp) || mp < 10 || mp > 1000000) {
+        Alert.alert('Invalid Max Position', 'Max position size must be between $10 and $1,000,000.');
+        return;
+      }
+    }
+    setDeploying(true);
+    try {
+      await botsService.createBot({
+        name: botName.trim(),
+        strategy: selectedStrategy,
+        category: 'Crypto',
+        riskLevel: riskLevel,
+        pairs: selectedPairs,
+        stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
+        takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
+        maxPosition: maxPosition ? parseFloat(maxPosition) : undefined,
+      });
+      Alert.alert('Bot Deployed!', `${botName} is now ${tradingMode === 'paper' ? 'paper' : 'live'} trading.`, [
+        {text: 'OK', onPress: () => navigation.goBack()},
+      ]);
+    } catch (e: any) {
+      Alert.alert('Deploy Failed', e?.message || 'Could not deploy bot.');
+    } finally {
+      setDeploying(false);
+    }
   };
 
-  const handleSaveDraft = () => {
-    Alert.alert('Draft saved!');
+  const handleSaveDraft = async () => {
+    if (!botName.trim()) {
+      Alert.alert('Missing Name', 'Please enter a bot name.');
+      return;
+    }
+    setDeploying(true);
+    try {
+      await botsService.createBot({
+        name: botName.trim(),
+        description: 'Draft',
+        strategy: selectedStrategy || undefined,
+        category: 'Crypto',
+        riskLevel: riskLevel,
+        pairs: selectedPairs,
+        stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
+        takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
+        maxPosition: maxPosition ? parseFloat(maxPosition) : undefined,
+      });
+      Alert.alert('Draft Saved!', `${botName} has been saved as a draft.`);
+    } catch (e: any) {
+      Alert.alert('Save Failed', e?.message || 'Could not save draft.');
+    } finally {
+      setDeploying(false);
+    }
   };
 
   return (
@@ -123,7 +213,9 @@ export default function BotBuilderScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}>
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag">
         {/* Bot Name */}
         <Text style={styles.label}>BOT NAME</Text>
         <TextInput
@@ -137,7 +229,7 @@ export default function BotBuilderScreen() {
         {/* Trading Pairs */}
         <Text style={styles.label}>TRADING PAIRS</Text>
         <View style={styles.chipsRow}>
-          {TRADING_PAIRS.map(pair => {
+          {tradingPairs.map(pair => {
             const isSelected = selectedPairs.includes(pair);
             return (
               <TouchableOpacity
@@ -162,7 +254,7 @@ export default function BotBuilderScreen() {
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.strategyScroll}>
-          {STRATEGIES.map(strat => {
+          {strategies.map(strat => {
             const isSelected = selectedStrategy === strat;
             return (
               <TouchableOpacity
@@ -187,7 +279,7 @@ export default function BotBuilderScreen() {
         {/* Risk Level */}
         <Text style={styles.label}>RISK LEVEL</Text>
         <View style={styles.segmentContainer}>
-          {RISK_LEVELS.map(level => {
+          {riskLevels.map(level => {
             const isSelected = riskLevel === level;
             return (
               <TouchableOpacity
@@ -305,17 +397,23 @@ export default function BotBuilderScreen() {
 
         {/* Deploy Button */}
         <TouchableOpacity
-          style={styles.deployBtn}
+          style={[styles.deployBtn, deploying && {opacity: 0.6}]}
           activeOpacity={0.8}
-          onPress={handleDeploy}>
-          <RocketIcon />
-          <Text style={styles.deployBtnText}>Deploy Bot</Text>
+          onPress={handleDeploy}
+          disabled={deploying}>
+          {deploying ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <RocketIcon />
+          )}
+          <Text style={styles.deployBtnText}>{deploying ? 'Deploying...' : 'Deploy Bot'}</Text>
         </TouchableOpacity>
 
         {/* Save Draft */}
         <TouchableOpacity
           style={styles.draftBtn}
-          onPress={handleSaveDraft}>
+          onPress={handleSaveDraft}
+          disabled={deploying}>
           <Text style={styles.draftBtnText}>Save as Draft</Text>
         </TouchableOpacity>
 

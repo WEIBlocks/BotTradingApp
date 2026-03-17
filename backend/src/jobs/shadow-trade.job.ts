@@ -1,11 +1,10 @@
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { createQueue, createWorker, redisConnection } from '../config/queue.js';
+import { redisConnection } from '../config/queue.js';
 import { shadowSessions, bots } from '../db/schema/bots';
 import { trades } from '../db/schema/trades';
+import { activityLog } from '../db/schema/training';
 import { getPrice } from './price-sync.job.js';
-
-const shadowTradeQueue = createQueue('shadow-trade');
 
 // In-memory moving average buffers per session+symbol
 const priceHistory: Map<string, number[]> = new Map();
@@ -66,18 +65,12 @@ async function simulateMomentum(
   const positions = getPositions(sessionId);
   const existingPos = positions.find((p) => p.symbol === symbol);
 
-  if (!ma20) return null; // Not enough data yet
+  if (!ma20) return null;
 
   if (currentPrice > ma20 && !existingPos) {
     const tradeValue = balance * maxPositionPct;
     const amount = tradeValue / currentPrice;
-    positions.push({
-      symbol,
-      side: 'long',
-      entryPrice: currentPrice,
-      amount,
-      entryTime: Date.now(),
-    });
+    positions.push({ symbol, side: 'long', entryPrice: currentPrice, amount, entryTime: Date.now() });
     return { side: 'BUY', amount, reasoning: `Momentum: price ${currentPrice.toFixed(2)} above MA20 ${ma20.toFixed(2)}` };
   }
 
@@ -102,7 +95,6 @@ async function simulateScalping(
 
   if (existingPos) {
     const pnlPct = ((currentPrice - existingPos.entryPrice) / existingPos.entryPrice) * 100;
-    // Take profit at 0.5-1% or stop loss at -0.5%
     if (pnlPct >= 0.5 + Math.random() * 0.5) {
       const idx = positions.indexOf(existingPos);
       positions.splice(idx, 1);
@@ -116,17 +108,10 @@ async function simulateScalping(
     return null;
   }
 
-  // Enter trade with ~30% probability each tick
   if (Math.random() < 0.3) {
     const tradeValue = balance * maxPositionPct * 0.5;
     const amount = tradeValue / currentPrice;
-    positions.push({
-      symbol,
-      side: 'long',
-      entryPrice: currentPrice,
-      amount,
-      entryTime: Date.now(),
-    });
+    positions.push({ symbol, side: 'long', entryPrice: currentPrice, amount, entryTime: Date.now() });
     return { side: 'BUY', amount, reasoning: `Scalp entry at ${currentPrice.toFixed(2)}` };
   }
 
@@ -146,7 +131,7 @@ async function simulateGrid(
 
   if (!lastPriceStr) return null;
   const lastPrice = parseFloat(lastPriceStr);
-  const gridInterval = lastPrice * 0.01; // 1% grid
+  const gridInterval = lastPrice * 0.01;
 
   const positions = getPositions(sessionId);
   const existingPos = positions.find((p) => p.symbol === symbol);
@@ -154,13 +139,7 @@ async function simulateGrid(
   if (currentPrice <= lastPrice - gridInterval && !existingPos) {
     const tradeValue = balance * maxPositionPct * 0.3;
     const amount = tradeValue / currentPrice;
-    positions.push({
-      symbol,
-      side: 'long',
-      entryPrice: currentPrice,
-      amount,
-      entryTime: Date.now(),
-    });
+    positions.push({ symbol, side: 'long', entryPrice: currentPrice, amount, entryTime: Date.now() });
     return { side: 'BUY', amount, reasoning: `Grid buy at ${currentPrice.toFixed(2)} (grid interval ${gridInterval.toFixed(2)})` };
   }
 
@@ -184,20 +163,13 @@ async function simulateDCA(
   const lastBuyStr = await redisConnection.get(dcaKey);
   const now = Date.now();
 
-  // DCA every ~10 minutes (5 ticks at 2min intervals)
   if (!lastBuyStr || now - parseInt(lastBuyStr) > 600_000) {
-    const tradeValue = balance * maxPositionPct * 0.1; // Small regular buys
+    const tradeValue = balance * maxPositionPct * 0.1;
     const amount = tradeValue / currentPrice;
     await redisConnection.set(dcaKey, now.toString(), 'EX', 86400);
 
     const positions = getPositions(sessionId);
-    positions.push({
-      symbol,
-      side: 'long',
-      entryPrice: currentPrice,
-      amount,
-      entryTime: now,
-    });
+    positions.push({ symbol, side: 'long', entryPrice: currentPrice, amount, entryTime: now });
 
     return { side: 'BUY', amount, reasoning: `DCA buy at ${currentPrice.toFixed(2)}` };
   }
@@ -219,24 +191,16 @@ async function simulateTrendFollowing(
 
   if (prices.length < 5) return null;
 
-  // Detect breakout: current price > highest of last 10 periods
   const recentHigh = Math.max(...prices.slice(-10));
   const recentLow = Math.min(...prices.slice(-10));
 
   if (currentPrice >= recentHigh && !existingPos) {
     const tradeValue = balance * maxPositionPct;
     const amount = tradeValue / currentPrice;
-    positions.push({
-      symbol,
-      side: 'long',
-      entryPrice: currentPrice,
-      amount,
-      entryTime: Date.now(),
-    });
+    positions.push({ symbol, side: 'long', entryPrice: currentPrice, amount, entryTime: Date.now() });
     return { side: 'BUY', amount, reasoning: `Trend breakout: price at ${prices.length}-period high ${currentPrice.toFixed(2)}` };
   }
 
-  // Trailing stop: sell if price drops 2% from entry
   if (existingPos) {
     const drawdown = ((currentPrice - existingPos.entryPrice) / existingPos.entryPrice) * 100;
     if (drawdown <= -2.0 || currentPrice <= recentLow) {
@@ -259,23 +223,12 @@ async function simulateTradeForStrategy(
 ) {
   const stratLower = strategy.toLowerCase();
 
-  if (stratLower.includes('momentum')) {
-    return simulateMomentum(sessionId, symbol, price, balance, maxPositionPct);
-  }
-  if (stratLower.includes('scalp')) {
-    return simulateScalping(sessionId, symbol, price, balance, maxPositionPct);
-  }
-  if (stratLower.includes('grid')) {
-    return simulateGrid(sessionId, symbol, price, balance, maxPositionPct);
-  }
-  if (stratLower.includes('dca') || stratLower.includes('dollar')) {
-    return simulateDCA(sessionId, symbol, price, balance, maxPositionPct);
-  }
-  if (stratLower.includes('trend')) {
-    return simulateTrendFollowing(sessionId, symbol, price, balance, maxPositionPct);
-  }
+  if (stratLower.includes('momentum')) return simulateMomentum(sessionId, symbol, price, balance, maxPositionPct);
+  if (stratLower.includes('scalp')) return simulateScalping(sessionId, symbol, price, balance, maxPositionPct);
+  if (stratLower.includes('grid')) return simulateGrid(sessionId, symbol, price, balance, maxPositionPct);
+  if (stratLower.includes('dca') || stratLower.includes('dollar')) return simulateDCA(sessionId, symbol, price, balance, maxPositionPct);
+  if (stratLower.includes('trend')) return simulateTrendFollowing(sessionId, symbol, price, balance, maxPositionPct);
 
-  // Default to momentum
   return simulateMomentum(sessionId, symbol, price, balance, maxPositionPct);
 }
 
@@ -283,12 +236,8 @@ async function processShadowTrades() {
   console.log('[ShadowTrade] Processing active shadow sessions...');
 
   try {
-    // Get all active/running shadow sessions
     const activeSessions = await db
-      .select({
-        session: shadowSessions,
-        bot: bots,
-      })
+      .select({ session: shadowSessions, bot: bots })
       .from(shadowSessions)
       .innerJoin(bots, eq(shadowSessions.botId, bots.id))
       .where(eq(shadowSessions.status, 'running'));
@@ -302,26 +251,17 @@ async function processShadowTrades() {
 
     for (const { session, bot } of activeSessions) {
       try {
-        // Check if session has expired
         if (new Date() >= new Date(session.endsAt)) {
-          await db
-            .update(shadowSessions)
-            .set({ status: 'completed' })
-            .where(eq(shadowSessions.id, session.id));
+          await db.update(shadowSessions).set({ status: 'completed' }).where(eq(shadowSessions.id, session.id));
           console.log(`[ShadowTrade] Session ${session.id} completed (expired)`);
           continue;
         }
 
         const config = (bot.config ?? {}) as BotConfig;
-        const pairs = config.pairs?.length
-          ? config.pairs
-          : ['BTC/USDT', 'ETH/USDT'];
-        const maxPositionPct = config.maxPositionSize
-          ? config.maxPositionSize / 100
-          : 0.2;
-
+        const pairs = config.pairs?.length ? config.pairs : ['BTC/USDT', 'ETH/USDT'];
+        const maxPositionPct = config.maxPositionSize ? config.maxPositionSize / 100 : 0.2;
         const currentBalance = parseFloat(session.currentBalance ?? session.virtualBalance);
-        const feeRate = session.enableRealisticFees ? 0.001 : 0; // 0.1% fees
+        const feeRate = session.enableRealisticFees ? 0.001 : 0;
 
         let balanceDelta = 0;
         let newTrades = 0;
@@ -331,15 +271,7 @@ async function processShadowTrades() {
           const priceData = await getPrice(pair);
           if (!priceData) continue;
 
-          const signal = await simulateTradeForStrategy(
-            bot.strategy,
-            session.id,
-            pair,
-            priceData.price,
-            currentBalance,
-            maxPositionPct,
-          );
-
+          const signal = await simulateTradeForStrategy(bot.strategy, session.id, pair, priceData.price, currentBalance, maxPositionPct);
           if (!signal) continue;
 
           const totalValue = signal.amount * priceData.price;
@@ -348,11 +280,7 @@ async function processShadowTrades() {
           let pnlPercent: number | null = null;
 
           if (signal.side === 'SELL') {
-            // Calculate P&L from entry price
-            const positions = getPositions(session.id);
-            // P&L is the trade value minus fees
             pnl = totalValue - fee;
-            // For sell, we calculate actual P&L based on reasoning
             const entryMatch = signal.reasoning.match(/(\d+\.\d+)%/);
             if (entryMatch) {
               pnlPercent = parseFloat(entryMatch[1]);
@@ -365,11 +293,9 @@ async function processShadowTrades() {
             balanceDelta += pnl;
             if (pnl > 0) newWins++;
           } else {
-            // BUY: deduct from balance
             balanceDelta -= (totalValue + fee);
           }
 
-          // Insert trade record
           await db.insert(trades).values({
             userId: session.userId,
             shadowSessionId: session.id,
@@ -388,7 +314,6 @@ async function processShadowTrades() {
           newTrades++;
         }
 
-        // Update session balance and stats
         const updatedBalance = currentBalance + balanceDelta;
         const dailyPerf = (session.dailyPerformance as Record<string, any>) ?? {};
         const today = new Date().toISOString().split('T')[0];
@@ -412,6 +337,17 @@ async function processShadowTrades() {
 
         if (newTrades > 0) {
           console.log(`[ShadowTrade] Session ${session.id}: ${newTrades} trades, balance: $${updatedBalance.toFixed(2)}`);
+          // Log activity for the user
+          const pnlType = balanceDelta >= 0 ? 'profit' : 'fee';
+          try {
+            await db.insert(activityLog).values({
+              userId: session.userId,
+              type: pnlType as any,
+              title: `Shadow Trade — ${bot.name}`,
+              subtitle: `${newTrades} trade${newTrades > 1 ? 's' : ''} executed`,
+              amount: balanceDelta.toFixed(2),
+            });
+          } catch {}
         }
       } catch (err: any) {
         console.error(`[ShadowTrade] Error processing session ${session.id}:`, err.message);
@@ -423,24 +359,6 @@ async function processShadowTrades() {
 }
 
 export async function startShadowTradeJob() {
-  const existing = await shadowTradeQueue.getRepeatableJobs();
-  for (const job of existing) {
-    await shadowTradeQueue.removeRepeatableByKey(job.key);
-  }
-
-  await shadowTradeQueue.add(
-    'process-shadow-trades',
-    {},
-    {
-      repeat: { every: 120_000 }, // 2 minutes
-      removeOnComplete: { count: 5 },
-      removeOnFail: { count: 10 },
-    },
-  );
-
-  createWorker('shadow-trade', async () => {
-    await processShadowTrades();
-  });
-
+  setInterval(processShadowTrades, 120_000); // 2 minutes
   console.log('[ShadowTrade] Job started - runs every 2 minutes');
 }

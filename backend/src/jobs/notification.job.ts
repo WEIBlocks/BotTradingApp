@@ -1,32 +1,24 @@
 import { eq, and, gte, isNull, sql } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { createQueue, createWorker, redisConnection } from '../config/queue.js';
+import { redisConnection } from '../config/queue.js';
 import { trades } from '../db/schema/trades';
 import { shadowSessions } from '../db/schema/bots';
 import { arenaSessions } from '../db/schema/arena';
 import { notifications } from '../db/schema/notifications';
+import { users } from '../db/schema/users';
 import { getPrice } from './price-sync.job.js';
 
-const notificationQueue = createQueue('notifications');
-
 const PRICE_ALERT_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'];
-const PRICE_ALERT_THRESHOLD = 5; // 5% change triggers alert
+const PRICE_ALERT_THRESHOLD = 5;
 
 async function processNotifications() {
   try {
     const now = new Date();
     const oneMinuteAgo = new Date(now.getTime() - 60_000);
 
-    // 1. Trade execution notifications
     await processTradeNotifications(oneMinuteAgo);
-
-    // 2. Shadow mode completion notifications
     await processShadowCompletionNotifications();
-
-    // 3. Arena completion notifications
     await processArenaCompletionNotifications();
-
-    // 4. Price alert notifications
     await processPriceAlerts();
   } catch (err: any) {
     console.error('[Notification] Error:', err.message);
@@ -38,15 +30,9 @@ async function processTradeNotifications(since: Date) {
     const recentTrades = await db
       .select()
       .from(trades)
-      .where(
-        and(
-          gte(trades.executedAt, since),
-          eq(trades.status, 'filled'),
-        ),
-      );
+      .where(and(gte(trades.executedAt, since), eq(trades.status, 'filled')));
 
     for (const trade of recentTrades) {
-      // Check if notification already sent for this trade
       const notifKey = `notif:trade:${trade.id}`;
       const alreadySent = await redisConnection.get(notifKey);
       if (alreadySent) continue;
@@ -66,7 +52,6 @@ async function processTradeNotifications(since: Date) {
         tradeId: trade.id,
       });
 
-      // Mark as sent (expire in 1 hour)
       await redisConnection.set(notifKey, '1', 'EX', 3600);
     }
 
@@ -80,7 +65,6 @@ async function processTradeNotifications(since: Date) {
 
 async function processShadowCompletionNotifications() {
   try {
-    // Find recently completed shadow sessions that haven't been notified
     const completedSessions = await db
       .select()
       .from(shadowSessions)
@@ -151,7 +135,6 @@ async function processPriceAlerts() {
       const change = Math.abs(priceData.change24h);
       if (change < PRICE_ALERT_THRESHOLD) continue;
 
-      // Only alert once per symbol per hour
       const alertKey = `notif:price-alert:${symbol}`;
       const alreadySent = await redisConnection.get(alertKey);
       if (alreadySent) continue;
@@ -159,22 +142,21 @@ async function processPriceAlerts() {
       const direction = priceData.change24h > 0 ? 'up' : 'down';
       const baseSymbol = symbol.split('/')[0];
 
-      // Get all users who have price alerts enabled
-      // For simplicity, we create a system-wide alert that can be filtered client-side
-      // In production, you'd query notification_settings to filter users
-      await db.insert(notifications).values({
-        userId: '00000000-0000-0000-0000-000000000000', // System-wide placeholder
-        type: 'alert',
-        title: `${baseSymbol} Price Alert`,
-        body: `${baseSymbol} is ${direction} ${change.toFixed(1)}% in the last 24h. Current price: $${priceData.price.toFixed(2)}`,
-        priority: 'high',
-        chartData: {
-          symbol,
-          price: priceData.price,
-          change24h: priceData.change24h,
-          volume: priceData.volume,
-        },
-      });
+      // Get all user IDs to broadcast price alert
+      const allUsers = await db.select({ id: users.id }).from(users);
+
+      if (allUsers.length > 0) {
+        await db.insert(notifications).values(
+          allUsers.map(u => ({
+            userId: u.id,
+            type: 'alert' as const,
+            title: `${baseSymbol} Price Alert`,
+            body: `${baseSymbol} is ${direction} ${change.toFixed(1)}% in the last 24h. Current price: $${priceData.price.toFixed(2)}`,
+            priority: 'high' as const,
+            chartData: { symbol, price: priceData.price, change24h: priceData.change24h, volume: priceData.volume },
+          }))
+        );
+      }
 
       await redisConnection.set(alertKey, '1', 'EX', 3600);
       console.log(`[Notification] Price alert: ${symbol} ${direction} ${change.toFixed(1)}%`);
@@ -185,24 +167,6 @@ async function processPriceAlerts() {
 }
 
 export async function startNotificationJob() {
-  const existing = await notificationQueue.getRepeatableJobs();
-  for (const job of existing) {
-    await notificationQueue.removeRepeatableByKey(job.key);
-  }
-
-  await notificationQueue.add(
-    'process-notifications',
-    {},
-    {
-      repeat: { every: 60_000 }, // 1 minute
-      removeOnComplete: { count: 5 },
-      removeOnFail: { count: 10 },
-    },
-  );
-
-  createWorker('notifications', async () => {
-    await processNotifications();
-  });
-
+  setInterval(processNotifications, 60_000); // 1 minute
   console.log('[Notification] Job started - runs every 1 minute');
 }

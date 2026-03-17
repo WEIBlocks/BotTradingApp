@@ -142,14 +142,27 @@ export async function testConnection(
   apiKey: string,
   apiSecret: string,
 ) {
+  let adapter;
   try {
-    const adapter = createAdapter(provider);
+    adapter = createAdapter(provider);
+  } catch {
+    throw new AppError(400, `Unsupported exchange: ${provider}`);
+  }
+
+  try {
     await adapter.connect({ apiKey, apiSecret });
     const success = await adapter.testConnection();
     await adapter.disconnect();
-    return { success };
-  } catch {
-    return { success: false };
+
+    if (!success) {
+      throw new AppError(400, `Failed to connect to ${provider}. Please check your API credentials.`);
+    }
+
+    return { success: true, provider, message: `Successfully connected to ${provider}!` };
+  } catch (err) {
+    await adapter.disconnect().catch(() => {});
+    if (err instanceof AppError) throw err;
+    throw new AppError(400, `Failed to connect to ${provider}. Please verify your API key and secret.`);
   }
 }
 

@@ -41,7 +41,10 @@ async function refreshTokens(): Promise<boolean> {
     });
 
     if (!res.ok) {
-      await storage.clearTokens();
+      // Only clear tokens on auth rejection (401/403), not server errors
+      if (res.status === 401 || res.status === 403) {
+        await storage.clearTokens();
+      }
       return false;
     }
 
@@ -49,7 +52,8 @@ async function refreshTokens(): Promise<boolean> {
     await storage.setTokens(data.accessToken, data.refreshToken);
     return true;
   } catch {
-    await storage.clearTokens();
+    // Network error — don't clear tokens, just fail silently
+    // User can retry and tokens may still be valid
     return false;
   }
 }

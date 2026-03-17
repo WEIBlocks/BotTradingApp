@@ -50,7 +50,7 @@ export default function Input({
       <View style={[styles.inputRow, focused && styles.inputFocused, error && styles.inputError]}>
         {leftIcon && <View style={styles.leftIcon}>{leftIcon}</View>}
         <TextInput
-          style={[styles.input, leftIcon && styles.inputWithLeft]}
+          style={[styles.input, leftIcon ? styles.inputWithLeft : undefined]}
           placeholder={placeholder}
           placeholderTextColor="rgba(255,255,255,0.3)"
           value={value}
@@ -61,6 +61,8 @@ export default function Input({
           keyboardType={keyboardType}
           autoCapitalize={autoCapitalize}
           autoCorrect={false}
+          accessibilityLabel={label || placeholder}
+          accessibilityHint={error ? `Error: ${error}` : undefined}
         />
         {secureTextEntry ? (
           <TouchableOpacity onPress={togglePassword} style={styles.rightIcon}>

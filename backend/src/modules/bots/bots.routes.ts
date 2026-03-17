@@ -8,6 +8,9 @@ import {
   resumeBot,
   purchaseBot,
   startShadowMode,
+  pauseShadowSession,
+  resumeShadowSession,
+  stopShadowSession,
   getShadowResults,
   getUserShadowSessions,
   getUserActiveBots,
@@ -157,6 +160,45 @@ export async function botsRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params;
     const result = await getShadowResults(request.user.userId, id);
+    return { data: result };
+  });
+
+  // POST /shadow-sessions/:id/pause
+  zApp.post('/shadow-sessions/:id/pause', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await pauseShadowSession(request.user.userId, id);
+    return { data: result };
+  });
+
+  // POST /shadow-sessions/:id/resume
+  zApp.post('/shadow-sessions/:id/resume', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await resumeShadowSession(request.user.userId, id);
+    return { data: result };
+  });
+
+  // POST /shadow-sessions/:id/stop
+  zApp.post('/shadow-sessions/:id/stop', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await stopShadowSession(request.user.userId, id);
     return { data: result };
   });
 

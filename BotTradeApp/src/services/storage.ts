@@ -44,7 +44,7 @@ export const storage = {
     }
   },
 
-  async setUser(user: Record<string, unknown>): Promise<void> {
+  async setUser(user: object): Promise<void> {
     await AsyncStorage.setItem(KEYS.USER, JSON.stringify(user));
   },
 };

@@ -25,7 +25,7 @@ export type RootStackParamList = {
   BotDetails: {botId: string};
   BotPurchase: {botId: string};
   ShadowMode: undefined;
-  ShadowModeResults: {botId: string; profit: number; winRate: number};
+  ShadowModeResults: {botId: string; profit: number; winRate: number; sessionId?: string};
   ArenaSetup: undefined;
   ArenaLive: {gladiatorIds: string[]};
   ArenaResults: {winnerId: string};
@@ -76,6 +76,7 @@ export interface Bot {
   subtitle: string;
   description: string;
   strategy: string;
+  creatorId?: string;
   creatorName: string;
   avatarColor: string;
   avatarLetter: string;
@@ -323,5 +324,6 @@ export interface TrainingUploadItem {
 
 export interface LiveTrade extends Trade {
   isLive: boolean;
+  isOwned?: boolean;
   reasoning?: string;
 }

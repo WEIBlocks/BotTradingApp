@@ -1,4 +1,4 @@
-import React, {useState, useCallback} from 'react';
+import React, {useState, useCallback, useEffect} from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,13 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import Svg, {Path, Rect, Circle} from 'react-native-svg';
+import {subscriptionApi} from '../../services/subscription';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -80,55 +82,11 @@ interface ChatMessage {
   avatarColor: string;
 }
 
-const MOCK_MESSAGES: ChatMessage[] = [
-  {
-    id: '1',
-    user: 'Alex T.',
-    msg: 'BTC looking bullish on the 4h chart',
-    time: '2m ago',
-    isAlert: false,
-    avatarColor: '#3B82F6',
-  },
-  {
-    id: '2',
-    user: 'Sarah K.',
-    msg: 'Just took profit on my SOL position +4.2%',
-    time: '5m ago',
-    isAlert: false,
-    avatarColor: '#8B5CF6',
-  },
-  {
-    id: '3',
-    user: 'TradingBot',
-    msg: 'Alert: Momentum Alpha bought BTC at $64,210',
-    time: '8m ago',
-    isAlert: true,
-    avatarColor: '#10B981',
-  },
-  {
-    id: '4',
-    user: 'Mike R.',
-    msg: 'Anyone watching the ETH/BTC ratio? Seems like a breakout soon',
-    time: '12m ago',
-    isAlert: false,
-    avatarColor: '#F59E0B',
-  },
-  {
-    id: '5',
-    user: 'Jessica L.',
-    msg: 'Grid Master bot is doing great in this sideways market',
-    time: '18m ago',
-    isAlert: false,
-    avatarColor: '#EC4899',
-  },
-  {
-    id: '6',
-    user: 'TradingBot',
-    msg: 'Alert: SOL Arbitrage detected 0.9% spread on Binance vs Coinbase',
-    time: '22m ago',
-    isAlert: true,
-    avatarColor: '#10B981',
-  },
+const PLACEHOLDER_MESSAGES: ChatMessage[] = [
+  {id: '1', user: 'Alex T.', msg: 'BTC looking bullish on the 4h chart', time: '2m ago', isAlert: false, avatarColor: '#3B82F6'},
+  {id: '2', user: 'Sarah K.', msg: 'Just took profit on my SOL position +4.2%', time: '5m ago', isAlert: false, avatarColor: '#8B5CF6'},
+  {id: '3', user: 'TradingBot', msg: 'Alert: Momentum Alpha bought BTC at $64,210', time: '8m ago', isAlert: true, avatarColor: '#10B981'},
+  {id: '4', user: 'Mike R.', msg: 'Anyone watching the ETH/BTC ratio?', time: '12m ago', isAlert: false, avatarColor: '#F59E0B'},
 ];
 
 // ─── Screen ─────────────────────────────────────────────────────────────────────
@@ -136,7 +94,20 @@ const MOCK_MESSAGES: ChatMessage[] = [
 export default function TradingRoomScreen() {
   const navigation = useNavigation<Nav>();
   const [isPro, setIsPro] = useState(false);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    subscriptionApi.getCurrent()
+      .then(sub => {
+        if (sub && sub.tier === 'pro' && sub.status === 'active') {
+          setIsPro(true);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   const renderMessage = useCallback(({item}: {item: ChatMessage}) => {
     const firstLetter = item.user.charAt(0).toUpperCase();
@@ -183,7 +154,7 @@ export default function TradingRoomScreen() {
       {/* Chat Content */}
       <View style={styles.chatArea}>
         <FlatList
-          data={MOCK_MESSAGES}
+          data={messages.length > 0 ? messages : PLACEHOLDER_MESSAGES}
           keyExtractor={item => item.id}
           renderItem={renderMessage}
           contentContainerStyle={styles.messagesList}
@@ -193,7 +164,11 @@ export default function TradingRoomScreen() {
       </View>
 
       {/* Pro Gate Overlay */}
-      {!isPro && (
+      {loading ? (
+        <View style={styles.proGate}>
+          <ActivityIndicator color="#10B981" size="large" />
+        </View>
+      ) : !isPro ? (
         <View style={styles.proGate}>
           <View style={styles.proGateInner}>
             <LockIcon />
@@ -211,7 +186,7 @@ export default function TradingRoomScreen() {
             </TouchableOpacity>
           </View>
         </View>
-      )}
+      ) : null}
 
       {/* Input Bar */}
       <View style={styles.inputBar}>

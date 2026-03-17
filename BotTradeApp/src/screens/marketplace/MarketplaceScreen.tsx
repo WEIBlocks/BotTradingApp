@@ -1,16 +1,15 @@
-import React, {useState} from 'react';
+import React, {useState, useCallback} from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, Alert,
+  TextInput, Alert, ActivityIndicator, RefreshControl,
 } from 'react-native';
-import {useNavigation} from '@react-navigation/native';
+import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
-import {RootStackParamList} from '../../types';
-import {mockBots} from '../../data/mockBots';
+import {RootStackParamList, Bot} from '../../types';
+import {marketplaceApi} from '../../services/marketplace';
+import {configApi} from '../../services/config';
 import Badge from '../../components/common/Badge';
-
-const FILTERS = ['All', 'Crypto', 'Stocks', 'Top Performers'];
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -99,15 +98,19 @@ function FilterLinesIcon() {
   );
 }
 
-// Mini bar chart
-function MiniBarChart() {
-  const bars = [4, 6, 5, 8, 10, 9, 12, 14, 13, 16];
-  const max = 16;
+// Mini bar chart — uses bot's equity data or monthly returns
+function MiniBarChart({data}: {data?: number[]}) {
+  const bars = data && data.length >= 2
+    ? data.slice(-10) // last 10 points
+    : [4, 6, 5, 8, 10, 9, 12, 14, 13, 16]; // fallback only if no data
+  const max = Math.max(...bars, 1);
+  const min = Math.min(...bars, 0);
+  const range = max - min || 1;
   return (
     <View style={{flexDirection: 'row', alignItems: 'flex-end', gap: 3}}>
       {bars.map((val, i) => (
         <View key={i} style={{
-          width: 6, height: (val / max) * 44,
+          width: 6, height: Math.max(4, ((val - min) / range) * 44),
           backgroundColor: '#10B981', borderRadius: 2,
           opacity: 0.35 + (i / bars.length) * 0.65,
         }} />
@@ -123,7 +126,7 @@ function BotGridCard({
   onPress,
   onPaperPress,
 }: {
-  bot: typeof mockBots[0];
+  bot: Bot;
   onPress: () => void;
   onPaperPress: () => void;
 }) {
@@ -207,7 +210,7 @@ function BotGridCard({
 
 // ─── Trending card with bot.png ───────────────────────────────────────────────
 
-function TrendingCard({bot, onPress}: {bot: typeof mockBots[0]; onPress: () => void}) {
+function TrendingCard({bot, onPress}: {bot: Bot; onPress: () => void}) {
   const returnColor = bot.returnPercent >= 0 ? '#10B981' : '#EF4444';
   const returnSign = bot.returnPercent >= 0 ? '+' : '';
   return (
@@ -234,13 +237,36 @@ export default function MarketplaceScreen() {
   const [activeFilter, setActiveFilter] = useState('All');
   const [sortDesc, setSortDesc] = useState(true);
 
-  const featuredBot = mockBots[0];
+  const [allBots, setAllBots] = useState<Bot[]>([]);
+  const [featuredBot, setFeaturedBot] = useState<Bot | null>(null);
+  const [trendingBots, setTrendingBots] = useState<Bot[]>([]);
+  const [categories, setCategories] = useState<string[]>(['All', 'Crypto', 'Stocks', 'Top Performers']);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const trendingBots = [...mockBots]
-    .sort((a, b) => b.returnPercent - a.returnPercent)
-    .slice(0, 2);
+  const fetchData = useCallback(async () => {
+    try {
+      const [botsRes, featured, trending, config] = await Promise.all([
+        marketplaceApi.getBots({limit: 50}),
+        marketplaceApi.getFeaturedBot().catch(() => null),
+        marketplaceApi.getTrendingBots().catch(() => []),
+        configApi.getPlatformConfig().catch(() => null),
+      ]);
+      setAllBots(botsRes.bots);
+      setFeaturedBot(featured || botsRes.bots[0] || null);
+      setTrendingBots(trending.length > 0 ? trending.slice(0, 2) : botsRes.bots.slice(0, 2));
+      if (config?.categories?.length) setCategories(config.categories);
+    } catch {
+      Alert.alert('Error', 'Failed to load marketplace data. Pull down to retry.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
 
-  const filteredBots = mockBots
+  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+
+  const filteredBots = allBots
     .filter(b => {
       const matchSearch =
         b.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -260,13 +286,21 @@ export default function MarketplaceScreen() {
   const isFiltering = searchQuery.length > 0 || activeFilter !== 'All';
   const displayBots = filteredBots.slice(0, isFiltering ? undefined : 4);
 
-  const handlePaperPress = (bot: typeof mockBots[0]) => {
+  const handlePaperPress = (bot: Bot) => {
     navigation.navigate('PaperTradingSetup');
   };
 
   const handleSettingsPress = () => {
     navigation.navigate('NotificationSettings');
   };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
+        <ActivityIndicator size="large" color="#10B981" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -291,7 +325,18 @@ export default function MarketplaceScreen() {
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); fetchData(); }}
+            tintColor="#10B981"
+            colors={['#10B981']}
+            progressBackgroundColor="#161B22"
+          />
+        }>
         {/* Search */}
         <View style={styles.searchRow}>
           <SearchSvg />
@@ -311,7 +356,7 @@ export default function MarketplaceScreen() {
           showsHorizontalScrollIndicator={false}
           style={styles.filtersScroll}
           contentContainerStyle={styles.filtersContent}>
-          {FILTERS.map(f => (
+          {categories.map((f: string) => (
             <TouchableOpacity
               key={f}
               style={[styles.chip, activeFilter === f && styles.chipActive]}
@@ -335,6 +380,7 @@ export default function MarketplaceScreen() {
         </View>
 
         {/* Featured card */}
+        {featuredBot && (
         <TouchableOpacity
           style={styles.featuredCard}
           onPress={() => navigation.navigate('BotDetails', {botId: featuredBot.id})}
@@ -351,7 +397,7 @@ export default function MarketplaceScreen() {
               <Text style={styles.featuredReturnLabel}>30D RETURNS</Text>
               <Text style={styles.featuredReturn}>+{featuredBot.returnPercent.toFixed(1)}%</Text>
             </View>
-            <MiniBarChart />
+            <MiniBarChart data={featuredBot.equityData} />
           </View>
           <TouchableOpacity
             style={styles.activateNowBtn}
@@ -360,13 +406,14 @@ export default function MarketplaceScreen() {
             <Text style={styles.activateNowText}>Activate Now</Text>
           </TouchableOpacity>
         </TouchableOpacity>
+        )}
 
         {/* Trending */}
         {!isFiltering && (
           <>
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>Trending</Text>
-              <TouchableOpacity activeOpacity={0.7}>
+              <TouchableOpacity activeOpacity={0.7} onPress={() => { setActiveFilter('All'); setSearchQuery(''); }}>
                 <Text style={styles.viewAll}>View All</Text>
               </TouchableOpacity>
             </View>

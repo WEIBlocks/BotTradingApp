@@ -42,6 +42,20 @@ export async function exchangeRoutes(app: FastifyInstance) {
     return { data: connection };
   });
 
+  // POST /test-connection (auth) - test API keys without saving
+  zApp.post('/test-connection', {
+    preHandler: [authenticate],
+    schema: {
+      body: connectBodySchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { provider, apiKey, apiSecret } = request.body;
+    const result = await exchangeService.testConnection(provider, apiKey, apiSecret);
+    return { data: result };
+  });
+
   // POST /oauth/initiate (auth)
   zApp.post('/oauth/initiate', {
     preHandler: [authenticate],

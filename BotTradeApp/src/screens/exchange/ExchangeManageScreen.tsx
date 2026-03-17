@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState, useCallback} from 'react';
 import {
   View,
   Text,
@@ -6,11 +6,13 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
-import {useNavigation} from '@react-navigation/native';
+import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
-import {mockExchangeConnections} from '../../data/mockExchanges';
+import {exchangeApi, ExchangeConnection} from '../../services/exchange';
 import Svg, {Path, Rect, Circle} from 'react-native-svg';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
@@ -97,18 +99,37 @@ const formatBalance = (balance: number): string =>
 
 const ExchangeManageScreen = () => {
   const navigation = useNavigation<NavProp>();
+  const [connections, setConnections] = useState<ExchangeConnection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const handleResync = (provider: string) => {
+  const fetchConnections = useCallback(() => {
+    exchangeApi.getConnections()
+      .then(data => setConnections(data))
+      .catch(() => Alert.alert('Error', 'Failed to load exchange connections. Pull down to retry.'))
+      .finally(() => { setLoading(false); setRefreshing(false); });
+  }, []);
+
+  useFocusEffect(useCallback(() => { fetchConnections(); }, [fetchConnections]));
+
+  const handleResync = (connectionId: string, provider: string) => {
     Alert.alert('Re-syncing', `Syncing data from ${provider}...`);
+    exchangeApi.resync(connectionId)
+      .then(() => fetchConnections())
+      .catch(() => Alert.alert('Error', 'Re-sync failed. Please try again.'));
   };
 
-  const handleDisconnect = (provider: string) => {
+  const handleDisconnect = (connectionId: string, provider: string) => {
     Alert.alert(
       'Disconnect Exchange',
       `Are you sure you want to disconnect ${provider}?`,
       [
         {text: 'Cancel', style: 'cancel'},
-        {text: 'Disconnect', style: 'destructive', onPress: () => {}},
+        {text: 'Disconnect', style: 'destructive', onPress: () => {
+          exchangeApi.disconnect(connectionId)
+            .then(() => fetchConnections())
+            .catch(() => Alert.alert('Error', 'Failed to disconnect exchange. Please try again.'));
+        }},
       ],
     );
   };
@@ -131,8 +152,24 @@ const ExchangeManageScreen = () => {
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}>
-        {mockExchangeConnections.map((exchange) => (
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); fetchConnections(); }}
+            tintColor="#10B981"
+            colors={['#10B981']}
+            progressBackgroundColor="#161B22"
+          />
+        }>
+        {loading ? (
+          <ActivityIndicator size="large" color="#10B981" style={{marginTop: 40}} />
+        ) : connections.length === 0 ? (
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginTop: 40}}>
+            No exchanges connected yet.
+          </Text>
+        ) : null}
+        {connections.map((exchange) => (
           <View key={exchange.id} style={styles.card}>
             {/* Top Row */}
             <View style={styles.cardTopRow}>
@@ -170,14 +207,14 @@ const ExchangeManageScreen = () => {
               <TouchableOpacity
                 style={styles.resyncBtn}
                 activeOpacity={0.7}
-                onPress={() => handleResync(exchange.provider)}>
+                onPress={() => handleResync(exchange.id, exchange.provider)}>
                 <SyncIcon size={14} />
                 <Text style={styles.resyncBtnText}>Re-sync</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.disconnectBtn}
                 activeOpacity={0.7}
-                onPress={() => handleDisconnect(exchange.provider)}>
+                onPress={() => handleDisconnect(exchange.id, exchange.provider)}>
                 <Text style={styles.disconnectBtnText}>Disconnect</Text>
               </TouchableOpacity>
             </View>

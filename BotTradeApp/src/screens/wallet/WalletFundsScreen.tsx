@@ -1,9 +1,11 @@
-import React, {useState} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
+import React, {useState, useCallback} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, Alert} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {useFocusEffect} from '@react-navigation/native';
 import Svg, {Path} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
-import {mockUser} from '../../data/mockUser';
+import {userApi, WalletData} from '../../services/user';
+import {dashboardApi, DashboardSummary} from '../../services/dashboard';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import WalletIcon from '../../components/icons/WalletIcon';
 import ArrowUpIcon from '../../components/icons/ArrowUpIcon';
@@ -42,6 +44,51 @@ type Props = NativeStackScreenProps<RootStackParamList, 'WalletFunds'>;
 
 export default function WalletFundsScreen({navigation}: Props) {
   const [selectedAction, setSelectedAction] = useState<'deposit' | 'withdraw' | null>(null);
+  const [wallet, setWallet] = useState<WalletData | null>(null);
+  const [dashSummary, setDashSummary] = useState<DashboardSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [w, ds] = await Promise.all([
+        userApi.getWallet().catch(() => null),
+        dashboardApi.getSummary().catch(() => null),
+      ]);
+      setWallet(w);
+      setDashSummary(ds);
+    } catch (e) {
+      Alert.alert('Error', 'Failed to load wallet data. Pull down to retry.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+
+  const totalBalance = parseFloat(wallet?.totalBalance ?? '0') || 0;
+  const accountBalance = dashSummary?.accountBalance ?? 0;
+  const buyingPower = dashSummary?.buyingPower ?? 0;
+
+  const activities = (wallet?.recentActivity ?? []).map(a => {
+    const amt = parseFloat(a.amount ?? '0') || 0;
+    return {
+      id: a.id,
+      type: a.type,
+      title: a.title,
+      subtitle: new Date(a.createdAt).toLocaleDateString(),
+      amount: amt,
+    };
+  });
+
+  if (loading) {
+    return (
+      <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
+        <ActivityIndicator size="large" color="#10B981" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -53,20 +100,31 @@ export default function WalletFundsScreen({navigation}: Props) {
         <View style={{width: 40}} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); fetchData(); }}
+            tintColor="#10B981"
+            colors={['#10B981']}
+            progressBackgroundColor="#161B22"
+          />
+        }>
         {/* Balance card */}
         <View style={styles.balanceCard}>
           <WalletIcon size={28} color="#10B981" />
           <Text style={styles.balanceLabel}>TOTAL BALANCE</Text>
-          <Text style={styles.balanceValue}>${mockUser.totalBalance.toLocaleString('en-US', {minimumFractionDigits: 2})}</Text>
+          <Text style={styles.balanceValue}>${totalBalance.toLocaleString('en-US', {minimumFractionDigits: 2})}</Text>
           <View style={styles.subBalances}>
             <View style={styles.subItem}>
-              <Text style={styles.subValue}>${mockUser.accountBalance.toLocaleString()}</Text>
+              <Text style={styles.subValue}>${accountBalance.toLocaleString()}</Text>
               <Text style={styles.subLabel}>Invested</Text>
             </View>
             <View style={styles.subDivider} />
             <View style={styles.subItem}>
-              <Text style={styles.subValue}>${mockUser.buyingPower.toLocaleString()}</Text>
+              <Text style={styles.subValue}>${buyingPower.toLocaleString()}</Text>
               <Text style={styles.subLabel}>Available</Text>
             </View>
           </View>
@@ -74,11 +132,26 @@ export default function WalletFundsScreen({navigation}: Props) {
 
         {/* Actions */}
         <View style={styles.actionsRow}>
-          <TouchableOpacity style={[styles.actionBtn, selectedAction === 'deposit' && styles.actionBtnActive]} onPress={() => setSelectedAction('deposit')}>
+          <TouchableOpacity style={[styles.actionBtn, selectedAction === 'deposit' && styles.actionBtnActive]} onPress={() => {
+            setSelectedAction('deposit');
+            Alert.alert('Deposit Funds', 'To deposit funds, connect an exchange account and transfer from your exchange wallet.', [
+              {text: 'Connect Exchange', onPress: () => navigation.navigate('ExchangeConnect')},
+              {text: 'Cancel', style: 'cancel'},
+            ]);
+          }}>
             <ArrowDownIcon size={20} color="#10B981" />
             <Text style={styles.actionText}>Deposit</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionBtn, selectedAction === 'withdraw' && styles.actionBtnActive]} onPress={() => setSelectedAction('withdraw')}>
+          <TouchableOpacity style={[styles.actionBtn, selectedAction === 'withdraw' && styles.actionBtnActive]} onPress={() => {
+            setSelectedAction('withdraw');
+            if (buyingPower <= 0) {
+              Alert.alert('No Available Funds', 'You don\'t have any available funds to withdraw.');
+              return;
+            }
+            Alert.alert('Withdraw Funds', 'Withdrawals are processed to your connected exchange account. Please allow 1-3 business days.', [
+              {text: 'OK'},
+            ]);
+          }}>
             <ArrowUpIcon size={20} color="#EF4444" />
             <Text style={styles.actionText}>Withdraw</Text>
           </TouchableOpacity>
@@ -86,7 +159,12 @@ export default function WalletFundsScreen({navigation}: Props) {
 
         {/* Recent transactions */}
         <Text style={styles.sectionLabel}>RECENT TRANSACTIONS</Text>
-        {mockUser.recentActivity.map(activity => (
+        {activities.length === 0 && (
+          <View style={{paddingVertical: 24, alignItems: 'center'}}>
+            <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.35)'}}>No recent transactions</Text>
+          </View>
+        )}
+        {activities.map(activity => (
           <View key={activity.id} style={styles.txRow}>
             <View style={[styles.txIcon, {backgroundColor: activity.amount >= 0 ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'}]}>
               <TxIcon type={activity.type} />

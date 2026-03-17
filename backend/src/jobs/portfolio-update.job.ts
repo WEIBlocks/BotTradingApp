@@ -1,17 +1,11 @@
 import { eq } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { createQueue, createWorker } from '../config/queue.js';
 import { exchangeConnections, exchangeAssets } from '../db/schema/exchanges';
 import { getPrice } from './price-sync.job.js';
 
-const portfolioQueue = createQueue('portfolio-update');
-
-// Map common asset symbols to trading pairs
 function symbolToTradingPair(symbol: string): string {
   const s = symbol.toUpperCase();
-  if (s === 'USDT' || s === 'USD' || s === 'USDC' || s === 'BUSD') {
-    return ''; // stablecoins, no price lookup needed
-  }
+  if (s === 'USDT' || s === 'USD' || s === 'USDC' || s === 'BUSD') return '';
   return `${s}/USDT`;
 }
 
@@ -19,7 +13,6 @@ async function processPortfolioUpdate() {
   console.log('[PortfolioUpdate] Updating portfolio values...');
 
   try {
-    // Get all connected exchange connections
     const connections = await db
       .select()
       .from(exchangeConnections)
@@ -34,7 +27,6 @@ async function processPortfolioUpdate() {
 
     for (const conn of connections) {
       try {
-        // Get assets for this connection
         const assets = await db
           .select()
           .from(exchangeAssets)
@@ -47,17 +39,11 @@ async function processPortfolioUpdate() {
           const amount = parseFloat(asset.amount);
 
           if (!pair) {
-            // Stablecoin: value = amount
             const valueUsd = amount;
             totalBalance += valueUsd;
-
             await db
               .update(exchangeAssets)
-              .set({
-                valueUsd: valueUsd.toFixed(2),
-                change24h: '0',
-                updatedAt: new Date(),
-              })
+              .set({ valueUsd: valueUsd.toFixed(2), change24h: '0', updatedAt: new Date() })
               .where(eq(exchangeAssets.id, asset.id));
             continue;
           }
@@ -70,25 +56,15 @@ async function processPortfolioUpdate() {
 
           await db
             .update(exchangeAssets)
-            .set({
-              valueUsd: valueUsd.toFixed(2),
-              change24h: priceData.change24h.toFixed(4),
-              updatedAt: new Date(),
-            })
+            .set({ valueUsd: valueUsd.toFixed(2), change24h: priceData.change24h.toFixed(4), updatedAt: new Date() })
             .where(eq(exchangeAssets.id, asset.id));
         }
 
-        // Update total balance on connection
         await db
           .update(exchangeConnections)
-          .set({
-            totalBalance: totalBalance.toFixed(2),
-            lastSyncAt: new Date(),
-            updatedAt: new Date(),
-          })
+          .set({ totalBalance: totalBalance.toFixed(2), lastSyncAt: new Date(), updatedAt: new Date() })
           .where(eq(exchangeConnections.id, conn.id));
 
-        // Update allocation percentages
         if (totalBalance > 0) {
           const updatedAssets = await db
             .select()
@@ -98,7 +74,6 @@ async function processPortfolioUpdate() {
           for (const asset of updatedAssets) {
             const value = parseFloat(asset.valueUsd ?? '0');
             const allocation = (value / totalBalance) * 100;
-
             await db
               .update(exchangeAssets)
               .set({ allocation: allocation.toFixed(2) })
@@ -117,24 +92,6 @@ async function processPortfolioUpdate() {
 }
 
 export async function startPortfolioUpdateJob() {
-  const existing = await portfolioQueue.getRepeatableJobs();
-  for (const job of existing) {
-    await portfolioQueue.removeRepeatableByKey(job.key);
-  }
-
-  await portfolioQueue.add(
-    'update-portfolios',
-    {},
-    {
-      repeat: { every: 300_000 }, // 5 minutes
-      removeOnComplete: { count: 5 },
-      removeOnFail: { count: 10 },
-    },
-  );
-
-  createWorker('portfolio-update', async () => {
-    await processPortfolioUpdate();
-  });
-
+  setInterval(processPortfolioUpdate, 300_000); // 5 minutes
   console.log('[PortfolioUpdate] Job started - runs every 5 minutes');
 }

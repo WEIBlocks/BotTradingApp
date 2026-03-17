@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   View,
   Text,
@@ -6,30 +6,27 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import Svg, {Path, Rect, Circle} from 'react-native-svg';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
+import {trainingApi, TrainingUpload} from '../../services/training';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
 type UploadTab = 'Images' | 'Videos' | 'Documents';
 
-interface MockUpload {
-  id: string;
-  type: 'image' | 'video' | 'document';
-  name: string;
-  status: 'complete' | 'processing' | 'error';
-  timestamp: string;
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
-
-const MOCK_UPLOADS: MockUpload[] = [
-  {id: '1', type: 'image', name: 'BTC_chart_analysis.png', status: 'complete', timestamp: '2 hours ago'},
-  {id: '2', type: 'video', name: 'Scalping_strategy.mp4', status: 'processing', timestamp: '45 min ago'},
-  {id: '3', type: 'document', name: 'Trading_guide.pdf', status: 'complete', timestamp: '1 day ago'},
-  {id: '4', type: 'image', name: 'ETH_patterns.png', status: 'error', timestamp: '3 hours ago'},
-];
 
 // ─── Icons ──────────────────────────────────────────────────────────────────
 
@@ -216,13 +213,35 @@ const badgeStyles = StyleSheet.create({
 export default function TrainingUploadScreen() {
   const navigation = useNavigation<Nav>();
   const [activeTab, setActiveTab] = useState<UploadTab>('Images');
+  const [uploads, setUploads] = useState<TrainingUpload[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [training, setTraining] = useState(false);
+
+  useEffect(() => {
+    trainingApi.getUploads('current')
+      .then(setUploads)
+      .catch(() => setUploads([]))
+      .finally(() => setLoading(false));
+  }, []);
 
   const handleUploadTap = () => {
-    Alert.alert('File picker would open here');
+    Alert.alert('Upload', 'File picker integration requires native module. Training data can be uploaded via the web dashboard.');
   };
 
-  const handleStartTraining = () => {
-    Alert.alert('Training initiated!');
+  const handleStartTraining = async () => {
+    if (uploads.length === 0) {
+      Alert.alert('No Uploads', 'Upload some training data first.');
+      return;
+    }
+    setTraining(true);
+    try {
+      await trainingApi.startTraining('current');
+      Alert.alert('Training Started!', 'Your bot is now learning from your data. This may take a few minutes.');
+    } catch (e: any) {
+      Alert.alert('Training Failed', e?.message || 'Could not start training.');
+    } finally {
+      setTraining(false);
+    }
   };
 
   const tabs: UploadTab[] = ['Images', 'Videos', 'Documents'];
@@ -291,31 +310,50 @@ export default function TrainingUploadScreen() {
         {/* Previous Uploads */}
         <Text style={styles.sectionTitle}>Previous Uploads</Text>
         <View style={styles.card}>
-          {MOCK_UPLOADS.map((upload, index) => (
-            <View key={upload.id}>
-              <View style={styles.uploadRow}>
-                <View style={styles.uploadIcon}>{getFileIcon(upload.type)}</View>
-                <View style={styles.uploadInfo}>
-                  <Text style={styles.fileName} numberOfLines={1}>
-                    {upload.name}
-                  </Text>
-                  <Text style={styles.fileTimestamp}>{upload.timestamp}</Text>
-                </View>
-                <StatusBadge status={upload.status} />
-              </View>
-              {index < MOCK_UPLOADS.length - 1 && (
-                <View style={styles.divider} />
-              )}
+          {loading ? (
+            <View style={{padding: 24, alignItems: 'center'}}>
+              <ActivityIndicator color="#10B981" size="small" />
             </View>
-          ))}
+          ) : uploads.length === 0 ? (
+            <View style={{padding: 24, alignItems: 'center'}}>
+              <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)'}}>
+                No uploads yet
+              </Text>
+            </View>
+          ) : (
+            uploads.map((upload, index) => (
+              <View key={upload.id ?? index}>
+                <View style={styles.uploadRow}>
+                  <View style={styles.uploadIcon}>{getFileIcon(upload.type)}</View>
+                  <View style={styles.uploadInfo}>
+                    <Text style={styles.fileName} numberOfLines={1}>
+                      {upload.name}
+                    </Text>
+                    <Text style={styles.fileTimestamp}>
+                      {upload.createdAt ? timeAgo(upload.createdAt) : ''}
+                    </Text>
+                  </View>
+                  <StatusBadge status={upload.status} />
+                </View>
+                {index < uploads.length - 1 && (
+                  <View style={styles.divider} />
+                )}
+              </View>
+            ))
+          )}
         </View>
 
         {/* Start Training Button */}
         <TouchableOpacity
           style={styles.trainBtn}
           activeOpacity={0.8}
-          onPress={handleStartTraining}>
-          <Text style={styles.trainBtnText}>Start Training</Text>
+          onPress={handleStartTraining}
+          disabled={training}>
+          {training ? (
+            <ActivityIndicator color="#FFFFFF" size="small" />
+          ) : (
+            <Text style={styles.trainBtnText}>Start Training</Text>
+          )}
         </TouchableOpacity>
 
         <View style={{height: 40}} />

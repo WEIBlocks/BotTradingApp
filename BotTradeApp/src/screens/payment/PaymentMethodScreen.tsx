@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect, useCallback} from 'react';
 import {
   View,
   Text,
@@ -6,10 +6,13 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
-import {mockPaymentMethods} from '../../data/mockSubscription';
+import type {PaymentMethodData} from '../../types';
+import {paymentsApi} from '../../services/payments';
 import Svg, {Path, Rect, Circle} from 'react-native-svg';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 
@@ -51,9 +54,9 @@ const PlusSmallIcon = () => (
 );
 
 export default function PaymentMethodScreen({navigation}: Props) {
-  const [selectedId, setSelectedId] = useState(
-    mockPaymentMethods.find(m => m.isDefault)?.id || mockPaymentMethods[0]?.id,
-  );
+  const [methods, setMethods] = useState<PaymentMethodData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   const [showCardForm, setShowCardForm] = useState(false);
   const [showWalletForm, setShowWalletForm] = useState(false);
 
@@ -61,6 +64,24 @@ export default function PaymentMethodScreen({navigation}: Props) {
   const [expiry, setExpiry] = useState('');
   const [cvv, setCvv] = useState('');
   const [walletAddress, setWalletAddress] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const fetchMethods = useCallback(() => {
+    setLoading(true);
+    paymentsApi.getMethods()
+      .then(data => {
+        setMethods(data);
+        if (data.length > 0 && !selectedId) {
+          setSelectedId(data.find(m => m.isDefault)?.id || data[0]?.id);
+        }
+      })
+      .catch(() => Alert.alert('Error', 'Failed to load payment methods. Pull down to retry.'))
+      .finally(() => setLoading(false));
+  }, [selectedId]);
+
+  useEffect(() => {
+    fetchMethods();
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -72,10 +93,17 @@ export default function PaymentMethodScreen({navigation}: Props) {
         <View style={{width: 40}} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         {/* Saved methods */}
         <Text style={styles.sectionLabel}>SAVED METHODS</Text>
-        {mockPaymentMethods.map(method => (
+        {loading ? (
+          <ActivityIndicator size="large" color="#10B981" style={{marginTop: 20}} />
+        ) : methods.length === 0 ? (
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginTop: 20, marginBottom: 10}}>
+            No payment methods saved yet.
+          </Text>
+        ) : null}
+        {methods.map(method => (
           <TouchableOpacity
             key={method.id}
             style={styles.methodCard}
@@ -161,8 +189,45 @@ export default function PaymentMethodScreen({navigation}: Props) {
                 />
               </View>
             </View>
-            <TouchableOpacity style={styles.saveBtn} activeOpacity={0.85}>
-              <Text style={styles.saveBtnText}>Save Card</Text>
+            <TouchableOpacity style={styles.saveBtn} activeOpacity={0.85} disabled={saving} onPress={() => {
+              // Validate card number (13-19 digits)
+              const digits = cardNumber.replace(/\s/g, '');
+              if (!digits || digits.length < 13 || digits.length > 19 || !/^\d+$/.test(digits)) {
+                Alert.alert('Invalid Card', 'Please enter a valid card number (13-19 digits).');
+                return;
+              }
+              // Validate expiry (MM/YY)
+              if (!/^\d{2}\/\d{2}$/.test(expiry)) {
+                Alert.alert('Invalid Expiry', 'Please enter expiry in MM/YY format.');
+                return;
+              }
+              const [mm, yy] = expiry.split('/').map(Number);
+              if (mm < 1 || mm > 12) {
+                Alert.alert('Invalid Expiry', 'Month must be between 01 and 12.');
+                return;
+              }
+              const now = new Date();
+              const expDate = new Date(2000 + yy, mm);
+              if (expDate <= now) {
+                Alert.alert('Card Expired', 'This card has expired. Please use a different card.');
+                return;
+              }
+              // Validate CVV (3-4 digits)
+              if (!/^\d{3,4}$/.test(cvv)) {
+                Alert.alert('Invalid CVV', 'CVV must be 3 or 4 digits.');
+                return;
+              }
+              setSaving(true);
+              paymentsApi.addMethod({type: 'card', label: 'Card', last4: digits.slice(-4)})
+                .then(() => {
+                  fetchMethods();
+                  setShowCardForm(false);
+                  setCardNumber(''); setExpiry(''); setCvv('');
+                })
+                .catch(err => Alert.alert('Save Failed', err?.message || 'Could not save card.'))
+                .finally(() => setSaving(false));
+            }}>
+              <Text style={styles.saveBtnText}>{saving ? 'Saving...' : 'Save Card'}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -190,8 +255,28 @@ export default function PaymentMethodScreen({navigation}: Props) {
               value={walletAddress}
               onChangeText={setWalletAddress}
             />
-            <TouchableOpacity style={styles.saveBtn} activeOpacity={0.85}>
-              <Text style={styles.saveBtnText}>Save Wallet</Text>
+            <TouchableOpacity style={styles.saveBtn} activeOpacity={0.85} disabled={saving} onPress={() => {
+              const addr = walletAddress.trim();
+              if (!addr) {
+                Alert.alert('Missing Address', 'Please enter a wallet address.');
+                return;
+              }
+              // Basic wallet address validation (ETH-like or BTC-like)
+              if (addr.length < 26 || addr.length > 62) {
+                Alert.alert('Invalid Address', 'Please enter a valid wallet address.');
+                return;
+              }
+              setSaving(true);
+              paymentsApi.addMethod({type: 'crypto', label: 'Crypto Wallet', cryptoAddress: addr})
+                .then(() => {
+                  fetchMethods();
+                  setShowWalletForm(false);
+                  setWalletAddress('');
+                })
+                .catch(err => Alert.alert('Save Failed', err?.message || 'Could not save wallet.'))
+                .finally(() => setSaving(false));
+            }}>
+              <Text style={styles.saveBtnText}>{saving ? 'Saving...' : 'Save Wallet'}</Text>
             </TouchableOpacity>
           </View>
         )}

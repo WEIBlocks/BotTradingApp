@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useState, useCallback} from 'react';
 import {
   View,
   Text,
@@ -6,16 +6,15 @@ import {
   ScrollView,
   TouchableOpacity,
   Dimensions,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
 } from 'react-native';
 import Svg, {Path, Circle, Rect} from 'react-native-svg';
-import {useNavigation} from '@react-navigation/native';
+import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
-import {
-  mockCreatorStats,
-  mockCreatorBots,
-  mockAiSuggestions,
-} from '../../data/mockCreator';
+import {creatorApi, CreatorStats, CreatorBot, MonthlyRevenue, AiSuggestion} from '../../services/creator';
 
 const {width} = Dimensions.get('window');
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -93,20 +92,19 @@ function UsersIcon() {
 
 // ─── Revenue Bar Chart ──────────────────────────────────────────────────────
 
-const MONTHLY_DATA = [320, 450, 380, 520, 680, 892];
-const MONTH_LABELS = ['Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
-
-function RevenueBarChart() {
-  const maxVal = Math.max(...MONTHLY_DATA);
+function RevenueBarChart({data}: {data: MonthlyRevenue[]}) {
+  const values = data.map(d => d.revenue);
+  const labels = data.map(d => d.month);
+  const maxVal = Math.max(...values, 1);
   const maxH = 100;
-  const barCount = MONTHLY_DATA.length;
+  const barCount = values.length;
   const chartWidth = width - 64;
-  const barW = (chartWidth - (barCount - 1) * 8) / barCount;
+  const barW = barCount > 0 ? (chartWidth - (barCount - 1) * 8) / barCount : 48;
 
   return (
     <View style={chartStyles.container}>
       <View style={chartStyles.barsRow}>
-        {MONTHLY_DATA.map((val, i) => {
+        {values.map((val, i) => {
           const h = (val / maxVal) * maxH;
           return (
             <View key={i} style={chartStyles.barCol}>
@@ -117,7 +115,7 @@ function RevenueBarChart() {
                   {height: h, width: barW, maxWidth: 48},
                 ]}
               />
-              <Text style={chartStyles.barLabel}>{MONTH_LABELS[i]}</Text>
+              <Text style={chartStyles.barLabel}>{labels[i]}</Text>
             </View>
           );
         })}
@@ -155,6 +153,32 @@ const chartStyles = StyleSheet.create({
 
 export default function CreatorStudioScreen() {
   const navigation = useNavigation<Nav>();
+  const [stats, setStats] = useState<CreatorStats | null>(null);
+  const [bots, setBots] = useState<CreatorBot[]>([]);
+  const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);
+  const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchData = useCallback(() => {
+    Promise.all([
+      creatorApi.getStats(),
+      creatorApi.getBots(),
+      creatorApi.getMonthlyRevenue(),
+      creatorApi.getAiSuggestions(),
+    ])
+      .then(([s, b, mr, ai]) => {
+        const latestMonthRev = mr.length > 0 ? mr[mr.length - 1].revenue : 0;
+        setStats({...s, monthlyRevenue: latestMonthRev});
+        setBots(b);
+        setMonthlyRevenue(mr);
+        setAiSuggestions(ai);
+      })
+      .catch(() => Alert.alert('Error', 'Failed to load creator data. Pull down to retry.'))
+      .finally(() => { setLoading(false); setRefreshing(false); });
+  }, []);
+
+  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
   const renderStars = (rating: number) => {
     const stars = [];
@@ -163,6 +187,14 @@ export default function CreatorStudioScreen() {
     }
     return stars;
   };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
+        <ActivityIndicator size="large" color="#10B981" />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -179,25 +211,34 @@ export default function CreatorStudioScreen() {
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}>
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => { setRefreshing(true); fetchData(); }}
+            tintColor="#10B981"
+            colors={['#10B981']}
+            progressBackgroundColor="#161B22"
+          />
+        }>
         {/* Revenue Metric Cards */}
         <View style={styles.metricsRow}>
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>Total Revenue</Text>
             <Text style={styles.metricValue}>
-              ${mockCreatorStats.totalRevenue.toLocaleString('en-US', {minimumFractionDigits: 2})}
+              ${(stats?.totalRevenue ?? 0).toLocaleString('en-US', {minimumFractionDigits: 2})}
             </Text>
           </View>
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>Monthly</Text>
             <Text style={styles.metricValue}>
-              ${mockCreatorStats.monthlyRevenue.toLocaleString('en-US', {minimumFractionDigits: 2})}
+              ${(stats?.monthlyRevenue ?? 0).toLocaleString('en-US', {minimumFractionDigits: 2})}
             </Text>
           </View>
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>Total Users</Text>
             <Text style={styles.metricValue}>
-              {mockCreatorStats.totalUsers}
+              {stats?.totalUsers ?? 0}
             </Text>
           </View>
         </View>
@@ -205,14 +246,21 @@ export default function CreatorStudioScreen() {
         {/* Revenue Chart */}
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>MONTHLY REVENUE</Text>
-          <RevenueBarChart />
+          <RevenueBarChart data={monthlyRevenue} />
         </View>
 
         {/* Your Bots */}
         <Text style={styles.sectionTitle}>Your Bots</Text>
         <View style={styles.card}>
-          {mockCreatorBots.map((bot, index) => (
-            <View key={bot.id}>
+          {bots.length === 0 ? (
+            <View style={{alignItems: 'center', paddingVertical: 24}}>
+              <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 4}}>No bots created yet</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('BotBuilder' as any)} activeOpacity={0.7}>
+                <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: '#10B981'}}>Build your first bot</Text>
+              </TouchableOpacity>
+            </View>
+          ) : bots.map((bot, index) => (
+            <TouchableOpacity key={bot.id} activeOpacity={0.7} onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}>
               <View style={styles.botRow}>
                 <View style={styles.botInfo}>
                   <Text style={styles.botName}>{bot.name}</Text>
@@ -234,10 +282,10 @@ export default function CreatorStudioScreen() {
                   </Text>
                 </View>
               </View>
-              {index < mockCreatorBots.length - 1 && (
+              {index < bots.length - 1 && (
                 <View style={styles.divider} />
               )}
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
 
@@ -247,10 +295,10 @@ export default function CreatorStudioScreen() {
             <SparkleIcon />
             <Text style={styles.aiTitle}>AI Suggestions</Text>
           </View>
-          {mockAiSuggestions.map((suggestion, i) => (
-            <View key={i} style={styles.suggestionRow}>
+          {aiSuggestions.map((suggestion, i) => (
+            <View key={suggestion.id || i} style={styles.suggestionRow}>
               <View style={styles.bulletDot} />
-              <Text style={styles.suggestionText}>{suggestion}</Text>
+              <Text style={styles.suggestionText}>{suggestion.description}</Text>
             </View>
           ))}
         </View>
@@ -260,14 +308,14 @@ export default function CreatorStudioScreen() {
           <Text style={styles.sectionLabel}>REVIEWS</Text>
           <View style={styles.reviewSummary}>
             <Text style={styles.avgRating}>
-              {mockCreatorStats.avgRating}
+              {stats?.avgRating ?? 0}
             </Text>
             <View style={styles.reviewRight}>
               <View style={styles.starsRow}>
-                {renderStars(mockCreatorStats.avgRating)}
+                {renderStars(stats?.avgRating ?? 0)}
               </View>
               <Text style={styles.reviewCount}>
-                {mockCreatorStats.reviewCount} reviews
+                {stats?.reviewCount ?? 0} reviews
               </Text>
             </View>
           </View>

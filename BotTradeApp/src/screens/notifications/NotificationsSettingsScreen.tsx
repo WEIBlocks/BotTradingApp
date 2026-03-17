@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {
   View,
   Text,
@@ -6,9 +6,11 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
+  Alert,
 } from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
+import {userApi} from '../../services/user';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import BellIcon from '../../components/icons/BellIcon';
 import ChartIcon from '../../components/icons/ChartIcon';
@@ -52,9 +54,28 @@ export default function NotificationsSettingsScreen({navigation}: Props) {
     arenaResults: true,
   });
 
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const toggle = (id: string) => {
-    setSettings(prev => ({...prev, [id]: !prev[id]}));
+    setSettings(prev => {
+      const updated = {...prev, [id]: !prev[id]};
+      // Debounce API call to persist settings
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        userApi.updateSettings({notification_preferences: updated}).catch(() => {});
+      }, 800);
+      return updated;
+    });
   };
+
+  // Load saved settings on mount
+  useEffect(() => {
+    userApi.getSettings()
+      .then(s => {
+        if (s?.notificationPreferences) setSettings(prev => ({...prev, ...s.notificationPreferences}));
+      })
+      .catch(() => {});
+  }, []);
 
   const sections: SettingSection[] = [
     {
@@ -62,10 +83,10 @@ export default function NotificationsSettingsScreen({navigation}: Props) {
       icon: <ChartIcon size={18} color="#10B981" />,
       iconBg: 'rgba(16,185,129,0.15)',
       items: [
-        {id: 'tradeExecuted', label: 'Trade Executed', description: 'When a bot opens or closes a position'},
-        {id: 'profitTarget', label: 'Profit Target Hit', description: 'When a trade reaches your profit goal'},
-        {id: 'stopLoss', label: 'Stop Loss Triggered', description: 'When a trade hits the stop-loss level'},
-        {id: 'botActivated', label: 'Bot Status Change', description: 'When a bot is activated or paused'},
+        {id: 'tradeExecuted', label: 'Trade Executed', description: 'When a bot opens or closes a position', value: settings.tradeExecuted},
+        {id: 'profitTarget', label: 'Profit Target Hit', description: 'When a trade reaches your profit goal', value: settings.profitTarget},
+        {id: 'stopLoss', label: 'Stop Loss Triggered', description: 'When a trade hits the stop-loss level', value: settings.stopLoss},
+        {id: 'botActivated', label: 'Bot Status Change', description: 'When a bot is activated or paused', value: settings.botActivated},
       ],
     },
     {
@@ -73,9 +94,9 @@ export default function NotificationsSettingsScreen({navigation}: Props) {
       icon: <BellIcon size={18} color="#0D7FF2" />,
       iconBg: 'rgba(13,127,242,0.15)',
       items: [
-        {id: 'priceAlert', label: 'Price Alerts', description: 'Custom price threshold notifications'},
-        {id: 'marketOpen', label: 'Market Open/Close', description: 'Daily market session reminders'},
-        {id: 'volatilityAlert', label: 'High Volatility Warning', description: 'Unusual market movement detected'},
+        {id: 'priceAlert', label: 'Price Alerts', description: 'Custom price threshold notifications', value: settings.priceAlert},
+        {id: 'marketOpen', label: 'Market Open/Close', description: 'Daily market session reminders', value: settings.marketOpen},
+        {id: 'volatilityAlert', label: 'High Volatility Warning', description: 'Unusual market movement detected', value: settings.volatilityAlert},
       ],
     },
     {
@@ -83,10 +104,10 @@ export default function NotificationsSettingsScreen({navigation}: Props) {
       icon: <GearIcon size={18} color="#A855F7" />,
       iconBg: 'rgba(168,85,247,0.15)',
       items: [
-        {id: 'botUpdate', label: 'Bot Updates', description: 'Strategy updates from bot creators'},
-        {id: 'securityAlert', label: 'Security Alerts', description: 'Login attempts and account changes'},
-        {id: 'weeklyReport', label: 'Weekly Performance Report', description: 'Summary of your portfolio every Sunday'},
-        {id: 'promotions', label: 'Promotions & Offers', description: 'Special deals and featured bots'},
+        {id: 'botUpdate', label: 'Bot Updates', description: 'Strategy updates from bot creators', value: settings.botUpdate},
+        {id: 'securityAlert', label: 'Security Alerts', description: 'Login attempts and account changes', value: settings.securityAlert},
+        {id: 'weeklyReport', label: 'Weekly Performance Report', description: 'Summary of your portfolio every Sunday', value: settings.weeklyReport},
+        {id: 'promotions', label: 'Promotions & Offers', description: 'Special deals and featured bots', value: settings.promotions},
       ],
     },
     {
@@ -94,8 +115,8 @@ export default function NotificationsSettingsScreen({navigation}: Props) {
       icon: <InfoIcon size={18} color="#EAB308" />,
       iconBg: 'rgba(234,179,8,0.15)',
       items: [
-        {id: 'arenaInvite', label: 'Arena Invitations', description: 'When someone challenges you to a battle'},
-        {id: 'arenaResults', label: 'Arena Results', description: 'Final standings when a battle ends'},
+        {id: 'arenaInvite', label: 'Arena Invitations', description: 'When someone challenges you to a battle', value: settings.arenaInvite},
+        {id: 'arenaResults', label: 'Arena Results', description: 'Final standings when a battle ends', value: settings.arenaResults},
       ],
     },
   ];
@@ -150,7 +171,7 @@ export default function NotificationsSettingsScreen({navigation}: Props) {
               Critical alerts only during sleep hours
             </Text>
           </View>
-          <TouchableOpacity style={styles.quietHoursEditBtn}>
+          <TouchableOpacity style={styles.quietHoursEditBtn} onPress={() => Alert.alert('Quiet Hours', 'Quiet hours configuration will be available in a future update. Currently set to 10:00 PM — 7:00 AM.')}>
             <Text style={styles.quietHoursEditText}>Edit</Text>
           </TouchableOpacity>
         </View>

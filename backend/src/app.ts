@@ -110,6 +110,25 @@ export async function buildApp() {
     env: env.NODE_ENV,
   }));
 
+  // Platform config (public, no auth)
+  app.get('/config/platform', async () => ({
+    data: {
+      platformFeeRate: 0.07,
+      proDiscountRate: 0.03,
+      tradingPairs: [
+        'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'MATIC/USDT',
+        'XRP/USDT', 'ADA/USDT', 'DOGE/USDT', 'AVAX/USDT', 'DOT/USDT',
+        'LINK/USDT', 'ATOM/USDT',
+      ],
+      strategies: [
+        'Trend Following', 'Scalping', 'Grid', 'Arbitrage', 'DCA',
+        'Mean Reversion', 'Momentum', 'Breakout',
+      ],
+      riskLevels: ['Very Low', 'Low', 'Med', 'High', 'Very High'],
+      categories: ['All', 'Crypto', 'Stocks', 'Top Performers'],
+    },
+  }));
+
   // Register route modules
   await app.register(authRoutes, { prefix: '/auth' });
   await app.register(userRoutes, { prefix: '/user' });

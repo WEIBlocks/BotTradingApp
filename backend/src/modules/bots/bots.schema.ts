@@ -22,9 +22,12 @@ export const purchaseBotBodySchema = z.object({
 
 export const shadowModeBodySchema = z.object({
   virtualBalance: z.number().positive(),
-  durationDays: z.number().int().positive(),
+  durationDays: z.number().int().min(0).optional(),
+  durationMinutes: z.number().int().positive().optional(),
   enableRiskLimits: z.boolean().optional(),
   enableRealisticFees: z.boolean().optional(),
+}).refine(data => (data.durationDays && data.durationDays > 0) || (data.durationMinutes && data.durationMinutes > 0), {
+  message: 'Either durationDays or durationMinutes must be provided',
 });
 
 export const reviewBodySchema = z.object({

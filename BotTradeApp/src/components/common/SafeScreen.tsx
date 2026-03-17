@@ -1,6 +1,6 @@
 import React from 'react';
-import {SafeAreaView, StyleSheet, ViewStyle} from 'react-native';
-import {Edge} from 'react-native-safe-area-context';
+import {StyleSheet, ViewStyle} from 'react-native';
+import {SafeAreaView, Edge} from 'react-native-safe-area-context';
 
 interface SafeScreenProps {
   children: React.ReactNode;

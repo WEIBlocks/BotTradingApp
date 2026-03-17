@@ -1,11 +1,8 @@
 import { eq, sql } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { createQueue, createWorker } from '../config/queue.js';
 import { arenaSessions, arenaGladiators } from '../db/schema/arena';
 import { bots } from '../db/schema/bots';
 import { getPrice } from './price-sync.job.js';
-
-const arenaTickQueue = createQueue('arena-tick');
 
 // In-memory state for arena gladiators
 interface GladiatorState {
@@ -41,7 +38,6 @@ function simulateArenaDecision(
   symbol: string,
   currentPrice: number,
 ): { action: 'buy' | 'sell' | 'hold'; amount: number; reason: string } {
-  // Record price history
   if (!state.lastPrices.has(symbol)) {
     state.lastPrices.set(symbol, []);
   }
@@ -51,15 +47,12 @@ function simulateArenaDecision(
 
   const existingPos = state.positions.get(symbol);
   const strat = strategy.toLowerCase();
-
-  // Add some randomness to make arena interesting
   const noise = (Math.random() - 0.5) * 0.02;
 
   if (strat.includes('momentum') || strat.includes('trend')) {
     if (prices.length >= 5) {
       const ma5 = prices.slice(-5).reduce((a, b) => a + b, 0) / 5;
       const momentum = (currentPrice - ma5) / ma5;
-
       if (momentum + noise > 0.001 && !existingPos) {
         const amount = (state.balance * 0.3) / currentPrice;
         return { action: 'buy', amount, reason: `Momentum entry: ${(momentum * 100).toFixed(2)}%` };
@@ -85,7 +78,6 @@ function simulateArenaDecision(
     if (prices.length >= 2) {
       const prevPrice = prices[prices.length - 2];
       const gridSize = prevPrice * 0.005;
-
       if (currentPrice <= prevPrice - gridSize && !existingPos) {
         const amount = (state.balance * 0.2) / currentPrice;
         return { action: 'buy', amount, reason: `Grid buy at ${currentPrice.toFixed(2)}` };
@@ -95,7 +87,6 @@ function simulateArenaDecision(
       }
     }
   } else if (strat.includes('dca') || strat.includes('dollar')) {
-    // DCA buys regularly with small amounts
     if (Math.random() < 0.15 && !existingPos) {
       const amount = (state.balance * 0.1) / currentPrice;
       return { action: 'buy', amount, reason: 'DCA buy' };
@@ -107,11 +98,9 @@ function simulateArenaDecision(
       }
     }
   } else {
-    // Default strategy: simple mean reversion
     if (prices.length >= 10) {
       const avg = prices.slice(-10).reduce((a, b) => a + b, 0) / 10;
       const deviation = (currentPrice - avg) / avg;
-
       if (deviation + noise < -0.005 && !existingPos) {
         const amount = (state.balance * 0.25) / currentPrice;
         return { action: 'buy', amount, reason: `Mean reversion buy: ${(deviation * 100).toFixed(2)}% below avg` };
@@ -127,7 +116,6 @@ function simulateArenaDecision(
 
 async function processArenaTick() {
   try {
-    // Get all running arena sessions
     const runningSessions = await db
       .select()
       .from(arenaSessions)
@@ -143,19 +131,13 @@ async function processArenaTick() {
         const elapsed = (Date.now() - startedAt) / 1000;
         const duration = session.durationSeconds ?? 180;
 
-        // Check if session is complete
         if (elapsed >= duration) {
           await finalizeArenaSession(session.id);
           continue;
         }
 
-        // Get gladiators with bot info
         const gladiators = await db
-          .select({
-            gladiator: arenaGladiators,
-            botStrategy: bots.strategy,
-            botConfig: bots.config,
-          })
+          .select({ gladiator: arenaGladiators, botStrategy: bots.strategy, botConfig: bots.config })
           .from(arenaGladiators)
           .innerJoin(bots, eq(arenaGladiators.botId, bots.id))
           .where(eq(arenaGladiators.sessionId, session.id));
@@ -167,21 +149,13 @@ async function processArenaTick() {
             const priceData = await getPrice(symbol);
             if (!priceData) continue;
 
-            const decision = simulateArenaDecision(
-              botStrategy,
-              state,
-              symbol,
-              priceData.price,
-            );
+            const decision = simulateArenaDecision(botStrategy, state, symbol, priceData.price);
 
             if (decision.action === 'buy' && decision.amount > 0) {
               const cost = decision.amount * priceData.price;
               if (cost <= state.balance) {
                 state.balance -= cost;
-                state.positions.set(symbol, {
-                  entryPrice: priceData.price,
-                  amount: decision.amount,
-                });
+                state.positions.set(symbol, { entryPrice: priceData.price, amount: decision.amount });
                 state.trades++;
               }
             } else if (decision.action === 'sell' && decision.amount > 0) {
@@ -197,18 +171,13 @@ async function processArenaTick() {
             }
           }
 
-          // Calculate total equity (cash + positions value)
           let equity = state.balance;
           for (const [symbol, pos] of state.positions) {
             const priceData = await getPrice(symbol);
-            if (priceData) {
-              equity += pos.amount * priceData.price;
-            }
+            if (priceData) equity += pos.amount * priceData.price;
           }
 
           state.equityCurve.push(equity);
-
-          // Keep equity curve at a reasonable size (max 500 points)
           if (state.equityCurve.length > 500) {
             state.equityCurve = state.equityCurve.filter((_, i) =>
               i === 0 || i === state.equityCurve.length - 1 || i % 2 === 0
@@ -228,40 +197,26 @@ async function finalizeArenaSession(sessionId: string) {
   console.log(`[ArenaTick] Finalizing arena session ${sessionId}`);
 
   try {
-    const gladiators = await db
-      .select()
-      .from(arenaGladiators)
-      .where(eq(arenaGladiators.sessionId, sessionId));
-
+    const gladiators = await db.select().from(arenaGladiators).where(eq(arenaGladiators.sessionId, sessionId));
     const results: { gladiatorId: string; finalReturn: number; winRate: number; equity: number[] }[] = [];
 
     for (const gladiator of gladiators) {
       const state = getOrCreateState(gladiator.id);
 
-      // Close all remaining positions at current prices
       for (const [symbol, pos] of state.positions) {
         const priceData = await getPrice(symbol);
-        if (priceData) {
-          state.balance += pos.amount * priceData.price;
-        }
+        if (priceData) state.balance += pos.amount * priceData.price;
       }
       state.positions.clear();
 
       const initialBalance = 10_000;
       const finalReturn = ((state.balance - initialBalance) / initialBalance) * 100;
       const winRate = state.trades > 0 ? (state.wins / state.trades) * 100 : 0;
-
       state.equityCurve.push(state.balance);
 
-      results.push({
-        gladiatorId: gladiator.id,
-        finalReturn,
-        winRate,
-        equity: state.equityCurve,
-      });
+      results.push({ gladiatorId: gladiator.id, finalReturn, winRate, equity: state.equityCurve });
     }
 
-    // Sort by return to determine ranks
     results.sort((a, b) => b.finalReturn - a.finalReturn);
 
     for (let i = 0; i < results.length; i++) {
@@ -277,17 +232,12 @@ async function finalizeArenaSession(sessionId: string) {
         })
         .where(eq(arenaGladiators.id, r.gladiatorId));
 
-      // Clean up in-memory state
       gladiatorStates.delete(r.gladiatorId);
     }
 
-    // Mark session as completed
     await db
       .update(arenaSessions)
-      .set({
-        status: 'completed',
-        endedAt: new Date(),
-      })
+      .set({ status: 'completed', endedAt: new Date() })
       .where(eq(arenaSessions.id, sessionId));
 
     console.log(`[ArenaTick] Session ${sessionId} completed. Winner: gladiator ${results[0]?.gladiatorId} with ${results[0]?.finalReturn.toFixed(2)}% return`);
@@ -297,24 +247,6 @@ async function finalizeArenaSession(sessionId: string) {
 }
 
 export async function startArenaTickJob() {
-  const existing = await arenaTickQueue.getRepeatableJobs();
-  for (const job of existing) {
-    await arenaTickQueue.removeRepeatableByKey(job.key);
-  }
-
-  await arenaTickQueue.add(
-    'arena-tick',
-    {},
-    {
-      repeat: { every: 5_000 }, // 5 seconds
-      removeOnComplete: { count: 5 },
-      removeOnFail: { count: 10 },
-    },
-  );
-
-  createWorker('arena-tick', async () => {
-    await processArenaTick();
-  });
-
+  setInterval(processArenaTick, 5_000); // 5 seconds
   console.log('[ArenaTick] Job started - runs every 5 seconds');
 }

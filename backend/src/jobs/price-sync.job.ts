@@ -1,5 +1,5 @@
 import ccxt from 'ccxt';
-import { createQueue, createWorker, redisConnection } from '../config/queue.js';
+import { redisConnection } from '../config/queue.js';
 
 const SYMBOLS = [
   'BTC/USDT',
@@ -13,8 +13,6 @@ const SYMBOLS = [
 ];
 
 const exchange = new ccxt.binance({ enableRateLimit: true });
-
-const priceSyncQueue = createQueue('price-sync');
 
 async function processPriceSync() {
   console.log('[PriceSync] Fetching market prices...');
@@ -60,29 +58,11 @@ export async function getPrice(symbol: string): Promise<{
 }
 
 export async function startPriceSyncJob() {
-  // Remove any existing repeating jobs to avoid duplicates
-  const existing = await priceSyncQueue.getRepeatableJobs();
-  for (const job of existing) {
-    await priceSyncQueue.removeRepeatableByKey(job.key);
-  }
-
-  // Add repeating job every 30 seconds
-  await priceSyncQueue.add(
-    'sync-prices',
-    {},
-    {
-      repeat: { every: 30_000 },
-      removeOnComplete: { count: 5 },
-      removeOnFail: { count: 10 },
-    },
-  );
-
-  createWorker('price-sync', async () => {
-    await processPriceSync();
-  });
-
   // Run once immediately
   await processPriceSync();
+
+  // Then every 30 seconds
+  setInterval(processPriceSync, 30_000);
 
   console.log('[PriceSync] Job started - runs every 30s');
 }

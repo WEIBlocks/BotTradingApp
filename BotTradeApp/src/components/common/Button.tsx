@@ -78,7 +78,10 @@ export default function Button({
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
       disabled={disabled || loading}
-      activeOpacity={1}>
+      activeOpacity={1}
+      accessibilityLabel={loading ? `${title}, loading` : title}
+      accessibilityRole="button"
+      accessibilityState={{disabled: disabled || loading}}>
       {loading ? (
         <ActivityIndicator color={variant === 'primary' ? '#FFFFFF' : '#10B981'} size="small" />
       ) : (

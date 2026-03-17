@@ -138,11 +138,23 @@ export async function chat(
     { role: 'user', content: message },
   ];
 
-  const response = await llmChat(messages, {
-    system: TRADING_ASSISTANT_SYSTEM,
-    maxTokens: 2048,
-    imageUrl: attachmentUrl,
-  });
+  let response;
+  try {
+    response = await llmChat(messages, {
+      system: TRADING_ASSISTANT_SYSTEM,
+      maxTokens: 2048,
+      imageUrl: attachmentUrl,
+    });
+  } catch (err: any) {
+    console.error('[AI Chat] LLM call failed:', err.message);
+    // Return a graceful fallback instead of crashing
+    return {
+      reply: 'I\'m having trouble connecting to the AI service right now. Please try again in a moment.',
+      conversationId: convId,
+      provider: 'none',
+      model: 'none',
+    };
+  }
 
   const replyText = response.text;
 
@@ -192,13 +204,24 @@ export async function chat(
 }
 
 export async function voiceCommand(userId: string, transcript: string) {
-  const response = await llmChat(
-    [{ role: 'user', content: transcript }],
-    {
-      system: VOICE_COMMAND_SYSTEM,
-      maxTokens: 512,
-    },
-  );
+  let response;
+  try {
+    response = await llmChat(
+      [{ role: 'user', content: transcript }],
+      {
+        system: VOICE_COMMAND_SYSTEM,
+        maxTokens: 512,
+      },
+    );
+  } catch (err: any) {
+    console.error('[AI Voice] LLM call failed:', err.message);
+    return {
+      transcript,
+      intent: 'error',
+      action: 'general_query',
+      reply: 'Voice processing is temporarily unavailable. Please try again.',
+    };
+  }
 
   const rawText = response.text;
 
@@ -408,6 +431,46 @@ export async function getCreatorSuggestions(userId: string) {
   }
 
   return suggestions;
+}
+
+// ─── Chat History ────────────────────────────────────────────────────────────
+
+export async function getChatHistory(userId: string) {
+  // Get the most recent conversation for this user
+  const latestMessage = await db
+    .select({ conversationId: chatMessages.conversationId })
+    .from(chatMessages)
+    .where(eq(chatMessages.userId, userId))
+    .orderBy(desc(chatMessages.createdAt))
+    .limit(1);
+
+  if (latestMessage.length === 0) {
+    return { messages: [], conversationId: null };
+  }
+
+  const convId = latestMessage[0].conversationId;
+
+  const messages = await db
+    .select({
+      id: chatMessages.id,
+      role: chatMessages.role,
+      content: chatMessages.content,
+      createdAt: chatMessages.createdAt,
+    })
+    .from(chatMessages)
+    .where(eq(chatMessages.conversationId, convId))
+    .orderBy(chatMessages.createdAt)
+    .limit(50);
+
+  return {
+    conversationId: convId,
+    messages: messages.map(m => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      createdAt: m.createdAt,
+    })),
+  };
 }
 
 // ─── Provider Status ─────────────────────────────────────────────────────────

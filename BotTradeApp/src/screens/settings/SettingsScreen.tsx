@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useState, useEffect} from 'react';
 import {
   View,
   Text,
@@ -6,11 +6,13 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
+  Alert,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import Svg, {Path, Circle, Rect, Line} from 'react-native-svg';
+import {userApi} from '../../services/user';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -265,6 +267,17 @@ export default function SettingsScreen() {
   const navigation = useNavigation<Nav>();
   const [twoFactor, setTwoFactor] = useState(false);
 
+  useEffect(() => {
+    userApi.getSettings()
+      .then(s => { if (s) setTwoFactor(s.pushEnabled ?? false); })
+      .catch(() => {});
+  }, []);
+
+  const handleTwoFactorToggle = (val: boolean) => {
+    setTwoFactor(val);
+    userApi.updateSettings({push_enabled: val}).catch(() => {});
+  };
+
   const sections: SettingSection[] = [
     {
       title: 'ACCOUNT',
@@ -342,6 +355,14 @@ export default function SettingsScreen() {
   ];
 
   const handleRowPress = (row: SettingRow) => {
+    if (row.label === 'Edit Profile' || row.label === 'Change Password') {
+      Alert.alert('Coming Soon', `${row.label} will be available in a future update.`);
+      return;
+    }
+    if (row.label === 'Terms of Service' || row.label === 'Privacy Policy') {
+      Alert.alert(row.label, 'You can view our full terms at bottrade.app/legal');
+      return;
+    }
     if (row.screen) {
       navigation.navigate(row.screen as any);
     }
@@ -380,7 +401,7 @@ export default function SettingsScreen() {
                     {row.type === 'toggle' && (
                       <Switch
                         value={twoFactor}
-                        onValueChange={setTwoFactor}
+                        onValueChange={handleTwoFactorToggle}
                         trackColor={{
                           false: 'rgba(255,255,255,0.1)',
                           true: '#10B981',

@@ -1,9 +1,9 @@
-import React from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
+import React, {useState, useEffect} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Share} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Svg, {Path, Rect, Circle} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
-import {mockUser} from '../../data/mockUser';
+import {userApi, ReferralInfo} from '../../services/user';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import GiftIcon from '../../components/icons/GiftIcon';
 import CopyIcon from '../../components/icons/CopyIcon';
@@ -59,6 +59,49 @@ const REWARDS_HISTORY = [
 ];
 
 export default function ReferralScreen({navigation}: Props) {
+  const [referral, setReferral] = useState<ReferralInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  const shareMessage = `Join me on BotTrade and get $50 in trading credits! Use my referral code: ${referral?.referralCode ?? ''}`;
+
+  const handleCopy = () => {
+    setCopied(true);
+    Alert.alert('Copied!', 'Referral code copied to clipboard.');
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleShare = async () => {
+    try {
+      await Share.share({message: shareMessage});
+    } catch {}
+  };
+
+  useEffect(() => {
+    userApi
+      .getReferralInfo()
+      .then(setReferral)
+      .catch(() => Alert.alert('Error', 'Failed to load referral info.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
+            <ChevronLeftIcon size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Refer a Friend</Text>
+          <View style={{width: 40}} />
+        </View>
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
+          <ActivityIndicator size="large" color="#10B981" />
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -85,10 +128,10 @@ export default function ReferralScreen({navigation}: Props) {
         <View style={styles.codeCard}>
           <Text style={styles.codeLabel}>YOUR REFERRAL CODE</Text>
           <View style={styles.codeRow}>
-            <Text style={styles.codeText}>{mockUser.referralCode}</Text>
-            <TouchableOpacity style={styles.copyBtn}>
+            <Text style={styles.codeText}>{referral?.referralCode ?? 'N/A'}</Text>
+            <TouchableOpacity style={styles.copyBtn} onPress={handleCopy}>
               <CopyIcon size={18} color="#10B981" />
-              <Text style={styles.copyText}>Copy</Text>
+              <Text style={styles.copyText}>{copied ? 'Copied!' : 'Copy'}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -97,7 +140,7 @@ export default function ReferralScreen({navigation}: Props) {
         <Text style={styles.sectionLabel}>SHARE VIA</Text>
         <View style={styles.shareRow}>
           {SHARE_OPTIONS.map(option => (
-            <TouchableOpacity key={option.label} style={styles.shareBtn} activeOpacity={0.7}>
+            <TouchableOpacity key={option.label} style={styles.shareBtn} activeOpacity={0.7} onPress={handleShare}>
               <View style={{marginBottom: 4}}>
                 <ShareIcon type={option.iconType} color={option.color} />
               </View>
@@ -128,7 +171,7 @@ export default function ReferralScreen({navigation}: Props) {
         </View>
 
         {/* Invite button */}
-        <TouchableOpacity style={styles.inviteBtn} activeOpacity={0.85}>
+        <TouchableOpacity style={styles.inviteBtn} activeOpacity={0.85} onPress={handleShare}>
           <Text style={styles.inviteBtnText}>Invite Contacts</Text>
         </TouchableOpacity>
       </ScrollView>

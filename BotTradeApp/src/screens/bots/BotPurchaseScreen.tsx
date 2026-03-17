@@ -1,8 +1,12 @@
-import React from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity} from 'react-native';
+import React, {useState, useEffect} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
-import {mockBots} from '../../data/mockBots';
+import type {Bot} from '../../types';
+import {marketplaceApi} from '../../services/marketplace';
+import {botsService} from '../../services/bots';
+import {portfolioApi} from '../../services/portfolio';
+import {configApi} from '../../services/config';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import CheckCircleIcon from '../../components/icons/CheckCircleIcon';
 import LockIcon from '../../components/icons/LockIcon';
@@ -10,7 +14,78 @@ import LockIcon from '../../components/icons/LockIcon';
 type Props = NativeStackScreenProps<RootStackParamList, 'BotPurchase'>;
 
 export default function BotPurchaseScreen({navigation, route}: Props) {
-  const bot = mockBots.find(b => b.id === route.params.botId) || mockBots[0];
+  const [bot, setBot] = useState<Bot | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [activating, setActivating] = useState(false);
+  const [availableCapital, setAvailableCapital] = useState(0);
+  const [feeRate, setFeeRate] = useState(0.07);
+
+  useEffect(() => {
+    Promise.all([
+      marketplaceApi.getBotDetails(route.params.botId),
+      portfolioApi.getSummary().catch(() => ({totalValue: 0})),
+      configApi.getPlatformConfig().catch(() => ({platformFeeRate: 0.07})),
+    ])
+      .then(([botData, portfolio, config]) => {
+        setBot(botData);
+        setAvailableCapital(portfolio.totalValue || 0);
+        setFeeRate(config.platformFeeRate || 0.07);
+      })
+      .catch(() => Alert.alert('Error', 'Failed to load bot details'))
+      .finally(() => setLoading(false));
+  }, [route.params.botId]);
+
+  const handleActivate = async () => {
+    if (!bot) return;
+    // Balance check: ensure user has enough capital for the bot price
+    if (bot.price > 0 && availableCapital < bot.price) {
+      Alert.alert(
+        'Insufficient Funds',
+        `You need at least $${bot.price} to activate this bot. Your available capital is $${availableCapital.toLocaleString()}.`,
+        [{text: 'Add Funds', onPress: () => navigation.navigate('WalletFunds')}, {text: 'Cancel', style: 'cancel'}],
+      );
+      return;
+    }
+    // Confirmation dialog before financial commitment
+    Alert.alert(
+      'Confirm Activation',
+      `Activate ${bot.name} for ${bot.price === 0 ? 'free' : `$${bot.price}/month`}?\n\nCapital allocated: $${availableCapital > 0 ? availableCapital.toLocaleString() : '0'}`,
+      [
+        {text: 'Cancel', style: 'cancel'},
+        {text: 'Activate', onPress: async () => {
+          setActivating(true);
+          try {
+            await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: availableCapital || undefined});
+            navigation.navigate('Main');
+          } catch (err: any) {
+            const msg = err?.response?.data?.message || err?.message || 'Failed to activate bot. Please try again.';
+            Alert.alert('Error', msg);
+          } finally {
+            setActivating(false);
+          }
+        }},
+      ],
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
+        <ActivityIndicator size="large" color="#10B981" />
+      </View>
+    );
+  }
+
+  if (!bot) {
+    return (
+      <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
+        <Text style={{color: 'rgba(255,255,255,0.5)', fontFamily: 'Inter-Regular', fontSize: 15}}>Bot not found</Text>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{marginTop: 16}}>
+          <Text style={{color: '#10B981', fontFamily: 'Inter-SemiBold', fontSize: 15}}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   const features = [
     '24/7 automated trading',
@@ -49,7 +124,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
               <Text style={styles.priceUnit}>/month</Text>
             </View>
           </View>
-          <Text style={styles.platformFee}>+ 7% platform fee on profits earned</Text>
+          <Text style={styles.platformFee}>+ {Math.round(feeRate * 100)}% platform fee on profits earned</Text>
         </View>
 
         {/* Features */}
@@ -64,7 +139,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
         {/* Capital allocation */}
         <View style={styles.capitalCard}>
           <Text style={styles.capitalLabel}>CAPITAL TO ALLOCATE</Text>
-          <Text style={styles.capitalValue}>$2,500</Text>
+          <Text style={styles.capitalValue}>${availableCapital > 0 ? availableCapital.toLocaleString() : '—'}</Text>
           <Text style={styles.capitalSub}>Adjust after activation</Text>
         </View>
       </ScrollView>
@@ -75,10 +150,14 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
           <LockIcon size={12} color="rgba(255,255,255,0.3)" />
           <Text style={styles.secText}>Secured payment • Cancel anytime</Text>
         </View>
-        <TouchableOpacity style={styles.activateBtn} onPress={() => navigation.navigate('Main')} activeOpacity={0.85}>
-          <Text style={styles.activateBtnText}>
-            {bot.price === 0 ? 'Activate Free' : `Pay $${bot.price} & Activate`}
-          </Text>
+        <TouchableOpacity style={styles.activateBtn} onPress={handleActivate} activeOpacity={0.85} disabled={activating}>
+          {activating ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <Text style={styles.activateBtnText}>
+              {bot.price === 0 ? 'Activate Free' : `Pay $${bot.price} & Activate`}
+            </Text>
+          )}
         </TouchableOpacity>
       </View>
     </View>

@@ -1,4 +1,4 @@
-import React, {useState, useRef, useCallback} from 'react';
+import React, {useState, useRef, useCallback, useEffect} from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   TextInput, KeyboardAvoidingView, Platform, Dimensions, ScrollView,
@@ -7,6 +7,8 @@ import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
+import {aiApi} from '../../services/ai';
+import MarkdownText from '../../components/MarkdownText';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 const {width} = Dimensions.get('window');
@@ -16,24 +18,21 @@ interface Message {
   role: 'ai' | 'user';
   text: string;
   hasStrategyCard?: boolean;
+  strategyData?: {
+    name: string;
+    description: string;
+    pairs: string[];
+    riskLevel: string;
+    indicators: string[];
+    backtestReturn?: number;
+  };
 }
 
 const INITIAL_MESSAGES: Message[] = [
   {
     id: '1',
     role: 'ai',
-    text: "Hello! I can help you build a custom trading strategy. What logic should we start with?",
-  },
-  {
-    id: '2',
-    role: 'user',
-    text: 'I want a bot that buys Bitcoin when it drops 5% and sells at 10% profit',
-  },
-  {
-    id: '3',
-    role: 'ai',
-    text: "That sounds like a solid dip-buying strategy. To manage risk, I suggest adding a 2% stop-loss. Here is a preview of the logic based on recent BTC data:",
-    hasStrategyCard: true,
+    text: "Hello! I'm your AI trading assistant. I can help you build strategies, analyze markets, and create custom bots. What would you like to work on?",
   },
 ];
 
@@ -102,18 +101,24 @@ function AiBotAvatar({size = 32}: {size?: number}) {
   );
 }
 
-// Bar chart for strategy card
-function StrategyBarChart({chartWidth}: {chartWidth: number}) {
-  const bars = [3, 5, 4, 7, 6, 8, 7, 9, 10, 11, 10, 13];
+// Bar chart for strategy card — generates realistic monthly bars from backtest return
+function StrategyBarChart({chartWidth, backtestReturn}: {chartWidth: number; backtestReturn?: number}) {
+  const monthlyAvg = (backtestReturn ?? 12) / 12;
+  // Generate 12 monthly bars with variance around the average
+  const bars = Array.from({length: 12}, (_, i) => {
+    const seed = ((i + 1) * 7 + (backtestReturn ?? 12) * 3) % 17;
+    const noise = (seed / 17 - 0.4) * monthlyAvg * 2;
+    return Math.max(0.5, monthlyAvg + noise);
+  });
   const maxH = 40;
-  const maxVal = Math.max(...bars);
+  const maxVal = Math.max(...bars, 1);
   const barW = (chartWidth - (bars.length - 1) * 3) / bars.length;
   return (
     <View style={{flexDirection: 'row', alignItems: 'flex-end', height: maxH, gap: 3}}>
       {bars.map((v, i) => (
         <View key={i} style={{
-          width: barW, height: (v / maxVal) * maxH,
-          backgroundColor: '#10B981',
+          width: barW, height: Math.max(3, (v / maxVal) * maxH),
+          backgroundColor: v >= 0 ? '#10B981' : '#EF4444',
           borderRadius: 3,
           opacity: 0.3 + (i / bars.length) * 0.7,
         }} />
@@ -128,23 +133,65 @@ export default function AIChatScreen() {
   const navigation = useNavigation<NavProp>();
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState('');
+  const [conversationId, setConversationId] = useState<string | undefined>();
+  const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
-  const sendMessage = useCallback(() => {
+  // Load previous conversation on mount
+  useEffect(() => {
+    (async () => {
+      try {
+        const history = await aiApi.getChatHistory();
+        if (history.conversationId && history.messages.length > 0) {
+          setConversationId(history.conversationId);
+          const loaded: Message[] = history.messages.map(m => ({
+            id: m.id,
+            role: m.role === 'user' ? 'user' : 'ai',
+            text: m.content.replace(/```strategy-json[\s\S]*?```/g, '').trim(),
+          }));
+          setMessages([INITIAL_MESSAGES[0], ...loaded]);
+        }
+      } catch {}
+    })();
+  }, []);
+
+  const sendMessage = useCallback(async () => {
     if (!inputText.trim()) return;
-    const newMsg: Message = {id: Date.now().toString(), role: 'user', text: inputText.trim()};
-    setMessages(prev => [...prev, newMsg]);
+    const userMsg: Message = {id: Date.now().toString(), role: 'user', text: inputText.trim()};
+    setMessages(prev => [...prev, userMsg]);
     setInputText('');
-    setTimeout(() => {
-      const aiReply: Message = {
+    setIsTyping(true);
+
+    try {
+      const response = await aiApi.chat(inputText.trim(), conversationId);
+      setConversationId(response.conversationId);
+
+      // Strip strategy-json fence from display text
+      const cleanReply = response.reply
+        .replace(/```strategy-json[\s\S]*?```/g, '')
+        .trim();
+
+      const aiMsg: Message = {
         id: (Date.now() + 1).toString(),
         role: 'ai',
-        text: "I'm analyzing your request. Based on current market conditions, I recommend a momentum-based approach with tight risk controls.",
+        text: cleanReply,
+        hasStrategyCard: !!response.strategy,
+        strategyData: response.strategy,
       };
-      setMessages(prev => [...prev, aiReply]);
+      setMessages(prev => [...prev, aiMsg]);
+    } catch (e: any) {
+      const msg = e?.message || 'Sorry, I encountered an error. Please try again.';
+      const errorMsg: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'ai',
+        text: msg,
+      };
+      setMessages(prev => [...prev, errorMsg]);
+    } finally {
+      setIsTyping(false);
       setTimeout(() => flatListRef.current?.scrollToEnd({animated: true}), 100);
-    }, 800);
-  }, [inputText]);
+    }
+  }, [inputText, conversationId]);
 
   // Strategy card width = bubble max width - padding
   const strategyCardWidth = width * 0.72 - 32;
@@ -174,23 +221,23 @@ export default function AIChatScreen() {
         <View style={styles.aiContent}>
           <Text style={styles.aiNameLabel}>TradingBot AI</Text>
           <View style={styles.aiBubble}>
-            <Text style={styles.aiText}>{item.text}</Text>
+            <MarkdownText text={item.text} baseStyle={styles.aiText} />
             {item.hasStrategyCard && (
               <View style={styles.strategyCard}>
                 <View style={styles.strategyTopRow}>
                   <View style={{flex: 1, marginRight: 8}}>
-                    <Text style={styles.strategyName}>Custom BTC Dip{'\n'}Buyer</Text>
+                    <Text style={styles.strategyName}>{item.strategyData?.name || 'Strategy'}</Text>
                     <Text style={styles.strategySubLabel}>STRATEGY PREVIEW</Text>
                   </View>
                   <View style={styles.backtestBadge}>
-                    <Text style={styles.backtestText}>+14.2%{'\n'}BACKTEST</Text>
+                    <Text style={styles.backtestText}>{item.strategyData?.backtestReturn ? `+${item.strategyData.backtestReturn.toFixed(1)}%` : ''}{'\n'}BACKTEST</Text>
                   </View>
                 </View>
                 <Text style={styles.perfLabel}>30D PERFORMANCE</Text>
-                <StrategyBarChart chartWidth={strategyCardWidth} />
+                <StrategyBarChart chartWidth={strategyCardWidth} backtestReturn={item.strategyData?.backtestReturn} />
                 <TouchableOpacity
                   style={styles.deployBtn}
-                  onPress={() => navigation.navigate('BotBuilder', {fromChat: true, strategyName: 'Custom BTC Dip Buyer'})}
+                  onPress={() => navigation.navigate('BotBuilder', {fromChat: true, strategyName: item.strategyData?.name || 'Custom Strategy'})}
                   activeOpacity={0.8}>
                   <Text style={styles.deployBtnText}>Deploy as Bot</Text>
                 </TouchableOpacity>
@@ -236,6 +283,13 @@ export default function AIChatScreen() {
         renderItem={renderMessage}
         style={styles.messageList}
       />
+
+      {isTyping && (
+        <View style={{flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 8}}>
+          <AiBotAvatar size={24} />
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)'}}>AI is thinking...</Text>
+        </View>
+      )}
 
       {/* Bottom bar: suggestions + input — pinned above keyboard */}
       <View style={styles.bottomBar}>
