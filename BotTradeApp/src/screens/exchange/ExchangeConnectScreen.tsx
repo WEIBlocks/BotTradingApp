@@ -13,7 +13,7 @@ import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import Svg, {Path, Rect, Circle, Line} from 'react-native-svg';
-import {exchangeApi, ExchangeInfo as ExchangeInfoApi} from '../../services/exchange';
+import {exchangeApi} from '../../services/exchange';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -132,36 +132,158 @@ const DEFAULT_EXCHANGES: ExchangeInfo[] = [
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
+// ─── Quick Connect Guide Data ────────────────────────────────────────────────
+
+interface GuideStep {
+  step: number;
+  text: string;
+}
+
+interface ExchangeGuide {
+  name: string;
+  color: string;
+  url: string;
+  testnetUrl?: string;
+  steps: GuideStep[];
+  permissions: string[];
+  warning?: string;
+}
+
+const EXCHANGE_GUIDES: ExchangeGuide[] = [
+  {
+    name: 'Binance',
+    color: '#F3BA2F',
+    url: 'binance.com/en/my/settings/api-management',
+    testnetUrl: 'testnet.binance.vision',
+    steps: [
+      {step: 1, text: 'Log in to your Binance account'},
+      {step: 2, text: 'Go to Account → API Management'},
+      {step: 3, text: 'Click "Create API" → choose "System generated"'},
+      {step: 4, text: 'Complete security verification (2FA)'},
+      {step: 5, text: 'Copy your API Key and Secret Key'},
+      {step: 6, text: 'Enable "Enable Spot & Margin Trading" permission'},
+    ],
+    permissions: ['Read', 'Spot & Margin Trading'],
+    warning: 'Never enable Withdrawals permission. We only need read + trade access.',
+  },
+  {
+    name: 'Coinbase',
+    color: '#0052FF',
+    url: 'coinbase.com/settings/api',
+    steps: [
+      {step: 1, text: 'Log in to Coinbase Advanced'},
+      {step: 2, text: 'Go to Settings → API'},
+      {step: 3, text: 'Click "New API Key"'},
+      {step: 4, text: 'Select your portfolio and set permissions'},
+      {step: 5, text: 'Complete 2FA verification'},
+      {step: 6, text: 'Copy API Key and API Secret immediately'},
+    ],
+    permissions: ['View', 'Trade'],
+    warning: 'The Secret is shown only once. Save it immediately.',
+  },
+  {
+    name: 'Kraken',
+    color: '#5741D9',
+    url: 'kraken.com/u/security/api',
+    steps: [
+      {step: 1, text: 'Log in to your Kraken account'},
+      {step: 2, text: 'Go to Security → API'},
+      {step: 3, text: 'Click "Add key"'},
+      {step: 4, text: 'Name your key and select permissions'},
+      {step: 5, text: 'Click "Generate key"'},
+      {step: 6, text: 'Copy both the API Key and Private Key'},
+    ],
+    permissions: ['Query Funds', 'Query Open Orders & Trades', 'Create & Modify Orders'],
+  },
+  {
+    name: 'Alpaca',
+    color: '#F0C000',
+    url: 'app.alpaca.markets/brokerage/dashboard/overview',
+    steps: [
+      {step: 1, text: 'Log in to Alpaca Dashboard'},
+      {step: 2, text: 'Go to the Overview page'},
+      {step: 3, text: 'Find "API Keys" section on the right'},
+      {step: 4, text: 'Click "Generate New Key"'},
+      {step: 5, text: 'Copy API Key ID and Secret Key'},
+      {step: 6, text: 'For paper trading, use Paper Trading dashboard instead'},
+    ],
+    permissions: ['Trading', 'Account'],
+  },
+];
+
+// ─── Step Number Icon ──────────────────────────────────────────────────────
+
+function StepNumber({num, color}: {num: number; color: string}) {
+  return (
+    <View style={{width: 24, height: 24, borderRadius: 12, backgroundColor: `${color}20`, alignItems: 'center', justifyContent: 'center'}}>
+      <Text style={{fontFamily: 'Inter-Bold', fontSize: 11, color}}>{num}</Text>
+    </View>
+  );
+}
+
+function ShieldIcon({size = 14, color = '#10B981'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 2L3 7V12C3 17.55 6.84 22.74 12 24C17.16 22.74 21 17.55 21 12V7L12 2Z" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+      <Path d="M9 12L11 14L15 10" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+function ExternalLinkIcon({size = 12, color = 'rgba(255,255,255,0.4)'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M18 13V19C18 20.1 17.1 21 16 21H5C3.9 21 3 20.1 3 19V8C3 6.9 3.9 6 5 6H11" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M15 3H21V9" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M10 14L21 3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+function ChevronDownIcon({size = 16, color = 'rgba(255,255,255,0.4)'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M6 9L12 15L18 9" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+function ChevronUpIcon({size = 16, color = '#10B981'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M18 15L12 9L6 15" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+function WarningIcon({size = 14, color = '#F59E0B'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 2L1 21H23L12 2Z" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+      <Path d="M12 9V13" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Circle cx={12} cy={17} r={1} fill={color} />
+    </Svg>
+  );
+}
+
 const ExchangeConnectScreen = () => {
   const navigation = useNavigation<NavProp>();
-  const [activeTab, setActiveTab] = useState<'oauth' | 'api'>('oauth');
+  const [activeTab, setActiveTab] = useState<'guide' | 'api'>('guide');
   const [selectedExchange, setSelectedExchange] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
   const [apiSecret, setApiSecret] = useState('');
   const [showSecret, setShowSecret] = useState(false);
   const [exchanges, setExchanges] = useState<ExchangeInfo[]>(DEFAULT_EXCHANGES);
-  const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [sandbox, setSandbox] = useState(false);
+  const [expandedGuide, setExpandedGuide] = useState<string | null>(null);
 
   useEffect(() => {
     exchangeApi.getAvailable()
       .then(data => setExchanges(data.length > 0 ? data.map(d => ({name: d.name, subtitle: d.subtitle, color: d.color})) : DEFAULT_EXCHANGES))
-      .catch(() => setExchanges(DEFAULT_EXCHANGES))
-      .finally(() => setLoading(false));
+      .catch(() => setExchanges(DEFAULT_EXCHANGES));
   }, []);
-
-  const handleConnect = async (exchangeName: string) => {
-    setConnecting(true);
-    try {
-      await exchangeApi.initiateOAuth(exchangeName);
-      Alert.alert('OAuth Initiated', `Please complete the authorization for ${exchangeName}.`);
-    } catch (e: any) {
-      Alert.alert('Connection Failed', e?.message || 'Could not initiate OAuth.');
-    } finally {
-      setConnecting(false);
-    }
-  };
 
   const handleTestConnection = async () => {
     if (!selectedExchange) {
@@ -174,7 +296,7 @@ const ExchangeConnectScreen = () => {
     }
     setTesting(true);
     try {
-      const res = await exchangeApi.testConnection(selectedExchange, apiKey.trim(), apiSecret.trim());
+      const res = await exchangeApi.testConnection(selectedExchange, apiKey.trim(), apiSecret.trim(), sandbox);
       Alert.alert('Connection Successful', res?.data?.message || `${selectedExchange} API keys are valid!`);
     } catch (e: any) {
       Alert.alert('Connection Failed', e?.message || 'Could not connect. Please check your API credentials.');
@@ -194,7 +316,7 @@ const ExchangeConnectScreen = () => {
     }
     setConnecting(true);
     try {
-      await exchangeApi.connectApiKey(selectedExchange, apiKey.trim(), apiSecret.trim());
+      await exchangeApi.connectApiKey(selectedExchange, apiKey.trim(), apiSecret.trim(), sandbox);
       Alert.alert('Connected!', `${selectedExchange} has been connected successfully.`, [
         {text: 'OK', onPress: () => navigation.goBack()},
       ]);
@@ -205,37 +327,104 @@ const ExchangeConnectScreen = () => {
     }
   };
 
-  // ─── OAuth Tab ──────────────────────────────────────────────────────────
+  // ─── Quick Connect Guide Tab ────────────────────────────────────────────
 
-  const renderOAuthTab = () => (
+  const renderGuideTab = () => (
     <View style={styles.tabContent}>
-      {loading ? (
-        <ActivityIndicator size="large" color="#10B981" style={{marginTop: 40}} />
-      ) : exchanges.map((exchange) => {
-        const ExIcon = EXCHANGE_ICONS[exchange.name];
+      {/* Intro */}
+      <View style={guideStyles.introCard}>
+        <ShieldIcon size={18} />
+        <Text style={guideStyles.introText}>
+          Connect your exchange using API keys. We only need read + trade access — never enable withdrawals.
+        </Text>
+      </View>
+
+      {/* Exchange Guides */}
+      {EXCHANGE_GUIDES.map(guide => {
+        const ExIcon = EXCHANGE_ICONS[guide.name];
+        const isExpanded = expandedGuide === guide.name;
         return (
-        <View key={exchange.name} style={styles.exchangeCard}>
-          <View style={styles.exchangeRow}>
-            <View style={styles.exchangeCircle}>
-              {ExIcon ? <ExIcon size={44} /> : <View style={[styles.exchangeFallback, {backgroundColor: exchange.color}]}><Text style={styles.exchangeLetter}>{exchange.name[0]}</Text></View>}
-            </View>
-            <View style={styles.exchangeInfo}>
-              <Text style={styles.exchangeName}>{exchange.name}</Text>
-              <Text style={styles.exchangeSubtitle}>{exchange.subtitle}</Text>
-            </View>
+          <View key={guide.name} style={[guideStyles.guideCard, isExpanded && {borderColor: `${guide.color}30`}]}>
+            {/* Header - tap to expand */}
             <TouchableOpacity
-              style={[styles.connectBtn, connecting && {opacity: 0.5}]}
+              style={guideStyles.guideHeader}
               activeOpacity={0.7}
-              onPress={() => handleConnect(exchange.name)}
-              disabled={connecting}>
-              {connecting ? (
-                <ActivityIndicator size="small" color="#10B981" />
-              ) : (
-                <Text style={styles.connectBtnText}>Connect</Text>
-              )}
+              onPress={() => setExpandedGuide(isExpanded ? null : guide.name)}>
+              <View style={guideStyles.guideIconWrap}>
+                {ExIcon ? <ExIcon size={40} /> : (
+                  <View style={{width: 40, height: 40, borderRadius: 20, backgroundColor: guide.color, alignItems: 'center', justifyContent: 'center'}}>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#FFF'}}>{guide.name[0]}</Text>
+                  </View>
+                )}
+              </View>
+              <View style={guideStyles.guideTextWrap}>
+                <Text style={guideStyles.guideName}>{guide.name}</Text>
+                <Text style={guideStyles.guideSubtitle} numberOfLines={1}>API Key + Secret Key</Text>
+              </View>
+              <View style={guideStyles.expandBtn}>
+                {isExpanded ? <ChevronUpIcon size={18} color={guide.color} /> : <ChevronDownIcon size={18} />}
+              </View>
             </TouchableOpacity>
+
+            {/* Expanded Steps */}
+            {isExpanded && (
+              <View style={guideStyles.guideBody}>
+                {/* Where to find */}
+                <View style={guideStyles.urlRow}>
+                  <ExternalLinkIcon size={12} color="rgba(255,255,255,0.4)" />
+                  <Text style={guideStyles.guideUrl} numberOfLines={1}>{guide.url}</Text>
+                </View>
+
+                {/* Steps */}
+                {guide.steps.map(s => (
+                  <View key={s.step} style={guideStyles.stepRow}>
+                    <StepNumber num={s.step} color={guide.color} />
+                    <Text style={guideStyles.stepText}>{s.text}</Text>
+                  </View>
+                ))}
+
+                {/* Required Permissions */}
+                <View style={guideStyles.permissionsSection}>
+                  <Text style={guideStyles.permissionsLabel}>Required Permissions</Text>
+                  <View style={guideStyles.permissionsList}>
+                    {guide.permissions.map(p => (
+                      <View key={p} style={guideStyles.permBadge}>
+                        <CheckIcon size={10} color="#10B981" />
+                        <Text style={guideStyles.permText}>{p}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Warning */}
+                {guide.warning && (
+                  <View style={guideStyles.warningBox}>
+                    <WarningIcon size={14} />
+                    <Text style={guideStyles.warningText}>{guide.warning}</Text>
+                  </View>
+                )}
+
+                {/* Testnet link */}
+                {guide.testnetUrl && (
+                  <View style={guideStyles.testnetBox}>
+                    <Text style={guideStyles.testnetLabel}>Testnet:</Text>
+                    <Text style={guideStyles.testnetUrl}>{guide.testnetUrl}</Text>
+                  </View>
+                )}
+
+                {/* Go to Connect button */}
+                <TouchableOpacity
+                  style={[guideStyles.useKeyBtn, {backgroundColor: `${guide.color}15`, borderColor: `${guide.color}40`}]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    setSelectedExchange(guide.name);
+                    setActiveTab('api');
+                  }}>
+                  <Text style={[guideStyles.useKeyBtnText, {color: guide.color}]}>Enter API Keys</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
-        </View>
         );
       })}
     </View>
@@ -277,6 +466,30 @@ const ExchangeConnectScreen = () => {
           );
         })}
       </View>
+
+      {/* Environment Toggle */}
+      <Text style={styles.sectionLabel}>Environment</Text>
+      <View style={styles.envToggleRow}>
+        <TouchableOpacity
+          style={[styles.envToggleBtn, !sandbox && styles.envToggleBtnActive]}
+          activeOpacity={0.7}
+          onPress={() => setSandbox(false)}>
+          <View style={[styles.envDot, {backgroundColor: '#10B981'}]} />
+          <Text style={[styles.envToggleText, !sandbox && styles.envToggleTextActive]}>Live</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.envToggleBtn, sandbox && styles.envToggleBtnActiveTest]}
+          activeOpacity={0.7}
+          onPress={() => setSandbox(true)}>
+          <View style={[styles.envDot, {backgroundColor: '#F59E0B'}]} />
+          <Text style={[styles.envToggleText, sandbox && styles.envToggleTextActive]}>Testnet</Text>
+        </TouchableOpacity>
+      </View>
+      {sandbox && (
+        <Text style={styles.envHint}>
+          Using Binance Testnet — get test keys at testnet.binance.vision
+        </Text>
+      )}
 
       {/* API Key Input */}
       <Text style={styles.sectionLabel}>API Key</Text>
@@ -359,11 +572,11 @@ const ExchangeConnectScreen = () => {
       {/* Tab Selector */}
       <View style={styles.tabBar}>
         <TouchableOpacity
-          style={[styles.tab, activeTab === 'oauth' && styles.tabActive]}
+          style={[styles.tab, activeTab === 'guide' && styles.tabActive]}
           activeOpacity={0.7}
-          onPress={() => setActiveTab('oauth')}>
-          <Text style={[styles.tabText, activeTab === 'oauth' && styles.tabTextActive]}>
-            OAuth Login
+          onPress={() => setActiveTab('guide')}>
+          <Text style={[styles.tabText, activeTab === 'guide' && styles.tabTextActive]}>
+            Quick Connect
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -383,7 +596,7 @@ const ExchangeConnectScreen = () => {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag">
-        {activeTab === 'oauth' ? renderOAuthTab() : renderApiTab()}
+        {activeTab === 'guide' ? renderGuideTab() : renderApiTab()}
       </ScrollView>
 
       {/* Security Footer */}
@@ -471,67 +684,6 @@ const styles = StyleSheet.create({
   // Tab content
   tabContent: {},
 
-  // ── OAuth Tab ──────────────────────────────────────────
-  exchangeCard: {
-    backgroundColor: '#161B22',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    padding: 16,
-    marginBottom: 12,
-  },
-  exchangeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  exchangeCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  exchangeFallback: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  exchangeLetter: {
-    fontFamily: 'Inter-Bold',
-    fontSize: 18,
-    color: '#FFFFFF',
-  },
-  exchangeInfo: {
-    flex: 1,
-    marginLeft: 14,
-  },
-  exchangeName: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 16,
-    color: '#FFFFFF',
-  },
-  exchangeSubtitle: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.5)',
-    marginTop: 2,
-  },
-  connectBtn: {
-    borderWidth: 1.5,
-    borderColor: '#10B981',
-    borderRadius: 10,
-    paddingHorizontal: 18,
-    paddingVertical: 8,
-  },
-  connectBtnText: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 13,
-    color: '#10B981',
-  },
-
   // ── API Tab ────────────────────────────────────────────
   sectionLabel: {
     fontFamily: 'Inter-Medium',
@@ -593,6 +745,53 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+
+  // Environment toggle
+  envToggleRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  envToggleBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#161B22',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.06)',
+    paddingVertical: 12,
+  },
+  envToggleBtnActive: {
+    borderColor: '#10B981',
+    backgroundColor: 'rgba(16,185,129,0.08)',
+  },
+  envToggleBtnActiveTest: {
+    borderColor: '#F59E0B',
+    backgroundColor: 'rgba(245,158,11,0.08)',
+  },
+  envDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  envToggleText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  envToggleTextActive: {
+    color: '#FFFFFF',
+  },
+  envHint: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(245,158,11,0.7)',
+    marginBottom: 16,
+    marginTop: -8,
   },
 
   // Inputs
@@ -658,5 +857,190 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     fontSize: 12,
     color: 'rgba(255,255,255,0.4)',
+  },
+});
+
+const guideStyles = StyleSheet.create({
+  introCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(16,185,129,0.06)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.15)',
+    padding: 14,
+    gap: 12,
+    marginBottom: 18,
+  },
+  introText: {
+    flex: 1,
+    fontFamily: 'Inter-Regular',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+    lineHeight: 20,
+    paddingTop: 1,
+  },
+  guideCard: {
+    backgroundColor: '#161B22',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    marginBottom: 10,
+  },
+  guideHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    gap: 12,
+  },
+  guideIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guideTextWrap: {
+    flex: 1,
+  },
+  guideName: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 15,
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  guideSubtitle: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.35)',
+  },
+  expandBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guideBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.04)',
+    paddingTop: 14,
+  },
+  urlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 14,
+  },
+  guideUrl: {
+    flex: 1,
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  stepRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 10,
+  },
+  stepText: {
+    flex: 1,
+    fontFamily: 'Inter-Regular',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.7)',
+    lineHeight: 19,
+    paddingTop: 2,
+  },
+  permissionsSection: {
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  permissionsLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.35)',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  permissionsList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  permBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(16,185,129,0.08)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.12)',
+  },
+  permText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: '#10B981',
+  },
+  warningBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: 'rgba(245,158,11,0.06)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.15)',
+    padding: 12,
+    marginBottom: 12,
+  },
+  warningText: {
+    flex: 1,
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(245,158,11,0.8)',
+    lineHeight: 18,
+    paddingTop: 1,
+  },
+  testnetBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(245,158,11,0.05)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  testnetLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  testnetUrl: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    color: '#F59E0B',
+  },
+  useKeyBtn: {
+    borderWidth: 1.5,
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  useKeyBtnText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
   },
 });

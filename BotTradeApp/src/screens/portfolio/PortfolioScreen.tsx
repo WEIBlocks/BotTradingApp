@@ -1,5 +1,5 @@
-import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl} from 'react-native';
+import React, {useState, useCallback, useMemo} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, TextInput} from 'react-native';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Rect, Circle} from 'react-native-svg';
@@ -46,6 +46,17 @@ function CoinIcon({symbol, color, size = 40}: {symbol: string; color: string; si
   );
 }
 
+// ─── Search Icon ────────────────────────────────────────────────────────────
+
+function SearchIcon({size = 16, color = 'rgba(255,255,255,0.35)'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={11} cy={11} r={7} stroke={color} strokeWidth={2} />
+      <Path d="M16.5 16.5L21 21" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 // ─── Connect Exchange Icon ──────────────────────────────────────────────────
 
 function LinkIcon({size = 18}: {size?: number}) {
@@ -69,6 +80,7 @@ export default function PortfolioScreen() {
   const [activeBots, setActiveBots] = useState<DashActiveBot[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [assetSearch, setAssetSearch] = useState('');
 
   const fetchData = useCallback(async () => {
     try {
@@ -91,6 +103,14 @@ export default function PortfolioScreen() {
   }, []);
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+
+  const filteredAssets = useMemo(() => {
+    if (!assetSearch.trim()) return assets;
+    const q = assetSearch.toLowerCase();
+    return assets.filter(a => a.symbol.toLowerCase().includes(q) || a.name.toLowerCase().includes(q));
+  }, [assets, assetSearch]);
+
+  const totalAssetsValue = useMemo(() => assets.reduce((sum, a) => sum + a.valueUsd, 0), [assets]);
 
   const totalValue = summary?.totalValue ?? 0;
   const totalChange24h = summary?.totalChange24h ?? 0;
@@ -182,35 +202,77 @@ export default function PortfolioScreen() {
 
         {/* Assets Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>YOUR ASSETS</Text>
+          {/* Header with count + total value */}
+          <View style={styles.assetsHeaderRow}>
+            <View style={styles.assetsHeaderLeft}>
+              <Text style={styles.sectionTitle}>YOUR ASSETS</Text>
+              <View style={styles.assetCountBadge}>
+                <Text style={styles.assetCountText}>{assets.length}</Text>
+              </View>
+            </View>
+            <Text style={styles.assetsTotalValue}>
+              ${totalAssetsValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+            </Text>
+          </View>
+
+          {/* Search Box */}
+          <View style={styles.searchContainer}>
+            <SearchIcon size={16} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search assets..."
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              value={assetSearch}
+              onChangeText={setAssetSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {assetSearch.length > 0 && (
+              <TouchableOpacity onPress={() => setAssetSearch('')} activeOpacity={0.6}>
+                <Text style={styles.searchClear}>✕</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Asset List */}
           <View style={styles.assetsCard}>
-            {assets.length === 0 && (
+            {assets.length === 0 ? (
               <View style={{paddingVertical: 24, alignItems: 'center'}}>
                 <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.35)'}}>No assets yet</Text>
               </View>
+            ) : filteredAssets.length === 0 ? (
+              <View style={{paddingVertical: 24, alignItems: 'center'}}>
+                <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.35)'}}>No assets match "{assetSearch}"</Text>
+              </View>
+            ) : (
+              <ScrollView
+                style={styles.assetsScroll}
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={filteredAssets.length > 6}>
+                {filteredAssets.map((asset, idx) => {
+                  const changeColor = asset.change24h >= 0 ? '#10B981' : '#EF4444';
+                  const changeSign = asset.change24h >= 0 ? '+' : '';
+                  const isLast = idx === filteredAssets.length - 1;
+                  return (
+                    <View key={asset.symbol} style={[styles.assetRow, !isLast && styles.assetRowBorder]}>
+                      <CoinIcon symbol={asset.symbol} color={asset.iconColor} size={40} />
+                      <View style={styles.assetInfo}>
+                        <Text style={styles.assetSymbol}>{asset.symbol}</Text>
+                        <Text style={styles.assetName}>{asset.name}</Text>
+                      </View>
+                      <View style={styles.assetRight}>
+                        <Text style={styles.assetValue}>
+                          ${asset.valueUsd.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                        </Text>
+                        <Text style={[styles.assetChange, {color: changeColor}]}>
+                          {changeSign}{asset.change24h.toFixed(1)}%
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
             )}
-            {assets.map((asset, idx) => {
-              const changeColor = asset.change24h >= 0 ? '#10B981' : '#EF4444';
-              const changeSign = asset.change24h >= 0 ? '+' : '';
-              const isLast = idx === assets.length - 1;
-              return (
-                <View key={asset.symbol} style={[styles.assetRow, !isLast && styles.assetRowBorder]}>
-                  <CoinIcon symbol={asset.symbol} color={asset.iconColor} size={40} />
-                  <View style={styles.assetInfo}>
-                    <Text style={styles.assetSymbol}>{asset.symbol}</Text>
-                    <Text style={styles.assetName}>{asset.name}</Text>
-                  </View>
-                  <View style={styles.assetRight}>
-                    <Text style={styles.assetValue}>
-                      ${asset.valueUsd.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                    </Text>
-                    <Text style={[styles.assetChange, {color: changeColor}]}>
-                      {changeSign}{asset.change24h.toFixed(1)}%
-                    </Text>
-                  </View>
-                </View>
-              );
-            })}
           </View>
         </View>
 
@@ -344,7 +406,44 @@ const styles = StyleSheet.create({
   sectionTitle: {fontFamily: 'Inter-Bold', fontSize: 13, color: 'rgba(255,255,255,0.5)', letterSpacing: 1, marginBottom: 10},
   sectionAction: {fontFamily: 'Inter-Medium', fontSize: 13, color: '#10B981'},
 
+  // Assets header
+  assetsHeaderRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10,
+  },
+  assetsHeaderLeft: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+  },
+  assetCountBadge: {
+    backgroundColor: 'rgba(16,185,129,0.15)', borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 2, marginBottom: 10,
+  },
+  assetCountText: {
+    fontFamily: 'Inter-Bold', fontSize: 11, color: '#10B981',
+  },
+  assetsTotalValue: {
+    fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#10B981', marginBottom: 10,
+  },
+
+  // Search
+  searchContainer: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#161B22', borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+    paddingHorizontal: 14, marginBottom: 10, gap: 10,
+  },
+  searchInput: {
+    flex: 1, fontFamily: 'Inter-Regular', fontSize: 14,
+    color: '#FFFFFF', paddingVertical: 12,
+  },
+  searchClear: {
+    fontFamily: 'Inter-Medium', fontSize: 14, color: 'rgba(255,255,255,0.4)',
+    padding: 4,
+  },
+
   // Assets
+  assetsScroll: {
+    maxHeight: 420,
+  },
   assetsCard: {
     backgroundColor: '#161B22', borderRadius: 16,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',

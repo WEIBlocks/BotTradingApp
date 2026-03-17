@@ -14,7 +14,7 @@ export class BinanceAdapter implements ExchangeAdapter {
 
   async connect(credentials: ExchangeCredentials): Promise<void> {
     const ccxt = await import('ccxt');
-    const useTestnet = env.BINANCE_TESTNET;
+    const useTestnet = credentials.sandbox ?? env.BINANCE_TESTNET;
 
     const options: Record<string, any> = {
       apiKey: credentials.apiKey,

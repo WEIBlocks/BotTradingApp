@@ -1,6 +1,7 @@
 export interface ExchangeCredentials {
   apiKey: string;
   apiSecret: string;
+  sandbox?: boolean;
 }
 
 export interface Balance {

@@ -7,6 +7,7 @@ interface ConnectionRow {
   provider: string;
   method: string;
   status: string;
+  sandbox: boolean | null;
   accountLabel: string | null;
   totalBalance: string | null;
   lastSyncAt: string | null;
@@ -30,6 +31,7 @@ export interface ExchangeConnection {
   provider: string;
   method: string;
   status: string;
+  sandbox: boolean;
   accountLabel: string;
   totalBalance: number;
   lastSync: string;
@@ -62,6 +64,7 @@ function mapConnection(c: ConnectionRow): ExchangeConnection {
     provider: c.provider ?? '',
     method: c.method ?? 'api_key',
     status: c.status ?? 'disconnected',
+    sandbox: c.sandbox ?? false,
     accountLabel: c.accountLabel ?? 'Trading Account',
     totalBalance: parseFloat(c.totalBalance ?? '0') || 0,
     lastSync: timeAgo(c.lastSyncAt),
@@ -86,16 +89,16 @@ export const exchangeApi = {
   },
 
   /** Test API key connection without saving. */
-  async testConnection(provider: string, apiKey: string, apiSecret: string) {
+  async testConnection(provider: string, apiKey: string, apiSecret: string, sandbox = false) {
     return api.post<DataWrap<{success: boolean; provider: string; message: string}>>('/exchange/test-connection', {
-      provider, apiKey, apiSecret, method: 'api_key',
+      provider, apiKey, apiSecret, sandbox,
     });
   },
 
   /** Connect via API key. */
-  async connectApiKey(provider: string, apiKey: string, apiSecret: string) {
+  async connectApiKey(provider: string, apiKey: string, apiSecret: string, sandbox = false) {
     return api.post<DataWrap<ConnectionRow>>('/exchange/connect', {
-      provider, apiKey, apiSecret, method: 'api_key',
+      provider, apiKey, apiSecret, sandbox,
     });
   },
 
@@ -106,11 +109,11 @@ export const exchangeApi = {
 
   /** Resync a connection. */
   async resync(connectionId: string) {
-    return api.post<DataWrap<ConnectionRow>>(`/exchange/${connectionId}/resync`);
+    return api.post<DataWrap<ConnectionRow>>(`/exchange/${connectionId}/resync`, {});
   },
 
   /** Disconnect an exchange. */
   async disconnect(connectionId: string) {
-    return api.post<DataWrap<ConnectionRow>>(`/exchange/${connectionId}/disconnect`);
+    return api.post<DataWrap<ConnectionRow>>(`/exchange/${connectionId}/disconnect`, {});
   },
 };

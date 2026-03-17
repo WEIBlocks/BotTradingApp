@@ -32,12 +32,13 @@ export async function exchangeRoutes(app: FastifyInstance) {
       security: [{ bearerAuth: [] }],
     },
   }, async (request, _reply) => {
-    const { provider, apiKey, apiSecret } = request.body;
+    const { provider, apiKey, apiSecret, sandbox } = request.body;
     const connection = await exchangeService.connectWithApiKey(
       request.user.userId,
       provider,
       apiKey,
       apiSecret,
+      sandbox,
     );
     return { data: connection };
   });
@@ -51,8 +52,8 @@ export async function exchangeRoutes(app: FastifyInstance) {
       security: [{ bearerAuth: [] }],
     },
   }, async (request, _reply) => {
-    const { provider, apiKey, apiSecret } = request.body;
-    const result = await exchangeService.testConnection(provider, apiKey, apiSecret);
+    const { provider, apiKey, apiSecret, sandbox } = request.body;
+    const result = await exchangeService.testConnection(provider, apiKey, apiSecret, sandbox);
     return { data: result };
   });
 

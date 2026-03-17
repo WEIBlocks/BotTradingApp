@@ -44,6 +44,7 @@ export async function connectWithApiKey(
   provider: string,
   apiKey: string,
   apiSecret: string,
+  sandbox = false,
 ) {
   // Use adapter to test connection with the real exchange
   let adapter;
@@ -55,7 +56,7 @@ export async function connectWithApiKey(
   }
 
   if (adapter) {
-    await adapter.connect({ apiKey, apiSecret });
+    await adapter.connect({ apiKey, apiSecret, sandbox });
     const success = await adapter.testConnection();
     if (!success) {
       await adapter.disconnect();
@@ -81,6 +82,7 @@ export async function connectWithApiKey(
       method: 'api_key',
       apiKeyEnc,
       apiSecretEnc,
+      sandbox,
       status: 'connected',
       lastSyncAt: new Date(),
     })
@@ -141,6 +143,7 @@ export async function testConnection(
   provider: string,
   apiKey: string,
   apiSecret: string,
+  sandbox = false,
 ) {
   let adapter;
   try {
@@ -150,7 +153,7 @@ export async function testConnection(
   }
 
   try {
-    await adapter.connect({ apiKey, apiSecret });
+    await adapter.connect({ apiKey, apiSecret, sandbox });
     const success = await adapter.testConnection();
     await adapter.disconnect();
 
@@ -173,6 +176,7 @@ export async function getUserConnections(userId: string) {
       provider: exchangeConnections.provider,
       method: exchangeConnections.method,
       status: exchangeConnections.status,
+      sandbox: exchangeConnections.sandbox,
       accountLabel: exchangeConnections.accountLabel,
       totalBalance: exchangeConnections.totalBalance,
       lastSyncAt: exchangeConnections.lastSyncAt,
@@ -213,7 +217,7 @@ export async function resync(connectionId: string, userId: string) {
     const apiSecret = decrypt(conn.apiSecretEnc);
 
     adapter = createAdapter(conn.provider);
-    await adapter.connect({ apiKey, apiSecret });
+    await adapter.connect({ apiKey, apiSecret, sandbox: conn.sandbox ?? false });
 
     const balances = await adapter.getBalances();
 

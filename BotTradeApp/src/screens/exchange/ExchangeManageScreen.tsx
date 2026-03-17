@@ -13,7 +13,7 @@ import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import {exchangeApi, ExchangeConnection} from '../../services/exchange';
-import Svg, {Path, Rect, Circle} from 'react-native-svg';
+import Svg, {Path, Circle} from 'react-native-svg';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -180,9 +180,16 @@ const ExchangeManageScreen = () => {
                 <Text style={styles.providerName}>{exchange.provider}</Text>
                 <Text style={styles.accountLabel}>{exchange.accountLabel}</Text>
               </View>
-              <View style={styles.statusBadge}>
-                <View style={styles.statusDot} />
-                <Text style={styles.statusText}>Connected</Text>
+              <View style={{flexDirection: 'row', gap: 6, alignItems: 'center'}}>
+                {exchange.sandbox && (
+                  <View style={styles.testnetBadge}>
+                    <Text style={styles.testnetText}>Testnet</Text>
+                  </View>
+                )}
+                <View style={styles.statusBadge}>
+                  <View style={styles.statusDot} />
+                  <Text style={styles.statusText}>Connected</Text>
+                </View>
               </View>
             </View>
 
@@ -341,6 +348,17 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 12,
     color: '#10B981',
+  },
+  testnetBadge: {
+    backgroundColor: 'rgba(245,158,11,0.12)',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+  testnetText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 11,
+    color: '#F59E0B',
   },
 
   // Details

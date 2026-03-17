@@ -6,6 +6,7 @@ import {
   text,
   numeric,
   timestamp,
+  boolean,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { users } from "./users";
@@ -41,6 +42,7 @@ export const exchangeConnections = pgTable("exchange_connections", {
     "0"
   ),
   lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+  sandbox: boolean("sandbox").default(false),
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
