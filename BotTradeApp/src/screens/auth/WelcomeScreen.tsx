@@ -52,8 +52,8 @@ export default function WelcomeScreen({navigation}: Props) {
     <View style={styles.container}>
       {/* Logo */}
       <View style={styles.logoRow}>
-        <Image source={require('../../assets/icons/growth.png')} style={styles.logoIcon} resizeMode="contain" />
-        <Text style={styles.logoText}>Trading App</Text>
+        <Image source={require('../../assets/images/logo.jpg')} style={styles.logoIcon} resizeMode="contain" />
+        <Text style={styles.logoText}>BotTrade</Text>
       </View>
 
       {/* Hero content */}
@@ -121,8 +121,9 @@ const styles = StyleSheet.create({
     height: (width - 48) * 0.6,
   },
   logoIcon: {
-    width: 32,
-    height: 32,
+    width: 38,
+    height: 38,
+    borderRadius: 10,
   },
   logoRow: {
     flexDirection: 'row',

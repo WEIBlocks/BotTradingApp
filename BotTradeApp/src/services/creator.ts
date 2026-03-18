@@ -130,6 +130,6 @@ export const creatorApi = {
   },
 
   async publishBot(botId: string) {
-    return api.post(`/creator/bots/${botId}/publish`);
+    return api.post(`/creator/bots/${botId}/publish`, {});
   },
 };

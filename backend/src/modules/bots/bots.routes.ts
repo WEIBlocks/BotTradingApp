@@ -3,6 +3,8 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
 import {
   createBot,
+  updateBot,
+  getBotForEdit,
   pauseBot,
   stopBot,
   resumeBot,
@@ -21,6 +23,7 @@ import {
 import {
   botIdParamsSchema,
   createBotBodySchema,
+  updateBotBodySchema,
   purchaseBotBodySchema,
   shadowModeBodySchema,
   reviewBodySchema,
@@ -43,6 +46,33 @@ export async function botsRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const bot = await createBot(request.user.userId, request.body);
     return reply.status(201).send({ data: bot });
+  });
+
+  // PUT /:id - Update a bot (creator only)
+  zApp.put('/:id', {
+    schema: {
+      params: botIdParamsSchema,
+      body: updateBotBodySchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const bot = await updateBot(request.user.userId, id, request.body);
+    return { data: bot };
+  });
+
+  // GET /:id/edit - Get bot data for editing (creator only)
+  zApp.get('/:id/edit', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const bot = await getBotForEdit(request.user.userId, id);
+    return { data: bot };
   });
 
   // POST /:id/pause

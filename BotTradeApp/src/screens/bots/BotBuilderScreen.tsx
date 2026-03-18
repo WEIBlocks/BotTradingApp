@@ -82,6 +82,8 @@ export default function BotBuilderScreen() {
   const route = useRoute<Route>();
 
   const strategyName = route.params?.strategyName;
+  const editBotId = route.params?.editBotId;
+  const isEditMode = !!editBotId;
 
   const [tradingPairs, setTradingPairs] = useState<string[]>(DEFAULT_PAIRS);
   const [strategies, setStrategies] = useState<string[]>(DEFAULT_STRATEGIES);
@@ -98,6 +100,7 @@ export default function BotBuilderScreen() {
   const [maxPosition, setMaxPosition] = useState('');
   const [tradingMode, setTradingMode] = useState<'paper' | 'live'>('paper');
   const [deploying, setDeploying] = useState(false);
+  const [loadingBot, setLoadingBot] = useState(false);
 
   useEffect(() => {
     configApi.getPlatformConfig()
@@ -109,17 +112,77 @@ export default function BotBuilderScreen() {
       .catch(() => {});
   }, []);
 
+  // Load existing bot data in edit mode
+  useEffect(() => {
+    if (!editBotId) return;
+    setLoadingBot(true);
+    botsService.getBotForEdit(editBotId)
+      .then((res: any) => {
+        const bot = res?.data ?? res;
+        if (bot) {
+          setBotName(bot.name || '');
+          setSelectedStrategy(bot.strategy || '');
+          if (bot.riskLevel) setRiskLevel(bot.riskLevel);
+          const config = bot.config as any;
+          if (config?.pairs?.length) setSelectedPairs(config.pairs);
+          if (config?.stopLoss) setStopLoss(String(config.stopLoss));
+          if (config?.takeProfit) setTakeProfit(String(config.takeProfit));
+          if (config?.maxPositionSize) setMaxPosition(String(config.maxPositionSize));
+          if (config?.tradingMode) setTradingMode(config.tradingMode);
+        }
+      })
+      .catch(() => Alert.alert('Error', 'Could not load bot data.'))
+      .finally(() => setLoadingBot(false));
+  }, [editBotId]);
+
   const togglePair = (pair: string) => {
     setSelectedPairs(prev =>
       prev.includes(pair) ? prev.filter(p => p !== pair) : [...prev, pair],
     );
   };
 
-  const handleDeploy = async () => {
+  const validateForm = () => {
     if (!botName.trim()) {
       Alert.alert('Missing Name', 'Please enter a bot name.');
-      return;
+      return false;
     }
+    if (stopLoss) {
+      const sl = parseFloat(stopLoss);
+      if (isNaN(sl) || sl <= 0 || sl > 50) {
+        Alert.alert('Invalid Stop Loss', 'Stop loss must be between 0.1% and 50%.');
+        return false;
+      }
+    }
+    if (takeProfit) {
+      const tp = parseFloat(takeProfit);
+      if (isNaN(tp) || tp <= 0 || tp > 500) {
+        Alert.alert('Invalid Take Profit', 'Take profit must be between 0.1% and 500%.');
+        return false;
+      }
+    }
+    if (maxPosition) {
+      const mp = parseFloat(maxPosition);
+      if (isNaN(mp) || mp < 10 || mp > 1000000) {
+        Alert.alert('Invalid Max Position', 'Max position size must be between $10 and $1,000,000.');
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const getBotPayload = () => ({
+    name: botName.trim(),
+    strategy: selectedStrategy || undefined,
+    category: 'Crypto',
+    riskLevel: riskLevel,
+    pairs: selectedPairs,
+    stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
+    takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
+    maxPosition: maxPosition ? parseFloat(maxPosition) : undefined,
+  });
+
+  const handleDeploy = async () => {
+    if (!validateForm()) return;
     if (!selectedStrategy) {
       Alert.alert('Missing Strategy', 'Please select a strategy.');
       return;
@@ -128,69 +191,57 @@ export default function BotBuilderScreen() {
       Alert.alert('Missing Pairs', 'Please select at least one trading pair.');
       return;
     }
-    // Validate numeric inputs
-    if (stopLoss) {
-      const sl = parseFloat(stopLoss);
-      if (isNaN(sl) || sl <= 0 || sl > 50) {
-        Alert.alert('Invalid Stop Loss', 'Stop loss must be between 0.1% and 50%.');
-        return;
-      }
-    }
-    if (takeProfit) {
-      const tp = parseFloat(takeProfit);
-      if (isNaN(tp) || tp <= 0 || tp > 500) {
-        Alert.alert('Invalid Take Profit', 'Take profit must be between 0.1% and 500%.');
-        return;
-      }
-    }
-    if (maxPosition) {
-      const mp = parseFloat(maxPosition);
-      if (isNaN(mp) || mp < 10 || mp > 1000000) {
-        Alert.alert('Invalid Max Position', 'Max position size must be between $10 and $1,000,000.');
-        return;
-      }
-    }
     setDeploying(true);
     try {
-      await botsService.createBot({
-        name: botName.trim(),
-        strategy: selectedStrategy,
-        category: 'Crypto',
-        riskLevel: riskLevel,
-        pairs: selectedPairs,
-        stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
-        takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
-        maxPosition: maxPosition ? parseFloat(maxPosition) : undefined,
-      });
-      Alert.alert('Bot Deployed!', `${botName} is now ${tradingMode === 'paper' ? 'paper' : 'live'} trading.`, [
-        {text: 'OK', onPress: () => navigation.goBack()},
-      ]);
+      if (isEditMode) {
+        await botsService.updateBot(editBotId!, {
+          name: botName.trim(),
+          strategy: selectedStrategy,
+          category: 'Crypto',
+          risk_level: riskLevel,
+          pairs: selectedPairs,
+          stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
+          takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
+          maxPositionSize: maxPosition ? parseFloat(maxPosition) : undefined,
+        });
+        Alert.alert('Bot Updated!', `${botName} has been updated.`, [
+          {text: 'OK', onPress: () => navigation.goBack()},
+        ]);
+      } else {
+        await botsService.createBot(getBotPayload());
+        Alert.alert('Bot Deployed!', `${botName} is now ${tradingMode === 'paper' ? 'paper' : 'live'} trading.`, [
+          {text: 'OK', onPress: () => navigation.goBack()},
+        ]);
+      }
     } catch (e: any) {
-      Alert.alert('Deploy Failed', e?.message || 'Could not deploy bot.');
+      Alert.alert(isEditMode ? 'Update Failed' : 'Deploy Failed', e?.message || 'Could not save bot.');
     } finally {
       setDeploying(false);
     }
   };
 
   const handleSaveDraft = async () => {
-    if (!botName.trim()) {
-      Alert.alert('Missing Name', 'Please enter a bot name.');
-      return;
-    }
+    if (!validateForm()) return;
     setDeploying(true);
     try {
-      await botsService.createBot({
-        name: botName.trim(),
-        description: 'Draft',
-        strategy: selectedStrategy || undefined,
-        category: 'Crypto',
-        riskLevel: riskLevel,
-        pairs: selectedPairs,
-        stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
-        takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
-        maxPosition: maxPosition ? parseFloat(maxPosition) : undefined,
-      });
-      Alert.alert('Draft Saved!', `${botName} has been saved as a draft.`);
+      if (isEditMode) {
+        await botsService.updateBot(editBotId!, {
+          name: botName.trim(),
+          strategy: selectedStrategy || undefined,
+          category: 'Crypto',
+          risk_level: riskLevel,
+          pairs: selectedPairs,
+          stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
+          takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
+          maxPositionSize: maxPosition ? parseFloat(maxPosition) : undefined,
+        });
+        Alert.alert('Bot Updated!', `${botName} has been saved.`, [
+          {text: 'OK', onPress: () => navigation.goBack()},
+        ]);
+      } else {
+        await botsService.createBot({...getBotPayload(), description: 'Draft'});
+        Alert.alert('Draft Saved!', `${botName} has been saved as a draft.`);
+      }
     } catch (e: any) {
       Alert.alert('Save Failed', e?.message || 'Could not save draft.');
     } finally {
@@ -207,10 +258,15 @@ export default function BotBuilderScreen() {
           hitSlop={{top: 10, bottom: 10, left: 10, right: 10}}>
           <BackArrow />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Configure Bot</Text>
+        <Text style={styles.headerTitle}>{isEditMode ? 'Edit Bot' : 'Configure Bot'}</Text>
         <View style={{width: 22}} />
       </View>
 
+      {loadingBot ? (
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
+          <ActivityIndicator size="large" color="#10B981" />
+        </View>
+      ) : (
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -406,7 +462,7 @@ export default function BotBuilderScreen() {
           ) : (
             <RocketIcon />
           )}
-          <Text style={styles.deployBtnText}>{deploying ? 'Deploying...' : 'Deploy Bot'}</Text>
+          <Text style={styles.deployBtnText}>{deploying ? (isEditMode ? 'Saving...' : 'Deploying...') : (isEditMode ? 'Save Changes' : 'Deploy Bot')}</Text>
         </TouchableOpacity>
 
         {/* Save Draft */}
@@ -419,6 +475,7 @@ export default function BotBuilderScreen() {
 
         <View style={{height: 40}} />
       </ScrollView>
+      )}
     </View>
   );
 }

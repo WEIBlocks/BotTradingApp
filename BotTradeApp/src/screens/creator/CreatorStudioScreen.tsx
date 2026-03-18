@@ -10,11 +10,46 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
-import Svg, {Path, Circle, Rect} from 'react-native-svg';
+import Svg, {Path, Circle} from 'react-native-svg';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import {creatorApi, CreatorStats, CreatorBot, MonthlyRevenue, AiSuggestion} from '../../services/creator';
+
+function EditIcon() {
+  return (
+    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"
+        stroke="#FFFFFF"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <Path
+        d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
+        stroke="#FFFFFF"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+function PublishIcon() {
+  return (
+    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M22 2L11 13M22 2L15 22 11 13 2 9l20-7z"
+        stroke="#FFFFFF"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
 
 const {width} = Dimensions.get('window');
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -250,7 +285,15 @@ export default function CreatorStudioScreen() {
         </View>
 
         {/* Your Bots */}
-        <Text style={styles.sectionTitle}>Your Bots</Text>
+        <View style={styles.botsSectionHeader}>
+          <Text style={styles.sectionTitle}>Your Bots</Text>
+          <TouchableOpacity
+            style={styles.newBotBtn}
+            activeOpacity={0.7}
+            onPress={() => navigation.navigate('BotBuilder' as any)}>
+            <Text style={styles.newBotBtnText}>+ New Bot</Text>
+          </TouchableOpacity>
+        </View>
         <View style={styles.card}>
           {bots.length === 0 ? (
             <View style={{alignItems: 'center', paddingVertical: 24}}>
@@ -260,10 +303,17 @@ export default function CreatorStudioScreen() {
               </TouchableOpacity>
             </View>
           ) : bots.map((bot, index) => (
-            <TouchableOpacity key={bot.id} activeOpacity={0.7} onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}>
+            <View key={bot.id}>
               <View style={styles.botRow}>
                 <View style={styles.botInfo}>
-                  <Text style={styles.botName}>{bot.name}</Text>
+                  <View style={styles.botNameRow}>
+                    <Text style={styles.botName}>{bot.name}</Text>
+                    <View style={[styles.statusBadge, bot.isPublished ? styles.statusPublished : styles.statusDraft]}>
+                      <Text style={[styles.statusBadgeText, bot.isPublished ? styles.statusPublishedText : styles.statusDraftText]}>
+                        {bot.isPublished ? 'PUBLISHED' : 'DRAFT'}
+                      </Text>
+                    </View>
+                  </View>
                   <View style={styles.botMeta}>
                     <UsersIcon />
                     <Text style={styles.botMetaText}>{bot.users} users</Text>
@@ -282,10 +332,53 @@ export default function CreatorStudioScreen() {
                   </Text>
                 </View>
               </View>
+              <View style={styles.botActions}>
+                <TouchableOpacity
+                  style={styles.editBtn}
+                  activeOpacity={0.7}
+                  onPress={() => navigation.navigate('BotBuilder', {editBotId: bot.id})}>
+                  <EditIcon />
+                  <Text style={styles.editBtnText}>Edit</Text>
+                </TouchableOpacity>
+                {!bot.isPublished && (
+                  <TouchableOpacity
+                    style={styles.publishBtn}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      Alert.alert(
+                        'Publish Bot',
+                        `Are you sure you want to publish "${bot.name}" to the marketplace?`,
+                        [
+                          {text: 'Cancel', style: 'cancel'},
+                          {text: 'Publish', onPress: async () => {
+                            try {
+                              await creatorApi.publishBot(bot.id);
+                              Alert.alert('Published!', `${bot.name} is now live on the marketplace.`);
+                              fetchData();
+                            } catch (e: any) {
+                              Alert.alert('Error', e?.message || 'Failed to publish bot.');
+                            }
+                          }},
+                        ],
+                      );
+                    }}>
+                    <PublishIcon />
+                    <Text style={styles.publishBtnText}>Publish</Text>
+                  </TouchableOpacity>
+                )}
+                {bot.isPublished && (
+                  <TouchableOpacity
+                    style={styles.viewBtn}
+                    activeOpacity={0.7}
+                    onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}>
+                    <Text style={styles.viewBtnText}>View</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
               {index < bots.length - 1 && (
                 <View style={styles.divider} />
               )}
-            </TouchableOpacity>
+            </View>
           ))}
         </View>
 
@@ -396,8 +489,24 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     fontSize: 16,
     color: '#FFFFFF',
+  },
+  botsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 10,
     marginTop: 4,
+  },
+  newBotBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(16,185,129,0.15)',
+  },
+  newBotBtnText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    color: '#10B981',
   },
   botRow: {
     flexDirection: 'row',
@@ -408,11 +517,38 @@ const styles = StyleSheet.create({
   botInfo: {
     flex: 1,
   },
+  botNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
   botName: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 14,
     color: '#FFFFFF',
-    marginBottom: 4,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  statusDraft: {
+    backgroundColor: 'rgba(245,158,11,0.15)',
+  },
+  statusPublished: {
+    backgroundColor: 'rgba(16,185,129,0.15)',
+  },
+  statusBadgeText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 9,
+    letterSpacing: 0.5,
+  },
+  statusDraftText: {
+    color: '#F59E0B',
+  },
+  statusPublishedText: {
+    color: '#10B981',
   },
   botMeta: {
     flexDirection: 'row',
@@ -447,6 +583,50 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 12,
     color: 'rgba(255,255,255,0.6)',
+  },
+  botActions: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingBottom: 12,
+  },
+  editBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  editBtnText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: '#FFFFFF',
+  },
+  publishBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#10B981',
+  },
+  publishBtnText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    color: '#FFFFFF',
+  },
+  viewBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(16,185,129,0.12)',
+  },
+  viewBtnText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: '#10B981',
   },
   divider: {
     height: 1,

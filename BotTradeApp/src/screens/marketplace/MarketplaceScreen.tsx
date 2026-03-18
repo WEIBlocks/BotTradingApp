@@ -284,9 +284,9 @@ export default function MarketplaceScreen() {
     );
 
   const isFiltering = searchQuery.length > 0 || activeFilter !== 'All';
-  const displayBots = filteredBots.slice(0, isFiltering ? undefined : 4);
+  const displayBots = filteredBots.slice(0, isFiltering ? undefined : 6);
 
-  const handlePaperPress = (bot: Bot) => {
+  const handlePaperPress = (_bot: Bot) => {
     navigation.navigate('PaperTradingSetup');
   };
 
@@ -413,7 +413,7 @@ export default function MarketplaceScreen() {
           <>
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>Trending</Text>
-              <TouchableOpacity activeOpacity={0.7} onPress={() => { setActiveFilter('All'); setSearchQuery(''); }}>
+              <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('AllBots', {initialSort: 'return_30d'})}>
                 <Text style={styles.viewAll}>View All</Text>
               </TouchableOpacity>
             </View>
@@ -434,6 +434,11 @@ export default function MarketplaceScreen() {
           <Text style={styles.sectionTitle}>
             {isFiltering ? 'Results' : 'Low Risk Picks'}
           </Text>
+          {!isFiltering && (
+            <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('AllBots', {})}>
+              <Text style={styles.viewAll}>View All</Text>
+            </TouchableOpacity>
+          )}
         </View>
         <View style={styles.gridRow}>
           {displayBots.map(bot => (
@@ -448,6 +453,16 @@ export default function MarketplaceScreen() {
             <Text style={styles.emptyText}>No bots found matching your search.</Text>
           )}
         </View>
+
+        {/* Browse All Button */}
+        {!isFiltering && allBots.length > 4 && (
+          <TouchableOpacity
+            style={styles.browseAllBtn}
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('AllBots', {})}>
+            <Text style={styles.browseAllText}>Browse All Bots</Text>
+          </TouchableOpacity>
+        )}
 
         <View style={{height: 32}} />
       </ScrollView>
@@ -626,6 +641,13 @@ const styles = StyleSheet.create({
 
   trendingRow: {flexDirection: 'row', gap: 10, marginBottom: 24},
   gridRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 10},
+  browseAllBtn: {
+    marginTop: 16, height: 48, borderRadius: 12,
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.25)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  browseAllText: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#10B981'},
   emptyText: {
     fontFamily: 'Inter-Regular', fontSize: 13,
     color: 'rgba(255,255,255,0.35)', textAlign: 'center', paddingVertical: 24, width: '100%',

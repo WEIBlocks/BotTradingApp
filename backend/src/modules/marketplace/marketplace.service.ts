@@ -2,7 +2,7 @@ import { db } from '../../config/database.js';
 import { bots, botStatistics, reviews as reviewsTable, botSubscriptions } from '../../db/schema/bots.js';
 import { trades } from '../../db/schema/trades.js';
 import { users } from '../../db/schema/users.js';
-import { eq, and, desc, asc, sql, ilike, count, inArray } from 'drizzle-orm';
+import { eq, and, or, desc, asc, sql, ilike, count, inArray } from 'drizzle-orm';
 import { NotFoundError } from '../../lib/errors.js';
 import { paginate, paginatedResponse, type PaginationParams } from '../../lib/pagination.js';
 
@@ -29,7 +29,12 @@ export async function listBots(filters: ListBotsFilters) {
     conditions.push(eq(bots.riskLevel, filters.risk_level as any));
   }
   if (filters.search) {
-    conditions.push(ilike(bots.name, `%${filters.search}%`));
+    conditions.push(
+      or(
+        ilike(bots.name, `%${filters.search}%`),
+        ilike(bots.strategy, `%${filters.search}%`),
+      )!,
+    );
   }
 
   const whereClause = and(...conditions);

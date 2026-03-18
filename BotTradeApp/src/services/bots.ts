@@ -125,4 +125,23 @@ export const botsService = {
   }) {
     return api.post<{data: any}>('/bots/create', data as Record<string, unknown>);
   },
+
+  /** Update an existing bot */
+  updateBot(botId: string, data: {
+    name?: string;
+    strategy?: string;
+    category?: string;
+    risk_level?: string;
+    pairs?: string[];
+    stopLoss?: number;
+    takeProfit?: number;
+    maxPositionSize?: number;
+  }) {
+    return api.put<{data: any}>(`/bots/${botId}`, data as Record<string, unknown>);
+  },
+
+  /** Get bot data for editing (creator only) */
+  getBotForEdit(botId: string) {
+    return api.get<{data: any}>(`/bots/${botId}/edit`);
+  },
 };

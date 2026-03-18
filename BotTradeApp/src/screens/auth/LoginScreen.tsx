@@ -1,5 +1,5 @@
 import React, {useState, useCallback, useEffect} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Keyboard, Alert} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Keyboard, Alert, Image} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {GoogleSignin, statusCodes} from '@react-native-google-signin/google-signin';
 import {AuthStackParamList} from '../../types';
@@ -132,6 +132,10 @@ export default function LoginScreen({navigation}: Props) {
         contentContainerStyle={styles.scroll}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled">
+        <View style={styles.logoRow}>
+          <Image source={require('../../assets/images/logo.jpg')} style={styles.logoIcon} resizeMode="contain" />
+          <Text style={styles.logoText}>BotTrade</Text>
+        </View>
         <Text style={styles.title}>Welcome Back</Text>
         <Text style={styles.subtitle}>Sign in to your trading account</Text>
 
@@ -219,6 +223,9 @@ export default function LoginScreen({navigation}: Props) {
 
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: '#0F1117'},
+  logoRow: {flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 20, alignSelf: 'center'},
+  logoIcon: {width: 38, height: 38, borderRadius: 10},
+  logoText: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF', letterSpacing: -0.3},
   header: {
     paddingHorizontal: 20,
     paddingTop: 56,

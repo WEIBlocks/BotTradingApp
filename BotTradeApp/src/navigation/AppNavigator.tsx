@@ -6,6 +6,7 @@ import {useAuth} from '../context/AuthContext';
 
 import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
+import AllBotsScreen from '../screens/marketplace/AllBotsScreen';
 import BotDetailsScreen from '../screens/bots/BotDetailsScreen';
 import ShadowModeResultsScreen from '../screens/bots/ShadowModeResultsScreen';
 import ShadowModeScreen from '../screens/bots/ShadowModeScreen';
@@ -77,6 +78,7 @@ export default function AppNavigator() {
       ) : (
         <>
           <Stack.Screen name="Main" component={MainNavigator} />
+          <Stack.Screen name="AllBots" component={AllBotsScreen} />
           <Stack.Screen name="BotDetails" component={BotDetailsScreen} />
           <Stack.Screen name="BotPurchase" component={BotPurchaseScreen} />
           <Stack.Screen name="ShadowMode" component={ShadowModeScreen} />

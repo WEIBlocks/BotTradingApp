@@ -22,6 +22,7 @@ export type MainTabParamList = {
 export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
+  AllBots: {initialCategory?: string; initialSort?: string} | undefined;
   BotDetails: {botId: string};
   BotPurchase: {botId: string};
   ShadowMode: undefined;
@@ -44,7 +45,7 @@ export type RootStackParamList = {
   PaymentMethod: undefined;
   Checkout: {type: 'bot' | 'subscription'; itemId: string; amount: number};
   CreatorStudio: undefined;
-  BotBuilder: {fromChat?: boolean; strategyName?: string};
+  BotBuilder: {fromChat?: boolean; strategyName?: string; editBotId?: string};
   LiveTrades: undefined;
   TrainingUpload: undefined;
   TradingRoom: undefined;

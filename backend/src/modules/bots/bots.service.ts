@@ -61,6 +61,66 @@ export async function createBot(userId: string, data: CreateBotData) {
   return bot;
 }
 
+interface UpdateBotData {
+  name?: string;
+  strategy?: string;
+  category?: string;
+  risk_level?: string;
+  pairs?: string[];
+  stopLoss?: number;
+  takeProfit?: number;
+  maxPositionSize?: number;
+}
+
+export async function updateBot(userId: string, botId: string, data: UpdateBotData) {
+  // Verify ownership
+  const [existing] = await db
+    .select()
+    .from(bots)
+    .where(and(eq(bots.id, botId), eq(bots.creatorId, userId)));
+
+  if (!existing) {
+    throw new NotFoundError('Bot');
+  }
+
+  const updates: Record<string, any> = { updatedAt: new Date() };
+
+  if (data.name !== undefined) updates.name = data.name;
+  if (data.strategy !== undefined) updates.strategy = data.strategy;
+  if (data.category !== undefined) updates.category = data.category;
+  if (data.risk_level !== undefined) updates.riskLevel = data.risk_level;
+
+  // Merge config fields
+  const existingConfig = (existing.config as Record<string, any>) ?? {};
+  const configUpdates: Record<string, any> = { ...existingConfig };
+  if (data.pairs !== undefined) configUpdates.pairs = data.pairs;
+  if (data.stopLoss !== undefined) configUpdates.stopLoss = data.stopLoss;
+  if (data.takeProfit !== undefined) configUpdates.takeProfit = data.takeProfit;
+  if (data.maxPositionSize !== undefined) configUpdates.maxPositionSize = data.maxPositionSize;
+  updates.config = configUpdates;
+
+  const [updated] = await db
+    .update(bots)
+    .set(updates)
+    .where(and(eq(bots.id, botId), eq(bots.creatorId, userId)))
+    .returning();
+
+  return updated;
+}
+
+export async function getBotForEdit(userId: string, botId: string) {
+  const [bot] = await db
+    .select()
+    .from(bots)
+    .where(and(eq(bots.id, botId), eq(bots.creatorId, userId)));
+
+  if (!bot) {
+    throw new NotFoundError('Bot');
+  }
+
+  return bot;
+}
+
 export async function pauseBot(userId: string, botSubId: string) {
   const [sub] = await db
     .select()

@@ -16,6 +16,17 @@ export const createBotBodySchema = z.object({
   tradingMode: z.string().optional(),
 });
 
+export const updateBotBodySchema = z.object({
+  name: z.string().min(1).optional(),
+  strategy: z.string().min(1).optional(),
+  category: z.string().optional(),
+  risk_level: z.string().optional(),
+  pairs: z.array(z.string()).optional(),
+  stopLoss: z.number().optional(),
+  takeProfit: z.number().optional(),
+  maxPositionSize: z.number().optional(),
+});
+
 export const purchaseBotBodySchema = z.object({
   mode: z.enum(['live', 'paper']),
 });

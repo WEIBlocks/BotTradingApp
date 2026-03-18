@@ -107,7 +107,7 @@ export async function getCreatorBots(userId: string) {
 export async function publishBot(userId: string, botId: string) {
   const [updated] = await db
     .update(bots)
-    .set({ status: 'pending_review', updatedAt: new Date() })
+    .set({ status: 'approved', isPublished: true, updatedAt: new Date() })
     .where(
       and(
         eq(bots.id, botId),
