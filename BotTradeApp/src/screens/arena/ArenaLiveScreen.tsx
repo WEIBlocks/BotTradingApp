@@ -1,5 +1,5 @@
-import React, {useState, useEffect, useRef} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert} from 'react-native';
+import React, {useState, useEffect, useRef, useCallback} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert, BackHandler, Modal} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse, Polygon} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
@@ -85,21 +85,66 @@ function rankLabel(rank: number): string {
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function ArenaLiveScreen({navigation, route}: Props) {
-  const {gladiatorIds} = route.params;
+  const {gladiatorIds, sessionId: existingSessionId} = route.params;
   const [session, setSession] = useState<ArenaSession | null>(null);
   const [loading, setLoading] = useState(true);
-  const sessionIdRef = useRef<string | null>(null);
+  const [exitModalVisible, setExitModalVisible] = useState(false);
+  const sessionIdRef = useRef<string | null>(existingSessionId ?? null);
+  const allowLeaveRef = useRef(false);
 
-  // Create session on mount
+  // Create session on mount (or resume existing)
   useEffect(() => {
-    arenaApi.createSession(gladiatorIds)
-      .then(s => {
-        sessionIdRef.current = s.id;
-        setSession(s);
-      })
-      .catch(() => Alert.alert('Error', 'Failed to create arena session. Please try again.'))
-      .finally(() => setLoading(false));
-  }, [gladiatorIds]);
+    if (existingSessionId) {
+      // Resume viewing an existing session
+      arenaApi.getSession(existingSessionId)
+        .then(s => {
+          sessionIdRef.current = s.id;
+          setSession(s);
+        })
+        .catch(() => Alert.alert('Error', 'Failed to load arena session.'))
+        .finally(() => setLoading(false));
+    } else {
+      arenaApi.createSession(gladiatorIds)
+        .then(s => {
+          sessionIdRef.current = s.id;
+          setSession(s);
+        })
+        .catch(() => Alert.alert('Error', 'Failed to create arena session. Please try again.'))
+        .finally(() => setLoading(false));
+    }
+  }, [gladiatorIds, existingSessionId]);
+
+  // Intercept hardware back button
+  useEffect(() => {
+    const handler = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (session?.status === 'completed') return false; // allow normal back
+      setExitModalVisible(true);
+      return true; // prevent default
+    });
+    return () => handler.remove();
+  }, [session?.status]);
+
+  // Intercept navigation gesture / header back
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e: any) => {
+      if (session?.status === 'completed' || allowLeaveRef.current) return; // allow
+      e.preventDefault();
+      setExitModalVisible(true);
+    });
+    return unsubscribe;
+  }, [navigation, session?.status]);
+
+  const handleLeave = useCallback(() => {
+    setExitModalVisible(false);
+    allowLeaveRef.current = true;
+    navigation.goBack();
+  }, [navigation]);
+
+  const handleKeepRunning = useCallback(() => {
+    setExitModalVisible(false);
+    allowLeaveRef.current = true;
+    navigation.navigate('Main' as any, {screen: 'Dashboard'});
+  }, [navigation]);
 
   // Poll for updates every 5 seconds
   useEffect(() => {
@@ -112,7 +157,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
           if (s.status === 'completed') {
             clearInterval(interval);
             const winner = [...s.gladiators].sort((a, b) => (b.currentReturn || 0) - (a.currentReturn || 0))[0];
-            navigation.replace('ArenaResults', {winnerId: winner?.id ?? ''});
+            navigation.replace('ArenaResults', {winnerId: winner?.id ?? '', sessionId: s.id});
           }
         })
         .catch(() => {});
@@ -142,9 +187,50 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
   return (
     <View style={styles.container}>
 
+      {/* ── Exit Modal ── */}
+      <Modal visible={exitModalVisible} transparent animationType="fade" onRequestClose={() => setExitModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>Battle In Progress</Text>
+            <Text style={styles.modalDesc}>
+              The arena battle is still running. What would you like to do?
+            </Text>
+            <TouchableOpacity style={styles.modalBtnPrimary} onPress={handleKeepRunning} activeOpacity={0.8}>
+              <View style={styles.modalBtnIcon}>
+                <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                  <Path d="M5 3l14 9-14 9V3z" fill="#FFFFFF" />
+                </Svg>
+              </View>
+              <View style={{flex: 1}}>
+                <Text style={styles.modalBtnPrimaryText}>Keep Running in Background</Text>
+                <Text style={styles.modalBtnSub}>Battle continues, you can return later</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.modalBtnDanger} onPress={handleLeave} activeOpacity={0.8}>
+              <View style={[styles.modalBtnIcon, {backgroundColor: 'rgba(239,68,68,0.15)'}]}>
+                <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                  <Rect x={4} y={4} width={16} height={16} rx={3} fill="#EF4444" />
+                </Svg>
+              </View>
+              <View style={{flex: 1}}>
+                <Text style={styles.modalBtnDangerText}>Leave Battle</Text>
+                <Text style={styles.modalBtnSub}>Exit without stopping the battle</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setExitModalVisible(false)} activeOpacity={0.8}>
+              <Text style={styles.modalBtnCancelText}>Stay Here</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Sticky Header ── */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBtn}>
+        <TouchableOpacity onPress={() => {
+          if (session?.status === 'completed') { navigation.goBack(); }
+          else { setExitModalVisible(true); }
+        }} style={styles.headerBtn}>
           <BackArrow />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>BOT BATTLE ARENA</Text>
@@ -363,5 +449,60 @@ const styles = StyleSheet.create({
   returnSubLabel: {
     fontFamily: 'Inter-Medium', fontSize: 9,
     color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5,
+  },
+
+  // Exit Modal
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    backgroundColor: '#161B22', borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 24, paddingBottom: 40,
+  },
+  modalHandle: {
+    width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.15)',
+    alignSelf: 'center', marginBottom: 20,
+  },
+  modalTitle: {
+    fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF',
+    textAlign: 'center', marginBottom: 8,
+  },
+  modalDesc: {
+    fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.5)',
+    textAlign: 'center', marginBottom: 24, lineHeight: 20,
+  },
+  modalBtnPrimary: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: 'rgba(16,185,129,0.1)', borderRadius: 16,
+    padding: 16, marginBottom: 10,
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.25)',
+  },
+  modalBtnIcon: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: 'rgba(16,185,129,0.2)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  modalBtnPrimaryText: {
+    fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#10B981',
+  },
+  modalBtnSub: {
+    fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)',
+    marginTop: 2,
+  },
+  modalBtnDanger: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: 'rgba(239,68,68,0.06)', borderRadius: 16,
+    padding: 16, marginBottom: 10,
+    borderWidth: 1, borderColor: 'rgba(239,68,68,0.15)',
+  },
+  modalBtnDangerText: {
+    fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#EF4444',
+  },
+  modalBtnCancel: {
+    alignItems: 'center', paddingVertical: 14, marginTop: 4,
+  },
+  modalBtnCancelText: {
+    fontFamily: 'Inter-SemiBold', fontSize: 15, color: 'rgba(255,255,255,0.5)',
   },
 });

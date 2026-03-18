@@ -1,7 +1,8 @@
 import { db } from '../../config/database.js';
-import { bots, botStatistics } from '../../db/schema/bots.js';
+import { bots, botStatistics, reviews as reviewsTable, botSubscriptions } from '../../db/schema/bots.js';
+import { trades } from '../../db/schema/trades.js';
 import { users } from '../../db/schema/users.js';
-import { eq, and, desc, asc, sql, ilike, count } from 'drizzle-orm';
+import { eq, and, desc, asc, sql, ilike, count, inArray } from 'drizzle-orm';
 import { NotFoundError } from '../../lib/errors.js';
 import { paginate, paginatedResponse, type PaginationParams } from '../../lib/pagination.js';
 
@@ -191,5 +192,69 @@ export async function getBotById(botId: string) {
     throw new NotFoundError('Bot');
   }
 
-  return row;
+  // Fetch reviews for this bot
+  const botReviews = await db
+    .select({
+      id: reviewsTable.id,
+      rating: reviewsTable.rating,
+      text: reviewsTable.text,
+      createdAt: reviewsTable.createdAt,
+      userName: users.name,
+    })
+    .from(reviewsTable)
+    .leftJoin(users, eq(reviewsTable.userId, users.id))
+    .where(eq(reviewsTable.botId, botId))
+    .orderBy(desc(reviewsTable.createdAt))
+    .limit(10);
+
+  const formattedReviews = botReviews.map((r) => ({
+    id: r.id,
+    rating: r.rating,
+    text: r.text ?? '',
+    userName: r.userName ?? 'Anonymous',
+    userInitials: (r.userName ?? 'A').split(' ').map((w: string) => w[0]).join('').substring(0, 2).toUpperCase(),
+    date: r.createdAt ? new Date(r.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '',
+  }));
+
+  // Fetch recent trades related to this bot (via subscriptions)
+  const subIds = await db
+    .select({ id: botSubscriptions.id })
+    .from(botSubscriptions)
+    .where(eq(botSubscriptions.botId, botId))
+    .limit(50);
+
+  let recentTrades: any[] = [];
+  if (subIds.length > 0) {
+    const subIdList = subIds.map((s) => s.id);
+    recentTrades = await db
+      .select({
+        id: trades.id,
+        symbol: trades.symbol,
+        side: trades.side,
+        amount: trades.amount,
+        price: trades.price,
+        status: trades.status,
+        executedAt: trades.executedAt,
+      })
+      .from(trades)
+      .where(inArray(trades.botSubscriptionId, subIdList))
+      .orderBy(desc(trades.executedAt))
+      .limit(5);
+  }
+
+  const formattedTrades = recentTrades.map((t) => ({
+    id: t.id,
+    symbol: t.symbol ?? 'BTC/USDT',
+    side: t.side ?? 'BUY',
+    amount: parseFloat(t.amount ?? '0'),
+    price: parseFloat(t.price ?? '0'),
+    botName: row.name,
+    timestamp: t.executedAt ?? new Date(),
+  }));
+
+  return {
+    ...row,
+    reviews: formattedReviews,
+    recentTrades: formattedTrades,
+  };
 }

@@ -27,8 +27,9 @@ export type RootStackParamList = {
   ShadowMode: undefined;
   ShadowModeResults: {botId: string; profit: number; winRate: number; sessionId?: string};
   ArenaSetup: undefined;
-  ArenaLive: {gladiatorIds: string[]};
-  ArenaResults: {winnerId: string};
+  ArenaLive: {gladiatorIds: string[]; sessionId?: string};
+  ArenaResults: {winnerId: string; sessionId?: string};
+  ArenaHistory: undefined;
   Notifications: undefined;
   TradeHistory: undefined;
   WalletFunds: undefined;

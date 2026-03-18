@@ -306,6 +306,28 @@ export default function BotDetailsScreen({navigation, route}: Props) {
           />
         </View>
 
+        {/* Bot Overview Card */}
+        <View style={styles.overviewCard}>
+          <View style={styles.overviewRow}>
+            <View style={styles.overviewItem}>
+              <Text style={styles.overviewLabel}>CATEGORY</Text>
+              <Text style={styles.overviewValue}>{bot.category}</Text>
+            </View>
+            <View style={styles.overviewDivider} />
+            <View style={styles.overviewItem}>
+              <Text style={styles.overviewLabel}>RISK LEVEL</Text>
+              <Text style={[styles.overviewValue, {color: bot.risk === 'Very High' || bot.risk === 'High' ? '#EF4444' : bot.risk === 'Med' ? '#F59E0B' : '#10B981'}]}>
+                {bot.risk}
+              </Text>
+            </View>
+            <View style={styles.overviewDivider} />
+            <View style={styles.overviewItem}>
+              <Text style={styles.overviewLabel}>PRICE</Text>
+              <Text style={styles.overviewValue}>{bot.price === 0 ? 'Free' : `$${bot.price}/mo`}</Text>
+            </View>
+          </View>
+        </View>
+
         {/* Bot DNA */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>BOT DNA</Text>
@@ -321,6 +343,58 @@ export default function BotDetailsScreen({navigation, route}: Props) {
           <Text style={styles.sectionLabel}>STRATEGY</Text>
           <Text style={styles.strategyText}>{bot.description}</Text>
         </View>
+
+        {/* Key Metrics */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>KEY METRICS</Text>
+          <View style={styles.metricsCard}>
+            <View style={styles.metricRow}>
+              <Text style={styles.metricLabel}>Total Return (30D)</Text>
+              <Text style={[styles.metricValue, {color: bot.returnPercent >= 0 ? '#10B981' : '#EF4444'}]}>
+                {bot.returnPercent >= 0 ? '+' : ''}{bot.returnPercent.toFixed(2)}%
+              </Text>
+            </View>
+            <View style={styles.metricRow}>
+              <Text style={styles.metricLabel}>Win Rate</Text>
+              <Text style={styles.metricValue}>{bot.winRate.toFixed(1)}%</Text>
+            </View>
+            <View style={styles.metricRow}>
+              <Text style={styles.metricLabel}>Max Drawdown</Text>
+              <Text style={[styles.metricValue, {color: '#EF4444'}]}>{bot.maxDrawdown.toFixed(2)}%</Text>
+            </View>
+            <View style={styles.metricRow}>
+              <Text style={styles.metricLabel}>Sharpe Ratio</Text>
+              <Text style={[styles.metricValue, {color: bot.sharpeRatio >= 1 ? '#10B981' : '#F59E0B'}]}>{bot.sharpeRatio.toFixed(2)}</Text>
+            </View>
+            <View style={styles.metricRow}>
+              <Text style={styles.metricLabel}>Active Users</Text>
+              <Text style={styles.metricValue}>{bot.activeUsers.toLocaleString()}</Text>
+            </View>
+            <View style={[styles.metricRow, {borderBottomWidth: 0}]}>
+              <Text style={styles.metricLabel}>Average Rating</Text>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                <StarIcon size={12} filled color="#EAB308" />
+                <Text style={styles.metricValue}>{bot.rating.toFixed(1)} ({bot.reviewCount})</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Creator Info */}
+        {bot.creatorName ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>CREATOR</Text>
+            <View style={styles.creatorCard}>
+              <View style={[styles.creatorAvatar, {backgroundColor: bot.avatarColor}]}>
+                <Text style={styles.creatorAvatarText}>{bot.creatorName.charAt(0).toUpperCase()}</Text>
+              </View>
+              <View style={styles.creatorInfo}>
+                <Text style={styles.creatorName}>{bot.creatorName}</Text>
+                <Text style={styles.creatorSub}>{isCreator ? 'You' : 'Bot Creator'}</Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
 
         {/* Monthly Returns */}
         {bot.monthlyReturns.length > 0 && (
@@ -555,6 +629,48 @@ const styles = StyleSheet.create({
   statCellLabel: {fontFamily: 'Inter-Medium', fontSize: 9, letterSpacing: 0.8, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 6},
   statCellValue: {fontFamily: 'Inter-Bold', fontSize: 22, letterSpacing: -0.5},
   chartSection: {marginBottom: 16},
+
+  // Overview card
+  overviewCard: {
+    backgroundColor: '#161B22', borderRadius: 16, padding: 16, marginBottom: 16,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+  },
+  overviewRow: {flexDirection: 'row', alignItems: 'center'},
+  overviewItem: {flex: 1, alignItems: 'center'},
+  overviewDivider: {width: 1, height: 32, backgroundColor: 'rgba(255,255,255,0.08)'},
+  overviewLabel: {
+    fontFamily: 'Inter-Medium', fontSize: 9, letterSpacing: 0.8,
+    color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 4,
+  },
+  overviewValue: {fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'},
+
+  // Key Metrics
+  metricsCard: {
+    backgroundColor: '#161B22', borderRadius: 16, paddingHorizontal: 16,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+  },
+  metricRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  metricLabel: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.5)'},
+  metricValue: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
+
+  // Creator
+  creatorCard: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#161B22', borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+  },
+  creatorAvatar: {
+    width: 44, height: 44, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center', marginRight: 12,
+  },
+  creatorAvatarText: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF'},
+  creatorInfo: {flex: 1},
+  creatorName: {fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF'},
+  creatorSub: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 2},
+
   section: {marginBottom: 20},
   sectionLabel: {fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 10},
   tagsRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 6},

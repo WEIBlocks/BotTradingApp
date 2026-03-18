@@ -9,6 +9,7 @@ import {useAuth} from '../../context/AuthContext';
 import {dashboardApi, DashboardSummary, ActiveBot as DashActiveBot} from '../../services/dashboard';
 import {botsService} from '../../services/bots';
 import {tradesApi} from '../../services/trades';
+import {arenaApi, ArenaSession} from '../../services/arena';
 import InteractiveChart from '../../components/charts/InteractiveChart';
 import PlusIcon from '../../components/icons/PlusIcon';
 
@@ -214,21 +215,24 @@ export default function DashboardScreen() {
   const [activeBots, setActiveBots] = useState<DashActiveBot[]>([]);
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
   const [equityData, setEquityData] = useState<number[]>([]);
+  const [activeArena, setActiveArena] = useState<ArenaSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const [s, bots, trades, equity] = await Promise.all([
+      const [s, bots, trades, equity, arenaSession] = await Promise.all([
         dashboardApi.getSummary(),
         dashboardApi.getActiveBots(),
         tradesApi.getRecent(5).catch(() => [] as Trade[]),
         dashboardApi.getEquityHistory(30).catch(() => [] as number[]),
+        arenaApi.getActiveSession().catch(() => null),
       ]);
       setSummary(s);
       setActiveBots(bots);
       setRecentTrades(trades);
       setEquityData(equity);
+      setActiveArena(arenaSession);
     } catch (e) {
       Alert.alert('Error', 'Failed to load dashboard data. Pull down to retry.');
     } finally {
@@ -523,6 +527,27 @@ export default function DashboardScreen() {
           </View>
         </View>
 
+        {/* Live Arena Battle Banner */}
+        {activeArena && activeArena.status === 'running' && (
+          <TouchableOpacity
+            style={styles.liveBattleBanner}
+            onPress={() => navigation.navigate('ArenaLive', {gladiatorIds: [], sessionId: activeArena.id})}
+            activeOpacity={0.8}>
+            <View style={styles.liveBattlePulse}>
+              <View style={styles.liveBattleDot} />
+            </View>
+            <View style={{flex: 1, marginLeft: 12}}>
+              <Text style={styles.liveBattleTitle}>Live Battle Running</Text>
+              <Text style={styles.liveBattleSub}>
+                {activeArena.gladiators.length} bots competing · {Math.round((activeArena.progress ?? 0) * 100)}% complete
+              </Text>
+            </View>
+            <View style={styles.liveBattleViewBtn}>
+              <Text style={styles.liveBattleViewText}>VIEW</Text>
+            </View>
+          </TouchableOpacity>
+        )}
+
         {/* Arena Banner */}
         <TouchableOpacity
           style={styles.arenaBanner}
@@ -701,6 +726,30 @@ const styles = StyleSheet.create({
   tradeRight: {alignItems: 'flex-end'},
   tradeAmount: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
   tradeQty: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2},
+
+  // Live battle banner
+  liveBattleBanner: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(234,179,8,0.08)', borderRadius: 14,
+    padding: 16, marginBottom: 10,
+    borderWidth: 1, borderColor: 'rgba(234,179,8,0.25)',
+  },
+  liveBattlePulse: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(234,179,8,0.15)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  liveBattleDot: {
+    width: 12, height: 12, borderRadius: 6,
+    backgroundColor: '#EAB308',
+  },
+  liveBattleTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#EAB308'},
+  liveBattleSub: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2},
+  liveBattleViewBtn: {
+    backgroundColor: '#EAB308', borderRadius: 8,
+    paddingHorizontal: 14, paddingVertical: 6,
+  },
+  liveBattleViewText: {fontFamily: 'Inter-Bold', fontSize: 11, color: '#0A0E14', letterSpacing: 0.5},
 
   // Arena banner
   arenaBanner: {

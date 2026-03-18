@@ -115,6 +115,99 @@ export async function getSession(sessionId: string, userId: string) {
   };
 }
 
+export async function getActiveSession(userId: string) {
+  const [session] = await db
+    .select()
+    .from(arenaSessions)
+    .where(
+      and(
+        eq(arenaSessions.userId, userId),
+        eq(arenaSessions.status, 'running'),
+      ),
+    )
+    .orderBy(desc(arenaSessions.startedAt))
+    .limit(1);
+
+  if (!session) return null;
+
+  const gladiators = await db
+    .select({
+      id: arenaGladiators.id,
+      botId: arenaGladiators.botId,
+      rank: arenaGladiators.rank,
+      finalReturn: arenaGladiators.finalReturn,
+      winRate: arenaGladiators.winRate,
+      equityData: arenaGladiators.equityData,
+      isWinner: arenaGladiators.isWinner,
+      botName: bots.name,
+      botSubtitle: bots.subtitle,
+      botStrategy: bots.strategy,
+      botAvatar: bots.avatarLetter,
+      botColor: bots.avatarColor,
+      botRiskLevel: bots.riskLevel,
+    })
+    .from(arenaGladiators)
+    .innerJoin(bots, eq(arenaGladiators.botId, bots.id))
+    .where(eq(arenaGladiators.sessionId, session.id));
+
+  const startedAt = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
+  const elapsed = (Date.now() - startedAt) / 1000;
+  const duration = session.durationSeconds ?? 180;
+  const progress = Math.min(elapsed / duration, 1);
+
+  return {
+    ...session,
+    gladiators,
+    progress,
+    elapsedSeconds: Math.floor(elapsed),
+    remainingSeconds: Math.max(0, Math.floor(duration - elapsed)),
+  };
+}
+
+export async function getHistory(userId: string) {
+  const sessions = await db
+    .select()
+    .from(arenaSessions)
+    .where(eq(arenaSessions.userId, userId))
+    .orderBy(desc(arenaSessions.startedAt))
+    .limit(20);
+
+  // For each session, get gladiator summary
+  const results = await Promise.all(
+    sessions.map(async (session) => {
+      const gladiators = await db
+        .select({
+          botId: arenaGladiators.botId,
+          rank: arenaGladiators.rank,
+          finalReturn: arenaGladiators.finalReturn,
+          isWinner: arenaGladiators.isWinner,
+          botName: bots.name,
+          botColor: bots.avatarColor,
+        })
+        .from(arenaGladiators)
+        .innerJoin(bots, eq(arenaGladiators.botId, bots.id))
+        .where(eq(arenaGladiators.sessionId, session.id));
+
+      const winner = gladiators.find((g) => g.isWinner) ||
+        gladiators.sort((a, b) => parseFloat(b.finalReturn ?? '0') - parseFloat(a.finalReturn ?? '0'))[0] || null;
+
+      return {
+        id: session.id,
+        status: session.status,
+        durationSeconds: session.durationSeconds,
+        startedAt: session.startedAt,
+        endedAt: session.endedAt,
+        botCount: gladiators.length,
+        winnerName: winner?.botName ?? null,
+        winnerReturn: winner?.finalReturn ?? null,
+        winnerColor: winner?.botColor ?? null,
+      };
+    }),
+  );
+
+  return results;
+}
+
 export async function getSessionResults(sessionId: string, userId: string) {
   const [session] = await db
     .select()

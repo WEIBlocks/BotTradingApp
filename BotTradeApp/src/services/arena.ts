@@ -72,6 +72,18 @@ export interface ArenaSession {
   gladiators: Gladiator[];
 }
 
+export interface ArenaHistoryItem {
+  id: string;
+  status: string;
+  durationSeconds: number;
+  startedAt: string;
+  endedAt: string | null;
+  botCount: number;
+  winnerName: string | null;
+  winnerReturn: string | null;
+  winnerColor: string | null;
+}
+
 export interface ArenaResults {
   winnerId: string;
   rankings: Gladiator[];
@@ -149,6 +161,28 @@ export const arenaApi = {
       elapsedSeconds: s?.elapsedSeconds ?? 0,
       remainingSeconds: s?.remainingSeconds ?? 0,
       gladiators: (s?.gladiators ?? []).map(mapGladiatorRow),
+    };
+  },
+
+  /** Get user's arena battle history. */
+  async getHistory(): Promise<ArenaHistoryItem[]> {
+    const res = await api.get<DataWrap<ArenaHistoryItem[]>>('/arena/history');
+    return Array.isArray(res?.data) ? res.data : [];
+  },
+
+  /** Get user's active running session (if any). Returns null if none. */
+  async getActiveSession(): Promise<ArenaSession | null> {
+    const res = await api.get<DataWrap<SessionResponse | null>>('/arena/session/active');
+    const s = res?.data;
+    if (!s) return null;
+    return {
+      id: s.id ?? '',
+      status: s.status ?? 'running',
+      durationSeconds: s.durationSeconds ?? 300,
+      progress: s.progress ?? 0,
+      elapsedSeconds: s.elapsedSeconds ?? 0,
+      remainingSeconds: s.remainingSeconds ?? 0,
+      gladiators: (s.gladiators ?? []).map(mapGladiatorRow),
     };
   },
 

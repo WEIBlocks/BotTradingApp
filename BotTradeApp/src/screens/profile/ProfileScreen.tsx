@@ -53,6 +53,15 @@ function ActivityIcon({type}: {type: string}) {
   );
 }
 
+function SwordsMenuIcon({size = 18, color = 'rgba(255,255,255,0.6)'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M14.5 17.5L3 6V3h3l11.5 11.5" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M13 19l6-6M20.5 3.5l-6 6" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
 const SETTINGS = [
@@ -61,6 +70,7 @@ const SETTINGS = [
   {icon: WalletIcon, label: 'Connected Exchanges', screen: 'ExchangeManage'},
   {icon: GearIcon, label: 'Subscription', screen: 'Subscription'},
   {icon: GearIcon, label: 'Creator Studio', screen: 'CreatorStudio'},
+  {icon: SwordsMenuIcon, label: 'Battle History', screen: 'ArenaHistory'},
   {icon: GiftIcon, label: 'Refer a Friend', screen: 'Referral'},
   {icon: GearIcon, label: 'Settings', screen: 'Settings'},
 ];

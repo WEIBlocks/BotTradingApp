@@ -4,7 +4,7 @@ import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 import {RootStackParamList, Gladiator} from '../../types';
-import {arenaApi} from '../../services/arena';
+import {arenaApi, ArenaSession} from '../../services/arena';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 const MAX_GLADIATORS = 5;
@@ -115,10 +115,17 @@ export default function ArenaSetupScreen() {
   const navigation = useNavigation<NavProp>();
   const [gladiators, setGladiators] = useState<Gladiator[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeSession, setActiveSession] = useState<ArenaSession | null>(null);
 
   useEffect(() => {
-    arenaApi.getAvailableBots()
-      .then(bots => setGladiators(bots))
+    Promise.all([
+      arenaApi.getAvailableBots(),
+      arenaApi.getActiveSession().catch(() => null),
+    ])
+      .then(([bots, session]) => {
+        setGladiators(bots);
+        setActiveSession(session);
+      })
       .catch(() => Alert.alert('Error', 'Failed to load arena bots. Please try again.'))
       .finally(() => setLoading(false));
   }, []);
@@ -171,6 +178,27 @@ export default function ArenaSetupScreen() {
         <Text style={styles.subtitle}>
           Pick up to {MAX_GLADIATORS} bots to compete in the high-stakes trading arena.
         </Text>
+
+        {/* Active battle banner */}
+        {activeSession && activeSession.status === 'running' && (
+          <TouchableOpacity
+            style={styles.activeBattleBanner}
+            onPress={() => navigation.navigate('ArenaLive', {gladiatorIds: [], sessionId: activeSession.id})}
+            activeOpacity={0.8}>
+            <View style={styles.activeBattlePulse}>
+              <View style={styles.activeBattleDot} />
+            </View>
+            <View style={{flex: 1, marginLeft: 12}}>
+              <Text style={styles.activeBattleTitle}>Battle In Progress</Text>
+              <Text style={styles.activeBattleSub}>
+                {activeSession.gladiators.length} bots · {Math.round((activeSession.progress ?? 0) * 100)}% complete
+              </Text>
+            </View>
+            <View style={styles.activeBattleViewBtn}>
+              <Text style={styles.activeBattleViewText}>WATCH LIVE</Text>
+            </View>
+          </TouchableOpacity>
+        )}
 
         {loading ? (
           <ActivityIndicator size="large" color="#10B981" style={{marginTop: 40}} />
@@ -340,4 +368,28 @@ const styles = StyleSheet.create({
   enterBtnText: {
     fontFamily: 'Inter-Bold', fontSize: 15, color: '#FFFFFF', letterSpacing: 2,
   },
+
+  // Active battle banner
+  activeBattleBanner: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(234,179,8,0.08)', borderRadius: 16,
+    padding: 14, marginBottom: 18,
+    borderWidth: 1, borderColor: 'rgba(234,179,8,0.25)',
+  },
+  activeBattlePulse: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(234,179,8,0.15)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  activeBattleDot: {
+    width: 12, height: 12, borderRadius: 6,
+    backgroundColor: '#EAB308',
+  },
+  activeBattleTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#EAB308'},
+  activeBattleSub: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2},
+  activeBattleViewBtn: {
+    backgroundColor: '#EAB308', borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 6,
+  },
+  activeBattleViewText: {fontFamily: 'Inter-Bold', fontSize: 10, color: '#0A0E14', letterSpacing: 0.5},
 });

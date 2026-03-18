@@ -31,12 +31,16 @@ const PODIUM_MEDALS = ['#EAB308', '#C0C0C0', '#CD7F32'];
 const PODIUM_LABELS = ['1ST', '2ND', '3RD'];
 
 export default function ArenaFinalResultsScreen({navigation, route}: Props) {
-  const {winnerId} = route.params;
+  const {winnerId, sessionId} = route.params;
   const [allGladiators, setAllGladiators] = useState<Gladiator[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    arenaApi.getAvailableBots()
+    const fetchResults = sessionId
+      ? arenaApi.getResults(sessionId).then(r => r.rankings)
+      : arenaApi.getAvailableBots();
+
+    fetchResults
       .then(bots => {
         const sorted = [...bots].sort(
           (a, b) => (b.currentReturn || 0) - (a.currentReturn || 0),
@@ -45,7 +49,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [sessionId]);
 
   const winner = allGladiators[0];
   const podiumThree = allGladiators.slice(0, 3);

@@ -447,7 +447,13 @@ const ExchangeConnectScreen = () => {
                 isSelected && styles.exchangeSelectorCardActive,
               ]}
               activeOpacity={0.7}
-              onPress={() => setSelectedExchange(exchange.name)}>
+              onPress={() => {
+                setSelectedExchange(exchange.name);
+                // Reset sandbox when selecting an exchange without testnet
+                if (exchange.name !== 'Binance' && exchange.name !== 'Alpaca') {
+                  setSandbox(false);
+                }
+              }}>
               <View style={styles.exchangeSelectorCircle}>
                 {(() => { const ExIcon = EXCHANGE_ICONS[exchange.name]; return ExIcon ? <ExIcon size={36} /> : <View style={{width: 36, height: 36, borderRadius: 18, backgroundColor: exchange.color, alignItems: 'center', justifyContent: 'center'}}><Text style={styles.exchangeSelectorLetter}>{exchange.name[0]}</Text></View>; })()}
               </View>
@@ -467,29 +473,44 @@ const ExchangeConnectScreen = () => {
         })}
       </View>
 
-      {/* Environment Toggle */}
-      <Text style={styles.sectionLabel}>Environment</Text>
-      <View style={styles.envToggleRow}>
-        <TouchableOpacity
-          style={[styles.envToggleBtn, !sandbox && styles.envToggleBtnActive]}
-          activeOpacity={0.7}
-          onPress={() => setSandbox(false)}>
+      {/* Environment Toggle — only for exchanges with testnet */}
+      {(selectedExchange === 'Binance' || selectedExchange === 'Alpaca') ? (
+        <>
+          <Text style={styles.sectionLabel}>Environment</Text>
+          <View style={styles.envToggleRow}>
+            <TouchableOpacity
+              style={[styles.envToggleBtn, !sandbox && styles.envToggleBtnActive]}
+              activeOpacity={0.7}
+              onPress={() => setSandbox(false)}>
+              <View style={[styles.envDot, {backgroundColor: '#10B981'}]} />
+              <Text style={[styles.envToggleText, !sandbox && styles.envToggleTextActive]}>Live</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.envToggleBtn, sandbox && styles.envToggleBtnActiveTest]}
+              activeOpacity={0.7}
+              onPress={() => setSandbox(true)}>
+              <View style={[styles.envDot, {backgroundColor: '#F59E0B'}]} />
+              <Text style={[styles.envToggleText, sandbox && styles.envToggleTextActive]}>
+                {selectedExchange === 'Alpaca' ? 'Paper Trading' : 'Testnet'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {sandbox && (
+            <Text style={styles.envHint}>
+              {selectedExchange === 'Alpaca'
+                ? 'Using Alpaca Paper Trading — get paper keys from your Alpaca dashboard'
+                : 'Using Binance Testnet — get test keys at testnet.binance.vision'}
+            </Text>
+          )}
+        </>
+      ) : selectedExchange === 'Coinbase' || selectedExchange === 'Kraken' ? (
+        <View style={styles.envDisabledBox}>
           <View style={[styles.envDot, {backgroundColor: '#10B981'}]} />
-          <Text style={[styles.envToggleText, !sandbox && styles.envToggleTextActive]}>Live</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.envToggleBtn, sandbox && styles.envToggleBtnActiveTest]}
-          activeOpacity={0.7}
-          onPress={() => setSandbox(true)}>
-          <View style={[styles.envDot, {backgroundColor: '#F59E0B'}]} />
-          <Text style={[styles.envToggleText, sandbox && styles.envToggleTextActive]}>Testnet</Text>
-        </TouchableOpacity>
-      </View>
-      {sandbox && (
-        <Text style={styles.envHint}>
-          Using Binance Testnet — get test keys at testnet.binance.vision
-        </Text>
-      )}
+          <Text style={styles.envDisabledText}>
+            {selectedExchange} only supports live connections — no testnet available
+          </Text>
+        </View>
+      ) : null}
 
       {/* API Key Input */}
       <Text style={styles.sectionLabel}>API Key</Text>
@@ -792,6 +813,25 @@ const styles = StyleSheet.create({
     color: 'rgba(245,158,11,0.7)',
     marginBottom: 16,
     marginTop: -8,
+  },
+  envDisabledBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 14,
+    marginBottom: 16,
+    marginTop: 4,
+  },
+  envDisabledText: {
+    flex: 1,
+    fontFamily: 'Inter-Regular',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+    lineHeight: 18,
   },
 
   // Inputs

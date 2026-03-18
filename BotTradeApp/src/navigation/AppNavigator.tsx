@@ -14,6 +14,7 @@ import BotBuilderScreen from '../screens/bots/BotBuilderScreen';
 import ArenaSetupScreen from '../screens/arena/ArenaSetupScreen';
 import ArenaLiveScreen from '../screens/arena/ArenaLiveScreen';
 import ArenaFinalResultsScreen from '../screens/arena/ArenaFinalResultsScreen';
+import ArenaHistoryScreen from '../screens/arena/ArenaHistoryScreen';
 import NotificationsScreen from '../screens/notifications/NotificationsScreen';
 import NotificationsSettingsScreen from '../screens/notifications/NotificationsSettingsScreen';
 import TradeHistoryScreen from '../screens/wallet/TradeHistoryScreen';
@@ -83,6 +84,7 @@ export default function AppNavigator() {
           <Stack.Screen name="ArenaSetup" component={ArenaSetupScreen} />
           <Stack.Screen name="ArenaLive" component={ArenaLiveScreen} />
           <Stack.Screen name="ArenaResults" component={ArenaFinalResultsScreen} />
+          <Stack.Screen name="ArenaHistory" component={ArenaHistoryScreen} />
           <Stack.Screen name="Notifications" component={NotificationsScreen} />
           <Stack.Screen name="PaperTradingSetup" component={PaperTradingSetupScreen} />
           <Stack.Screen name="NotificationSettings" component={NotificationsSettingsScreen} />

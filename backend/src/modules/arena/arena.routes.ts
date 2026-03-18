@@ -24,6 +24,28 @@ export async function arenaRoutes(app: FastifyInstance) {
     return { data: bots };
   });
 
+  // GET /history - list user's past arena sessions
+  zApp.get('/history', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const history = await arenaService.getHistory(request.user.userId);
+    return { data: history };
+  });
+
+  // GET /session/active - get user's active running session (if any)
+  zApp.get('/session/active', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const session = await arenaService.getActiveSession(request.user.userId);
+    return { data: session };
+  });
+
   // POST /session - create arena session
   zApp.post('/session', {
     schema: {
