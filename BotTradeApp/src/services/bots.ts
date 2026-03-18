@@ -122,6 +122,7 @@ export const botsService = {
     stopLoss?: number;
     takeProfit?: number;
     maxPosition?: number;
+    creatorFeePercent?: number;
   }) {
     return api.post<{data: any}>('/bots/create', data as Record<string, unknown>);
   },
@@ -136,6 +137,7 @@ export const botsService = {
     stopLoss?: number;
     takeProfit?: number;
     maxPositionSize?: number;
+    creatorFeePercent?: number;
   }) {
     return api.put<{data: any}>(`/bots/${botId}`, data as Record<string, unknown>);
   },

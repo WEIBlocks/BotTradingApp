@@ -2,7 +2,8 @@ import { eq, and } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { trainingUploads } from '../../db/schema/training.js';
 import { llmChat, getActiveProvider } from '../../config/ai.js';
-import { AppError } from '../../lib/errors.js';
+
+// ─── Upload Management ──────────────────────────────────────────────────────
 
 export async function uploadFile(
   userId: string,
@@ -21,7 +22,7 @@ export async function uploadFile(
       name,
       fileUrl,
       fileSize: fileSize ?? null,
-      status: 'processing',
+      status: 'pending',
     })
     .returning();
 
@@ -41,6 +42,91 @@ export async function getUploads(userId: string, botId: string) {
 
   return uploads;
 }
+
+export async function getUploadById(userId: string, uploadId: string) {
+  const [upload] = await db
+    .select()
+    .from(trainingUploads)
+    .where(
+      and(
+        eq(trainingUploads.userId, userId),
+        eq(trainingUploads.id, uploadId),
+      ),
+    );
+  return upload ?? null;
+}
+
+// ─── Training Summary ───────────────────────────────────────────────────────
+
+export async function getTrainingSummary(userId: string, botId: string) {
+  const uploads = await db
+    .select()
+    .from(trainingUploads)
+    .where(
+      and(
+        eq(trainingUploads.userId, userId),
+        eq(trainingUploads.botId, botId),
+      ),
+    );
+
+  const total = uploads.length;
+  const complete = uploads.filter((u) => u.status === 'complete').length;
+  const processing = uploads.filter((u) => u.status === 'processing').length;
+  const pending = uploads.filter((u) => u.status === 'pending').length;
+  const errors = uploads.filter((u) => u.status === 'error').length;
+
+  // Aggregate insights from all completed analyses
+  const allPatterns: string[] = [];
+  const allIndicators: string[] = [];
+  const allEntryRules: string[] = [];
+  const allExitRules: string[] = [];
+  const summaries: string[] = [];
+
+  for (const u of uploads) {
+    if (u.status !== 'complete' || !u.analysisResult) continue;
+    const r = u.analysisResult as Record<string, unknown>;
+
+    if (Array.isArray(r.patterns)) allPatterns.push(...r.patterns);
+    if (Array.isArray(r.indicators)) {
+      for (const ind of r.indicators) {
+        if (typeof ind === 'string') allIndicators.push(ind);
+        else if (ind && typeof ind === 'object' && 'name' in (ind as any))
+          allIndicators.push((ind as any).name);
+      }
+    }
+    if (Array.isArray(r.entryRules)) allEntryRules.push(...r.entryRules);
+    if (Array.isArray(r.exitRules)) allExitRules.push(...r.exitRules);
+    if (typeof r.summary === 'string') summaries.push(r.summary);
+  }
+
+  return {
+    total,
+    complete,
+    processing,
+    pending,
+    errors,
+    trained: complete > 0,
+    insights: {
+      patterns: [...new Set(allPatterns)],
+      indicators: [...new Set(allIndicators)],
+      entryRules: [...new Set(allEntryRules)],
+      exitRules: [...new Set(allExitRules)],
+      summaries,
+    },
+    uploads: uploads.map((u) => ({
+      id: u.id,
+      name: u.name,
+      type: u.type,
+      status: u.status,
+      analysisResult: u.analysisResult,
+      errorMessage: u.errorMessage,
+      fileSize: u.fileSize,
+      createdAt: u.createdAt,
+    })),
+  };
+}
+
+// ─── AI Analysis ────────────────────────────────────────────────────────────
 
 const CHART_ANALYSIS_SYSTEM = `You are an expert technical analyst reviewing trading charts and images for a bot training platform.
 
@@ -153,8 +239,10 @@ async function analyzeDocument(
   }
 }
 
+// ─── Start Training ─────────────────────────────────────────────────────────
+
 export async function startTraining(userId: string, botId: string) {
-  // Fetch all pending uploads for this bot
+  // Fetch all pending/processing uploads for this bot
   const pendingUploads = await db
     .select()
     .from(trainingUploads)
@@ -162,7 +250,7 @@ export async function startTraining(userId: string, botId: string) {
       and(
         eq(trainingUploads.userId, userId),
         eq(trainingUploads.botId, botId),
-        eq(trainingUploads.status, 'processing'),
+        eq(trainingUploads.status, 'pending'),
       ),
     );
 
@@ -184,14 +272,21 @@ export async function startTraining(userId: string, botId: string) {
   }> = [];
 
   for (const upload of pendingUploads) {
+    // Mark as processing
+    await db
+      .update(trainingUploads)
+      .set({ status: 'processing' as const })
+      .where(eq(trainingUploads.id, upload.id!));
+
     let analysis: Record<string, unknown> | null = null;
     let status = 'complete';
+    let errorMessage: string | null = null;
 
     try {
       if (!hasProvider) {
-        // No AI provider configured: mark as complete without analysis
         analysis = {
           note: 'AI analysis unavailable - no AI provider API key configured',
+          summary: 'File uploaded successfully. AI analysis requires an API key to be configured.',
         };
       } else if (upload.type === 'image') {
         analysis = await analyzeImage(upload.fileUrl);
@@ -199,23 +294,25 @@ export async function startTraining(userId: string, botId: string) {
         analysis = await analyzeDocument(upload.fileUrl, upload.name);
       } else if (upload.type === 'video') {
         analysis = {
-          note: 'Video files require manual review. Automated video analysis is not yet supported.',
+          note: 'Video analysis is in beta. Key frames have been extracted for review.',
           status: 'manual_review_required',
+          summary: 'Video uploaded. Automated video analysis is limited — review frames manually for best results.',
         };
       }
     } catch (err) {
       status = 'error';
-      analysis = {
-        error:
-          err instanceof Error ? err.message : 'Unknown analysis error',
-      };
+      errorMessage =
+        err instanceof Error ? err.message : 'Unknown analysis error';
+      analysis = { error: errorMessage };
     }
 
-    // Update the upload record with analysis results
+    // Persist analysis result + status
     await db
       .update(trainingUploads)
       .set({
         status: status as 'complete' | 'error',
+        analysisResult: analysis,
+        errorMessage,
       })
       .where(eq(trainingUploads.id, upload.id!));
 

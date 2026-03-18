@@ -99,6 +99,7 @@ export default function BotBuilderScreen() {
   const [takeProfit, setTakeProfit] = useState('');
   const [maxPosition, setMaxPosition] = useState('');
   const [tradingMode, setTradingMode] = useState<'paper' | 'live'>('paper');
+  const [creatorFee, setCreatorFee] = useState('10');
   const [deploying, setDeploying] = useState(false);
   const [loadingBot, setLoadingBot] = useState(false);
 
@@ -129,6 +130,7 @@ export default function BotBuilderScreen() {
           if (config?.takeProfit) setTakeProfit(String(config.takeProfit));
           if (config?.maxPositionSize) setMaxPosition(String(config.maxPositionSize));
           if (config?.tradingMode) setTradingMode(config.tradingMode);
+          if (bot.creatorFeePercent) setCreatorFee(String(bot.creatorFeePercent));
         }
       })
       .catch(() => Alert.alert('Error', 'Could not load bot data.'))
@@ -179,6 +181,7 @@ export default function BotBuilderScreen() {
     stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
     takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
     maxPosition: maxPosition ? parseFloat(maxPosition) : undefined,
+    creatorFeePercent: creatorFee ? parseFloat(creatorFee) : 10,
   });
 
   const handleDeploy = async () => {
@@ -203,6 +206,7 @@ export default function BotBuilderScreen() {
           stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
           takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
           maxPositionSize: maxPosition ? parseFloat(maxPosition) : undefined,
+          creatorFeePercent: creatorFee ? parseFloat(creatorFee) : 10,
         });
         Alert.alert('Bot Updated!', `${botName} has been updated.`, [
           {text: 'OK', onPress: () => navigation.goBack()},
@@ -267,7 +271,7 @@ export default function BotBuilderScreen() {
           <ActivityIndicator size="large" color="#10B981" />
         </View>
       ) : (
-      <ScrollView
+        <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
@@ -402,6 +406,29 @@ export default function BotBuilderScreen() {
           </View>
         </View>
 
+        {/* Creator Fee */}
+        <Text style={styles.label}>CREATOR FEE (% OF SUBSCRIBER PROFITS)</Text>
+        <View style={styles.feeCard}>
+          <View style={styles.feePresetRow}>
+            {['5', '10', '15', '20'].map(val => (
+              <TouchableOpacity
+                key={val}
+                style={[styles.feePreset, creatorFee === val && styles.feePresetActive]}
+                onPress={() => setCreatorFee(val)}
+                activeOpacity={0.7}>
+                <Text style={[styles.feePresetText, creatorFee === val && styles.feePresetTextActive]}>
+                  {val}%
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View style={styles.feeInfoRow}>
+            <Text style={styles.feeInfoText}>
+              You earn {creatorFee || '10'}% of every profit your subscribers make. Platform takes 2-5%.
+            </Text>
+          </View>
+        </View>
+
         {/* Trading Mode */}
         <Text style={styles.label}>TRADING MODE</Text>
         <View style={styles.modeRow}>
@@ -440,7 +467,7 @@ export default function BotBuilderScreen() {
         <TouchableOpacity
           style={styles.trainBtn}
           activeOpacity={0.7}
-          onPress={() => navigation.navigate('TrainingUpload' as any)}>
+          onPress={() => navigation.navigate('TrainingUpload', editBotId ? {botId: editBotId} : undefined)}>
           <BrainIcon />
           <View style={{flex: 1, marginLeft: 12}}>
             <Text style={styles.trainBtnTitle}>Train with Data</Text>
@@ -635,6 +662,51 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255,255,255,0.4)',
     marginRight: 4,
+  },
+  feeCard: {
+    backgroundColor: '#161B22',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 14,
+    marginBottom: 8,
+  },
+  feePresetRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 10,
+  },
+  feePreset: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  feePresetActive: {
+    backgroundColor: 'rgba(16,185,129,0.15)',
+    borderColor: '#10B981',
+  },
+  feePresetText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  feePresetTextActive: {
+    color: '#10B981',
+  },
+  feeInfoRow: {
+    backgroundColor: 'rgba(16,185,129,0.06)',
+    borderRadius: 10,
+    padding: 10,
+  },
+  feeInfoText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+    lineHeight: 18,
   },
   modeRow: {
     flexDirection: 'row',

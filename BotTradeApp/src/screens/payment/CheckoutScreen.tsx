@@ -1,26 +1,26 @@
 import React, {useState, useEffect} from 'react';
 import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
-import {RootStackParamList, PaymentMethodData} from '../../types';
-import Svg, {Path, Rect, Circle} from 'react-native-svg';
+import {RootStackParamList} from '../../types';
+import Svg, {Path, Circle} from 'react-native-svg';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
-import {paymentsApi} from '../../services/payments';
 import {configApi} from '../../services/config';
 import {subscriptionApi} from '../../services/subscription';
+import {botsService} from '../../services/bots';
+import {useIAP} from '../../context/IAPContext';
+import {SUB_SKUS} from '../../services/iap';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Checkout'>;
 
-const CreditCardSmallIcon = ({size = 20, color = '#10B981'}: {size?: number; color?: string}) => (
+const GooglePlayIcon = ({size = 20}: {size?: number}) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <Rect x="2" y="5" width="20" height="14" rx="3" stroke={color} strokeWidth={1.5} />
-    <Path d="M2 10h20" stroke={color} strokeWidth={1.5} />
-    <Path d="M6 15h4" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+    <Path d="M3 20.5V3.5a1 1 0 011.5-.87l15 8.5a1 1 0 010 1.74l-15 8.5A1 1 0 013 20.5z" stroke="#10B981" strokeWidth={1.5} strokeLinejoin="round" />
   </Svg>
 );
 
 const LockSmallIcon = ({size = 14, color = 'rgba(255,255,255,0.3)'}: {size?: number; color?: string}) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <Rect x="5" y="11" width="14" height="10" rx="2" stroke={color} strokeWidth={1.5} />
+    <Path d="M5 11h14v10H5z" stroke={color} strokeWidth={1.5} />
     <Path d="M8 11V7a4 4 0 018 0v4" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
     <Circle cx="12" cy="16" r="1.5" fill={color} />
   </Svg>
@@ -40,27 +40,31 @@ const ShieldIcon = () => (
 
 export default function CheckoutScreen({navigation, route}: Props) {
   const {type, itemId, amount} = route.params;
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethodData | null>(null);
   const [processing, setProcessing] = useState(false);
-  const [loadingPm, setLoadingPm] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [platformFeeRate, setPlatformFeeRate] = useState(0.07);
   const [proDiscount, setProDiscount] = useState(0);
 
+  const {
+    purchaseSubscription,
+    purchaseBot,
+    subscriptionProducts,
+    isPro,
+    processing: iapProcessing,
+  } = useIAP();
+
   useEffect(() => {
     Promise.all([
-      paymentsApi.getMethods().catch(() => []),
       configApi.getPlatformConfig().catch(() => ({platformFeeRate: 0.07, proDiscountRate: 0.03})),
       subscriptionApi.getCurrent().catch(() => null),
-    ]).then(([methods, config, sub]) => {
-      if (methods.length > 0) setPaymentMethod(methods[0]);
+    ]).then(([config, sub]) => {
       setPlatformFeeRate(config.platformFeeRate ?? 0.07);
-      // Pro subscribers get discount on bot profit fees
-      const isPro = sub?.tier === 'pro' && sub?.status === 'active';
-      if (isPro && type !== 'subscription') {
+      const isProSub = isPro || (sub?.tier === 'pro' && sub?.status === 'active');
+      if (isProSub && type !== 'subscription') {
         setProDiscount(config.proDiscountRate ?? 0.03);
       }
-    }).finally(() => setLoadingPm(false));
-  }, [type]);
+    }).finally(() => setLoading(false));
+  }, [type, isPro]);
 
   const itemName =
     type === 'subscription' ? 'TradingApp Pro Subscription' : `Bot — ${itemId}`;
@@ -70,38 +74,51 @@ export default function CheckoutScreen({navigation, route}: Props) {
   const platformFee = parseFloat((subtotal * effectiveFeeRate).toFixed(2));
   const total = parseFloat((subtotal + platformFee).toFixed(2));
 
-  const handleConfirm = () => {
-    if (!paymentMethod) {
-      Alert.alert('No Payment Method', 'Please add a payment method first.');
-      return;
+  // Get store product info
+  const isSub = type === 'subscription';
+  const monthlySku = SUB_SKUS[0] || 'tradingapp_pro_monthly';
+  const subProduct = subscriptionProducts.find(p => p.productId === monthlySku);
+  const subOfferDetails = subProduct && 'subscriptionOfferDetails' in subProduct
+    ? (subProduct as any).subscriptionOfferDetails : undefined;
+  const storePrice = isSub && subOfferDetails
+    ? subOfferDetails[0]?.pricingPhases?.pricingPhaseList?.[0]?.formattedPrice
+    : null;
+
+  const handleConfirm = async () => {
+    if (processing || iapProcessing) return;
+    setProcessing(true);
+
+    try {
+      if (isSub) {
+        // Subscription via Google Play
+        const offerToken = subOfferDetails?.[0]?.offerToken;
+        const success = await purchaseSubscription(monthlySku, offerToken);
+        if (success) {
+          // Also register on backend
+          await subscriptionApi.subscribe(itemId).catch(() => {});
+          Alert.alert('Subscription Active!', 'Welcome to TradingApp Pro!', [
+            {text: 'OK', onPress: () => navigation.navigate('Main')},
+          ]);
+        }
+      } else {
+        // Bot purchase via Google Play
+        const success = await purchaseBot(itemId, amount);
+        if (success) {
+          // Activate bot on backend
+          await botsService.purchase(itemId, {mode: 'live'});
+          Alert.alert('Purchase Complete!', 'Your bot is now active.', [
+            {text: 'OK', onPress: () => navigation.navigate('Main')},
+          ]);
+        }
+      }
+    } catch (e: any) {
+      Alert.alert('Payment Failed', e?.message || 'Could not process payment.');
+    } finally {
+      setProcessing(false);
     }
-    if (processing) return; // Prevent duplicate taps
-    Alert.alert(
-      'Confirm Payment',
-      `Pay $${total.toFixed(2)} using ${paymentMethod.label}${paymentMethod.last4 ? ` \u2022\u2022\u2022\u2022 ${paymentMethod.last4}` : ''}?`,
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'Pay Now', onPress: async () => {
-          setProcessing(true);
-          try {
-            await paymentsApi.confirmCheckout({
-              paymentMethodId: paymentMethod.id,
-              type,
-              itemId,
-              amount: total,
-            });
-            Alert.alert('Payment Successful!', 'Your payment has been processed.', [
-              {text: 'OK', onPress: () => navigation.navigate('Main')},
-            ]);
-          } catch (e: any) {
-            Alert.alert('Payment Failed', e?.message || 'Could not process payment.');
-          } finally {
-            setProcessing(false);
-          }
-        }},
-      ],
-    );
   };
+
+  const isProcessing = processing || iapProcessing;
 
   return (
     <View style={styles.container}>
@@ -118,35 +135,29 @@ export default function CheckoutScreen({navigation, route}: Props) {
         <Text style={styles.sectionLabel}>ORDER SUMMARY</Text>
         <View style={styles.card}>
           <Text style={styles.itemName}>{itemName}</Text>
-          <Text style={styles.itemPrice}>${amount.toFixed(2)}/mo</Text>
+          <Text style={styles.itemPrice}>
+            {storePrice || `$${amount.toFixed(2)}`}{isSub ? '/mo' : ''}
+          </Text>
         </View>
 
-        {/* Payment Method */}
+        {/* Payment Method — Google Play */}
         <Text style={styles.sectionLabel}>PAYMENT METHOD</Text>
         <View style={styles.card}>
           <View style={styles.paymentRow}>
             <View style={styles.paymentIconWrap}>
-              <CreditCardSmallIcon size={20} color="#10B981" />
+              <GooglePlayIcon size={20} />
             </View>
             <View style={styles.paymentInfo}>
-              {loadingPm ? (
+              {loading ? (
                 <ActivityIndicator size="small" color="#10B981" />
               ) : (
                 <>
-                  <Text style={styles.paymentLabel}>
-                    {paymentMethod ? `${paymentMethod.label}${paymentMethod.last4 ? ` \u2022\u2022\u2022\u2022 ${paymentMethod.last4}` : ''}` : 'No payment method'}
-                  </Text>
-                  <Text style={styles.paymentSub}>
-                    {paymentMethod ? 'Default payment method' : 'Add a payment method to continue'}
-                  </Text>
+                  <Text style={styles.paymentLabel}>Google Play</Text>
+                  <Text style={styles.paymentSub}>Payment managed by Google Play Store</Text>
                 </>
               )}
             </View>
-            <TouchableOpacity
-              onPress={() => navigation.navigate('PaymentMethod')}
-              activeOpacity={0.7}>
-              <Text style={styles.changeLink}>Change</Text>
-            </TouchableOpacity>
+            <ShieldIcon />
           </View>
         </View>
 
@@ -172,8 +183,17 @@ export default function CheckoutScreen({navigation, route}: Props) {
           <View style={styles.divider} />
           <View style={styles.breakdownRow}>
             <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalValue}>${total.toFixed(2)}</Text>
+            <Text style={styles.totalValue}>{storePrice || `$${total.toFixed(2)}`}</Text>
           </View>
+        </View>
+
+        {/* Info */}
+        <View style={styles.infoCard}>
+          <Text style={styles.infoText}>
+            {isSub
+              ? 'Your subscription will auto-renew monthly. You can cancel anytime from Google Play Store > Subscriptions.'
+              : 'One-time purchase processed through Google Play. Refunds handled per Google Play refund policy.'}
+          </Text>
         </View>
       </ScrollView>
 
@@ -181,17 +201,19 @@ export default function CheckoutScreen({navigation, route}: Props) {
       <View style={styles.footer}>
         <View style={styles.secRow}>
           <LockSmallIcon size={13} color="rgba(255,255,255,0.3)" />
-          <Text style={styles.secText}>Secure payment {'\u00B7'} 256-bit encryption</Text>
+          <Text style={styles.secText}>Secured by Google Play • 256-bit encryption</Text>
         </View>
         <TouchableOpacity
-          style={[styles.confirmBtn, processing && {opacity: 0.6}]}
+          style={[styles.confirmBtn, isProcessing && {opacity: 0.6}]}
           activeOpacity={0.85}
           onPress={handleConfirm}
-          disabled={processing}>
-          {processing ? (
+          disabled={isProcessing}>
+          {isProcessing ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
-            <Text style={styles.confirmBtnText}>Confirm Payment</Text>
+            <Text style={styles.confirmBtnText}>
+              {isSub ? `Subscribe — ${storePrice || `$${total.toFixed(2)}/mo`}` : `Pay ${storePrice || `$${total.toFixed(2)}`}`}
+            </Text>
           )}
         </TouchableOpacity>
       </View>
@@ -256,7 +278,6 @@ const styles = StyleSheet.create({
   paymentInfo: {flex: 1},
   paymentLabel: {fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF'},
   paymentSub: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 2},
-  changeLink: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#10B981'},
 
   /* Breakdown */
   breakdownRow: {
@@ -274,6 +295,17 @@ const styles = StyleSheet.create({
   },
   totalLabel: {fontFamily: 'Inter-Bold', fontSize: 16, color: '#FFFFFF'},
   totalValue: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF'},
+
+  /* Info */
+  infoCard: {
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
+  },
+  infoText: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 18},
 
   /* Footer */
   footer: {

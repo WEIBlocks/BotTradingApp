@@ -6,7 +6,36 @@ import Svg, {Path, Rect, Circle} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
 import {portfolioApi, PortfolioSummary, PortfolioAsset, AllocationItem} from '../../services/portfolio';
 import {dashboardApi, ActiveBot as DashActiveBot} from '../../services/dashboard';
+import {botsService} from '../../services/bots';
 import AllocationBar from '../../components/charts/AllocationBar';
+
+// ─── Shadow session type (for cross-referencing status) ─────────────────────
+interface ShadowSessionInfo {
+  id: string;
+  botId: string;
+  status: string;
+}
+
+function resolveBotDisplayStatus(bot: DashActiveBot, shadowSessions: ShadowSessionInfo[]) {
+  if (bot.subStatus !== 'shadow') {
+    const isPaused = bot.subStatus === 'paused';
+    const isLive = bot.subStatus === 'active' && bot.status === 'live';
+    return {
+      label: isPaused ? 'PAUSED' : isLive ? 'LIVE' : 'PAPER',
+      color: isPaused ? '#F97316' : isLive ? '#10B981' : '#F59E0B',
+      icon: isPaused ? 'paused' as const : 'running' as const,
+    };
+  }
+  const sessions = shadowSessions.filter(s => s.botId === bot.id);
+  const running = sessions.find(s => s.status === 'running');
+  const completed = sessions.find(s => s.status === 'completed');
+  const paused = sessions.find(s => s.status === 'paused');
+
+  if (running) return {label: 'SHADOW', color: '#0D7FF2', icon: 'running' as const};
+  if (paused) return {label: 'SHADOW PAUSED', color: '#F97316', icon: 'paused' as const};
+  if (completed) return {label: 'SHADOW DONE', color: '#10B981', icon: 'completed' as const};
+  return {label: 'SHADOW', color: '#0D7FF2', icon: 'idle' as const};
+}
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -78,22 +107,28 @@ export default function PortfolioScreen() {
   const [assets, setAssets] = useState<PortfolioAsset[]>([]);
   const [allocation, setAllocation] = useState<AllocationItem[]>([]);
   const [activeBots, setActiveBots] = useState<DashActiveBot[]>([]);
+  const [shadowSessions, setShadowSessions] = useState<ShadowSessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [assetSearch, setAssetSearch] = useState('');
 
   const fetchData = useCallback(async () => {
     try {
-      const [s, a, alloc, bots] = await Promise.all([
+      const [s, a, alloc, bots, shadowRes] = await Promise.all([
         portfolioApi.getSummary().catch(() => ({totalValue: 0, totalChange24h: 0, totalChangePercent24h: 0}) as PortfolioSummary),
         portfolioApi.getAssets().catch(() => [] as PortfolioAsset[]),
         portfolioApi.getAllocation().catch(() => [] as AllocationItem[]),
         dashboardApi.getActiveBots().catch(() => [] as DashActiveBot[]),
+        botsService.getShadowSessions().then((res: any) => {
+          const items = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+          return items.map((s: any) => ({id: s.id, botId: s.botId, status: s.status})) as ShadowSessionInfo[];
+        }).catch(() => [] as ShadowSessionInfo[]),
       ]);
       setSummary(s);
       setAssets(a);
       setAllocation(alloc);
       setActiveBots(bots);
+      setShadowSessions(shadowRes);
     } catch {
       // Individual fetches have fallbacks; outer catch is a safety net
     } finally {
@@ -293,16 +328,11 @@ export default function PortfolioScreen() {
             {activeBots.map((bot: DashActiveBot) => {
               const returnColor = bot.totalReturn >= 0 ? '#10B981' : '#EF4444';
               const returnSign = bot.totalReturn >= 0 ? '+' : '';
-              const isShadow = bot.subStatus === 'shadow';
-              const isPaused = bot.subStatus === 'paused';
-              const isLive = bot.subStatus === 'active' && bot.status === 'live';
-              const accentColor = isShadow ? '#0D7FF2' : isPaused ? '#F97316' : isLive ? '#10B981' : '#F59E0B';
-              const badgeLabel = isShadow ? 'SHADOW' : isPaused ? 'PAUSED' : isLive ? 'LIVE' : 'PAPER';
-              const badgeColor = isShadow ? '#0D7FF2' : isPaused ? '#F97316' : isLive ? '#10B981' : '#F59E0B';
+              const display = resolveBotDisplayStatus(bot, shadowSessions);
               return (
                 <TouchableOpacity
                   key={bot.id}
-                  style={[styles.botCard, {borderLeftColor: accentColor}]}
+                  style={[styles.botCard, {borderLeftColor: display.color}]}
                   onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
                   activeOpacity={0.7}>
                   <View style={[styles.botAvatar, {backgroundColor: bot.avatarColor}]}>
@@ -311,9 +341,20 @@ export default function PortfolioScreen() {
                   <View style={styles.botInfo}>
                     <View style={styles.botNameRow}>
                       <Text style={styles.botName} numberOfLines={1}>{bot.name}</Text>
-                      <View style={[styles.statusBadge, {backgroundColor: `${badgeColor}20`}]}>
-                        <View style={[styles.statusBadgeDot, {backgroundColor: badgeColor}]} />
-                        <Text style={[styles.statusBadgeText, {color: badgeColor}]}>{badgeLabel}</Text>
+                      <View style={[styles.statusBadge, {backgroundColor: `${display.color}20`}]}>
+                        {display.icon === 'completed' ? (
+                          <Svg width={10} height={10} viewBox="0 0 16 16" fill="none" style={{marginRight: 4}}>
+                            <Path d="M3 8.5L6.5 12L13 4" stroke={display.color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+                          </Svg>
+                        ) : display.icon === 'paused' ? (
+                          <Svg width={10} height={10} viewBox="0 0 16 16" fill="none" style={{marginRight: 4}}>
+                            <Rect x={3} y={3} width={3.5} height={10} rx={1} fill={display.color} />
+                            <Rect x={9.5} y={3} width={3.5} height={10} rx={1} fill={display.color} />
+                          </Svg>
+                        ) : (
+                          <View style={[styles.statusBadgeDot, {backgroundColor: display.color}]} />
+                        )}
+                        <Text style={[styles.statusBadgeText, {color: display.color}]}>{display.label}</Text>
                       </View>
                     </View>
                     <Text style={styles.botPair} numberOfLines={1}>

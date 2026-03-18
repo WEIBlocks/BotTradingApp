@@ -85,7 +85,7 @@ function rankLabel(rank: number): string {
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function ArenaLiveScreen({navigation, route}: Props) {
-  const {gladiatorIds, sessionId: existingSessionId} = route.params;
+  const {gladiatorIds, sessionId: existingSessionId, durationSeconds} = route.params;
   const [session, setSession] = useState<ArenaSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [exitModalVisible, setExitModalVisible] = useState(false);
@@ -104,7 +104,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
         .catch(() => Alert.alert('Error', 'Failed to load arena session.'))
         .finally(() => setLoading(false));
     } else {
-      arenaApi.createSession(gladiatorIds)
+      arenaApi.createSession(gladiatorIds, durationSeconds)
         .then(s => {
           sessionIdRef.current = s.id;
           setSession(s);
@@ -170,8 +170,29 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
 
   const datasets = activeGladiators.map(g => g.equityData || []);
   const progressPct = (session?.progress ?? 0) * 100;
-  const totalDays = Math.ceil((session?.durationSeconds ?? 300) / 86400) || 30;
-  const currentDay = Math.ceil((session?.elapsedSeconds ?? 0) / 86400) || 1;
+  const totalSec = session?.durationSeconds ?? 300;
+  const elapsedSec = session?.elapsedSeconds ?? 0;
+  const remainingSec = session?.remainingSeconds ?? 0;
+
+  // Smart time formatting based on duration
+  const formatTime = (seconds: number): string => {
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) {
+      const m = Math.floor(seconds / 60);
+      const s = seconds % 60;
+      return s > 0 ? `${m}m ${s}s` : `${m}m`;
+    }
+    if (seconds < 86400) {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      return m > 0 ? `${h}h ${m}m` : `${h}h`;
+    }
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    return h > 0 ? `${d}d ${h}h` : `${d}d`;
+  };
+
+  const statusText = `${formatTime(Math.floor(elapsedSec))} / ${formatTime(totalSec)}`;
 
   const ranked = [...activeGladiators].sort((a, b) => (b.currentReturn || 0) - (a.currentReturn || 0));
   const chartWidth = width - 40;
@@ -245,7 +266,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
         <View style={styles.statusSection}>
           <Text style={styles.statusLabel}>STATUS</Text>
           <View style={styles.statusRow}>
-            <Text style={styles.statusTitle}>Simulating: Day {currentDay}/{totalDays}</Text>
+            <Text style={styles.statusTitle}>Simulating: {statusText}</Text>
             {/* LIVE BATTLE pill */}
             <View style={styles.livePill}>
               <View style={styles.liveDot} />
@@ -272,10 +293,9 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
           <ArenaMultilineChart datasets={datasets} width={chartWidth} height={220} />
           {/* X-axis labels */}
           <View style={styles.xAxis}>
-            <Text style={styles.xLabel}>DAY 1</Text>
-            <Text style={styles.xLabel}>DAY 15</Text>
-            <Text style={[styles.xLabel, styles.xLabelNow]}>DAY {currentDay} (NOW)</Text>
-            <Text style={styles.xLabel}>DAY {totalDays}</Text>
+            <Text style={styles.xLabel}>START</Text>
+            <Text style={[styles.xLabel, styles.xLabelNow]}>{formatTime(Math.floor(elapsedSec))} (NOW)</Text>
+            <Text style={styles.xLabel}>{formatTime(totalSec)}</Text>
           </View>
         </View>
 

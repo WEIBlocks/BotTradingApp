@@ -28,7 +28,7 @@ export type RootStackParamList = {
   ShadowMode: undefined;
   ShadowModeResults: {botId: string; profit: number; winRate: number; sessionId?: string};
   ArenaSetup: undefined;
-  ArenaLive: {gladiatorIds: string[]; sessionId?: string};
+  ArenaLive: {gladiatorIds: string[]; sessionId?: string; durationSeconds?: number};
   ArenaResults: {winnerId: string; sessionId?: string};
   ArenaHistory: undefined;
   Notifications: undefined;
@@ -47,7 +47,7 @@ export type RootStackParamList = {
   CreatorStudio: undefined;
   BotBuilder: {fromChat?: boolean; strategyName?: string; editBotId?: string};
   LiveTrades: undefined;
-  TrainingUpload: undefined;
+  TrainingUpload: {botId?: string} | undefined;
   TradingRoom: undefined;
   Settings: undefined;
   HelpSupport: undefined;

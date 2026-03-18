@@ -2,15 +2,19 @@ import {api} from './api';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+/** Backend plan row (from getPlans — returns all columns) */
 interface PlanRow {
   id: string;
   name: string;
-  priceMonthly: string;
-  priceYearly: string | null;
-  features: string[];
   tier: string;
+  price: string;
+  period: string;
+  features: string[];
+  stripePriceId?: string;
+  discountPercent?: string;
 }
 
+/** Backend subscription row (from getCurrentSubscription — flat JOIN result) */
 interface SubRow {
   id: string;
   userId: string;
@@ -18,7 +22,14 @@ interface SubRow {
   status: string;
   currentPeriodStart: string;
   currentPeriodEnd: string;
-  plan: PlanRow;
+  // Joined plan fields (flat, not nested under .plan)
+  planName?: string;
+  planPrice?: string;
+  planPeriod?: string;
+  planFeatures?: string[];
+  tier?: string;
+  // Fallback: nested plan object (some endpoints may wrap it)
+  plan?: PlanRow;
 }
 
 interface DataWrap<T> { data: T }
@@ -50,12 +61,17 @@ export const subscriptionApi = {
   async getPlans(): Promise<SubPlan[]> {
     const res = await api.get<DataWrap<PlanRow[]>>('/subscription/plans', {auth: false});
     const items = Array.isArray(res?.data) ? res.data : [];
+
+    // Group monthly/yearly for the same tier
+    const monthly = items.find(p => p.tier === 'pro' && p.period === 'monthly');
+    const yearly = items.find(p => p.tier === 'pro' && p.period === 'yearly');
+
     return items.map(p => ({
       id: p.id ?? '',
       name: p.name ?? '',
       tier: p.tier ?? 'free',
-      priceMonthly: parseFloat(p.priceMonthly ?? '0') || 0,
-      priceYearly: parseFloat(p.priceYearly ?? '0') || 0,
+      priceMonthly: p.period === 'monthly' ? parseFloat(p.price ?? '0') || 0 : (monthly ? parseFloat(monthly.price) : 0),
+      priceYearly: p.period === 'yearly' ? parseFloat(p.price ?? '0') || 0 : (yearly ? parseFloat(yearly.price) : 0),
       features: Array.isArray(p.features) ? p.features : [],
     }));
   },
@@ -69,8 +85,9 @@ export const subscriptionApi = {
       return {
         id: s.id,
         planId: s.planId,
-        planName: s.plan?.name ?? '',
-        tier: s.plan?.tier ?? 'free',
+        // Support both flat JOIN result and nested plan object
+        planName: s.planName ?? s.plan?.name ?? '',
+        tier: s.tier ?? s.plan?.tier ?? 'free',
         status: s.status ?? 'inactive',
         currentPeriodEnd: s.currentPeriodEnd ?? '',
       };

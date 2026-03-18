@@ -61,6 +61,28 @@ export async function creatorRoutes(app: FastifyInstance) {
     return { data: bot };
   });
 
+  // GET /earnings — full earnings summary with breakdown
+  zApp.get('/earnings', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const earnings = await creatorService.getEarningsSummary(request.user.userId);
+    return { data: earnings };
+  });
+
+  // GET /earnings/projection — projections based on current subscribers
+  zApp.get('/earnings/projection', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const projection = await creatorService.getEarningsProjection(request.user.userId);
+    return { data: projection };
+  });
+
   // GET /ai-suggestions
   zApp.get('/ai-suggestions', {
     schema: {

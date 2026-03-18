@@ -1,10 +1,7 @@
 import { eq, and } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { subscriptionPlans, userSubscriptions } from '../../db/schema/subscriptions.js';
-import { users } from '../../db/schema/users.js';
 import { NotFoundError, ConflictError } from '../../lib/errors.js';
-import { stripe } from '../../config/stripe.js';
-import { isStripeConfigured } from '../../lib/stripe-helpers.js';
 import { sendNotification } from '../../lib/notify.js';
 
 export async function getPlans() {
@@ -22,7 +19,6 @@ export async function getCurrentSubscription(userId: string) {
       id: userSubscriptions.id,
       userId: userSubscriptions.userId,
       planId: userSubscriptions.planId,
-      stripeSubId: userSubscriptions.stripeSubId,
       status: userSubscriptions.status,
       currentPeriodStart: userSubscriptions.currentPeriodStart,
       currentPeriodEnd: userSubscriptions.currentPeriodEnd,
@@ -31,6 +27,7 @@ export async function getCurrentSubscription(userId: string) {
       planPrice: subscriptionPlans.price,
       planPeriod: subscriptionPlans.period,
       planFeatures: subscriptionPlans.features,
+      tier: subscriptionPlans.tier,
     })
     .from(userSubscriptions)
     .innerJoin(subscriptionPlans, eq(userSubscriptions.planId, subscriptionPlans.id))
@@ -43,37 +40,6 @@ export async function getCurrentSubscription(userId: string) {
     .limit(1);
 
   return subscription ?? null;
-}
-
-/**
- * Get or create a Stripe customer for the given user.
- */
-async function getOrCreateStripeCustomer(userId: string): Promise<string> {
-  // Check if we have a Stripe customer ID stored on any existing subscription
-  const [existingSub] = await db
-    .select({ stripeCustId: userSubscriptions.stripeCustId })
-    .from(userSubscriptions)
-    .where(eq(userSubscriptions.userId, userId))
-    .limit(1);
-
-  if (existingSub?.stripeCustId) {
-    return existingSub.stripeCustId;
-  }
-
-  // Fetch user email for Stripe customer creation
-  const [user] = await db
-    .select({ email: users.email, name: users.name })
-    .from(users)
-    .where(eq(users.id, userId))
-    .limit(1);
-
-  const customer = await stripe.customers.create({
-    email: user?.email,
-    name: user?.name,
-    metadata: { userId },
-  });
-
-  return customer.id;
 }
 
 export async function subscribe(userId: string, planId: string) {
@@ -99,48 +65,7 @@ export async function subscribe(userId: string, planId: string) {
     throw new ConflictError('User already has an active subscription');
   }
 
-  if (isStripeConfigured() && plan.stripePriceId) {
-    // Create Stripe subscription
-    const customerId = await getOrCreateStripeCustomer(userId);
-
-    const stripeSub = await stripe.subscriptions.create({
-      customer: customerId,
-      items: [{ price: plan.stripePriceId }],
-      payment_behavior: 'default_incomplete',
-      payment_settings: {
-        save_default_payment_method: 'on_subscription',
-      },
-      expand: ['latest_invoice.payment_intent'],
-      metadata: { userId, planId },
-    });
-
-    const now = new Date();
-    const periodEnd = new Date(stripeSub.current_period_end * 1000);
-
-    const [subscription] = await db
-      .insert(userSubscriptions)
-      .values({
-        userId,
-        planId,
-        stripeSubId: stripeSub.id,
-        stripeCustId: customerId,
-        status: stripeSub.status === 'active' ? 'active' : 'trialing',
-        currentPeriodStart: now,
-        currentPeriodEnd: periodEnd,
-      })
-      .returning();
-
-    // Extract clientSecret from the latest invoice's payment intent
-    const invoice = stripeSub.latest_invoice as any;
-    const paymentIntent = invoice?.payment_intent;
-    const clientSecret = typeof paymentIntent === 'object'
-      ? paymentIntent?.client_secret
-      : null;
-
-    return { ...subscription, clientSecret };
-  }
-
-  // Dev mode: create DB record directly
+  // Create subscription — payment is handled via Google Play IAP on the mobile side
   const now = new Date();
   const periodEnd = new Date(now);
   if (plan.period === 'yearly') {
@@ -186,16 +111,7 @@ export async function cancel(userId: string) {
     throw new NotFoundError('Active subscription');
   }
 
-  // If Stripe is configured and the subscription has a Stripe ID, cancel in Stripe
-  if (isStripeConfigured() && activeSub.stripeSubId) {
-    try {
-      await stripe.subscriptions.cancel(activeSub.stripeSubId);
-    } catch (err) {
-      console.warn('Failed to cancel Stripe subscription:', (err as Error).message);
-    }
-  }
-
-  // Always update DB status
+  // Update DB status — Google Play handles the actual cancellation
   const [updated] = await db
     .update(userSubscriptions)
     .set({ status: 'cancelled', updatedAt: new Date() })

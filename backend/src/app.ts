@@ -1,9 +1,16 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
+import multipart from '@fastify/multipart';
+import fastifyStatic from '@fastify/static';
 import swagger from '@fastify/swagger';
 import swaggerUI from '@fastify/swagger-ui';
 import websocket from '@fastify/websocket';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import {
   serializerCompiler,
   validatorCompiler,
@@ -20,6 +27,7 @@ import { portfolioRoutes } from './modules/portfolio/portfolio.routes.js';
 import { tradesRoutes } from './modules/trades/trades.routes.js';
 import { exchangeRoutes } from './modules/exchange/exchange.routes.js';
 import { paymentsRoutes } from './modules/payments/payments.routes.js';
+import { iapRoutes } from './modules/payments/iap.routes.js';
 import { subscriptionsRoutes } from './modules/subscriptions/subscriptions.routes.js';
 import { notificationsRoutes } from './modules/notifications/notifications.routes.js';
 import { creatorRoutes } from './modules/creator/creator.routes.js';
@@ -27,7 +35,7 @@ import { arenaRoutes } from './modules/arena/arena.routes.js';
 import { trainingRoutes } from './modules/training/training.routes.js';
 import { aiRoutes } from './modules/ai/ai.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
-import { stripeWebhookRoute } from './modules/payments/stripe.webhook.js';
+
 import { wsRoutes } from './modules/ws/ws.routes.js';
 
 export async function buildApp() {
@@ -45,28 +53,23 @@ export async function buildApp() {
   // Error handler
   app.setErrorHandler(errorHandler);
 
-  // Register Stripe webhook BEFORE other body parsing plugins.
-  // Stripe signature verification needs the raw request body.
-  await app.register(async (rawApp) => {
-    rawApp.addContentTypeParser(
-      'application/json',
-      { parseAs: 'buffer' },
-      (_req: any, body: Buffer, done: (err: Error | null, result?: unknown) => void) => {
-        try {
-          _req.rawBody = body;
-          done(null, JSON.parse(body.toString()));
-        } catch (err) {
-          done(err as Error, undefined);
-        }
-      },
-    );
-    await rawApp.register(stripeWebhookRoute);
-  });
 
   // CORS
   await app.register(cors, {
     origin: true,
     credentials: true,
+  });
+
+  // Multipart file uploads (10MB limit)
+  await app.register(multipart, {
+    limits: { fileSize: 10 * 1024 * 1024 },
+  });
+
+  // Serve uploaded files
+  await app.register(fastifyStatic, {
+    root: path.join(__dirname, '..', 'uploads'),
+    prefix: '/uploads/',
+    decorateReply: false,
   });
 
   // Rate limiting
@@ -138,6 +141,7 @@ export async function buildApp() {
   await app.register(tradesRoutes, { prefix: '/trades' });
   await app.register(exchangeRoutes, { prefix: '/exchange' });
   await app.register(paymentsRoutes, { prefix: '/user/payment-methods' });
+  await app.register(iapRoutes, { prefix: '/payments/iap' });
   await app.register(subscriptionsRoutes, { prefix: '/subscription' });
   await app.register(notificationsRoutes, { prefix: '/notifications' });
   await app.register(creatorRoutes, { prefix: '/creator' });

@@ -170,6 +170,50 @@ export async function request<T = unknown>(
 
 // ─── Convenience Methods ─────────────────────────────────────────────────────
 
+export async function uploadFormData<T = unknown>(
+  endpoint: string,
+  formData: FormData,
+): Promise<T> {
+  const token = await storage.getAccessToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  // Do NOT set Content-Type — fetch will set the correct multipart boundary
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 min for uploads
+
+  try {
+    const res = await fetch(`${API_BASE_URL}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new ApiError(
+        res.status,
+        errData.error || errData.message || `Upload failed (${res.status})`,
+        errData.code,
+      );
+    }
+
+    return (await res.json()) as T;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof ApiError) throw err;
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new ApiError(0, 'Upload timed out.', 'TIMEOUT');
+    }
+    throw new ApiError(0, 'Upload failed. Check your connection.', 'NETWORK_ERROR');
+  }
+}
+
 export const api = {
   get<T>(endpoint: string, opts?: Omit<RequestOptions, 'method' | 'body'>) {
     return request<T>(endpoint, {...opts, method: 'GET'});

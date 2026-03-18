@@ -25,6 +25,8 @@ interface CreatorBotRow {
   category: string | null;
   riskLevel: string | null;
   priceMonthly: string | null;
+  creatorFeePercent: string | null;
+  platformFeePercent: string | null;
   status: string;
   isPublished: boolean;
   avatarColor: string | null;
@@ -63,6 +65,8 @@ export interface CreatorBot {
   returnPercent: number;
   revenue: number;
   isPublished: boolean;
+  creatorFeePercent: number;
+  platformFeePercent: number;
 }
 
 export interface MonthlyRevenue {
@@ -76,6 +80,46 @@ export interface AiSuggestion {
   description: string;
   category: string;
   priority: string;
+}
+
+export interface EarningsSummary {
+  totalEarnings: number;
+  totalPlatformFees: number;
+  totalSubscriberProfits: number;
+  pendingPayout: number;
+  activeSubscribers: number;
+  transactionCount: number;
+  botEarnings: BotEarning[];
+  recentEarnings: RecentEarning[];
+}
+
+export interface BotEarning {
+  botId: string;
+  botName: string;
+  totalEarning: number;
+  totalSubscriberProfit: number;
+  transactions: number;
+}
+
+export interface RecentEarning {
+  id: string;
+  botName: string;
+  subscriberProfit: string;
+  creatorFeePercent: string;
+  creatorEarning: string;
+  platformFee: string;
+  status: string;
+  periodStart: string;
+  periodEnd: string;
+  createdAt: string;
+}
+
+export interface EarningsProjection {
+  botId: string;
+  botName: string;
+  creatorFeePercent: number;
+  platformFeePercent: number;
+  activeUsers: number;
 }
 
 // ─── Service ────────────────────────────────────────────────────────────────
@@ -114,7 +158,28 @@ export const creatorApi = {
       returnPercent: parseFloat(b.return30d ?? '0') || 0,
       revenue: parseFloat(b.priceMonthly ?? '0') * (Number(b.activeUsers) || 0),
       isPublished: b.isPublished ?? false,
+      creatorFeePercent: parseFloat(b.creatorFeePercent ?? '10'),
+      platformFeePercent: parseFloat(b.platformFeePercent ?? '3'),
     }));
+  },
+
+  async getEarnings(): Promise<EarningsSummary> {
+    const res = await api.get<DataWrap<EarningsSummary>>('/creator/earnings');
+    return res?.data ?? {
+      totalEarnings: 0,
+      totalPlatformFees: 0,
+      totalSubscriberProfits: 0,
+      pendingPayout: 0,
+      activeSubscribers: 0,
+      transactionCount: 0,
+      botEarnings: [],
+      recentEarnings: [],
+    };
+  },
+
+  async getEarningsProjection(): Promise<EarningsProjection[]> {
+    const res = await api.get<DataWrap<EarningsProjection[]>>('/creator/earnings/projection');
+    return Array.isArray(res?.data) ? res.data : [];
   },
 
   async getAiSuggestions(): Promise<AiSuggestion[]> {

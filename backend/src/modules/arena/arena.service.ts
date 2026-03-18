@@ -2,7 +2,7 @@ import { eq, and, desc } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { arenaSessions, arenaGladiators } from '../../db/schema/arena.js';
 import { bots, botStatistics } from '../../db/schema/bots.js';
-import { NotFoundError } from '../../lib/errors.js';
+import { NotFoundError, ConflictError } from '../../lib/errors.js';
 
 export async function getAvailableBots() {
   const rows = await db
@@ -31,6 +31,22 @@ export async function createSession(
   botIds: string[],
   durationSeconds: number = 180,
 ) {
+  // Prevent duplicate running arena sessions
+  const [existingSession] = await db
+    .select()
+    .from(arenaSessions)
+    .where(
+      and(
+        eq(arenaSessions.userId, userId),
+        eq(arenaSessions.status, 'running'),
+      ),
+    )
+    .limit(1);
+
+  if (existingSession) {
+    throw new ConflictError('You already have an active arena session running');
+  }
+
   // Validate that all bots exist
   for (const botId of botIds) {
     const [bot] = await db.select().from(bots).where(eq(bots.id, botId));

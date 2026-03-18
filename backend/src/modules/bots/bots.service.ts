@@ -30,6 +30,7 @@ interface CreateBotData {
   takeProfit?: number;
   maxPositionSize?: number;
   tradingMode?: string;
+  creatorFeePercent?: number;
 }
 
 export async function createBot(userId: string, data: CreateBotData) {
@@ -49,6 +50,7 @@ export async function createBot(userId: string, data: CreateBotData) {
       strategy: data.strategy,
       category: data.category as any,
       riskLevel: data.risk_level as any,
+      creatorFeePercent: data.creatorFeePercent !== undefined ? String(data.creatorFeePercent) : '10',
       config,
       status: 'draft',
       isPublished: false,
@@ -70,6 +72,7 @@ interface UpdateBotData {
   stopLoss?: number;
   takeProfit?: number;
   maxPositionSize?: number;
+  creatorFeePercent?: number;
 }
 
 export async function updateBot(userId: string, botId: string, data: UpdateBotData) {
@@ -89,6 +92,7 @@ export async function updateBot(userId: string, botId: string, data: UpdateBotDa
   if (data.strategy !== undefined) updates.strategy = data.strategy;
   if (data.category !== undefined) updates.category = data.category;
   if (data.risk_level !== undefined) updates.riskLevel = data.risk_level;
+  if (data.creatorFeePercent !== undefined) updates.creatorFeePercent = String(data.creatorFeePercent);
 
   // Merge config fields
   const existingConfig = (existing.config as Record<string, any>) ?? {};
@@ -196,9 +200,8 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
       )
     );
 
-  if (existing && (existing.status === 'active' || existing.status === 'shadow')) {
-    // Already subscribed — return existing subscription instead of erroring
-    return existing;
+  if (existing && existing.status === 'active') {
+    throw new ConflictError('This bot is already active');
   }
 
   const [subscription] = await db
@@ -249,6 +252,23 @@ export async function startShadowMode(
   const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
   if (!bot) {
     throw new NotFoundError('Bot');
+  }
+
+  // Prevent duplicate running shadow sessions for the same bot
+  const [existingShadow] = await db
+    .select()
+    .from(shadowSessions)
+    .where(
+      and(
+        eq(shadowSessions.userId, userId),
+        eq(shadowSessions.botId, botId),
+        eq(shadowSessions.status, 'running'),
+      ),
+    )
+    .limit(1);
+
+  if (existingShadow) {
+    throw new ConflictError('A shadow session is already running for this bot');
   }
 
   // Calculate endsAt from either minutes or days

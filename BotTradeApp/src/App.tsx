@@ -5,6 +5,7 @@ import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {AuthProvider} from './context/AuthContext';
 import {ToastProvider} from './context/ToastContext';
 import {NetworkProvider} from './context/NetworkContext';
+import {IAPProvider} from './context/IAPContext';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import AppNavigator from './navigation/AppNavigator';
 
@@ -14,12 +15,14 @@ export default function App() {
       <ErrorBoundary>
         <NetworkProvider>
           <AuthProvider>
-            <ToastProvider>
-              <NavigationContainer>
-                <StatusBar barStyle="light-content" backgroundColor="#0F1117" />
-                <AppNavigator />
-              </NavigationContainer>
-            </ToastProvider>
+            <IAPProvider>
+              <ToastProvider>
+                <NavigationContainer>
+                  <StatusBar barStyle="light-content" backgroundColor="#0F1117" />
+                  <AppNavigator />
+                </NavigationContainer>
+              </ToastProvider>
+            </IAPProvider>
           </AuthProvider>
         </NetworkProvider>
       </ErrorBoundary>

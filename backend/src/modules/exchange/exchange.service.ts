@@ -3,7 +3,7 @@ import { eq, and } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { exchangeConnections, exchangeAssets } from '../../db/schema/exchanges.js';
 import { encrypt, decrypt } from '../../lib/encryption.js';
-import { NotFoundError, AppError } from '../../lib/errors.js';
+import { NotFoundError, AppError, ConflictError } from '../../lib/errors.js';
 import { createAdapter } from './adapters/adapter.factory.js';
 import { sendNotification } from '../../lib/notify.js';
 import { env } from '../../config/env.js';
@@ -46,6 +46,23 @@ export async function connectWithApiKey(
   apiSecret: string,
   sandbox = false,
 ) {
+  // Check for existing connected exchange of the same provider
+  const [existingConn] = await db
+    .select()
+    .from(exchangeConnections)
+    .where(
+      and(
+        eq(exchangeConnections.userId, userId),
+        eq(exchangeConnections.provider, provider),
+        eq(exchangeConnections.status, 'connected'),
+      ),
+    )
+    .limit(1);
+
+  if (existingConn) {
+    throw new ConflictError(`${provider} is already connected. Disconnect it first to reconnect with new credentials.`);
+  }
+
   // Use adapter to test connection with the real exchange
   let adapter;
   try {
@@ -372,6 +389,23 @@ export async function handleOAuthCallback(
   code: string,
   userId: string,
 ) {
+  // Check for existing connected exchange of the same provider
+  const [existingConn] = await db
+    .select()
+    .from(exchangeConnections)
+    .where(
+      and(
+        eq(exchangeConnections.userId, userId),
+        eq(exchangeConnections.provider, provider),
+        eq(exchangeConnections.status, 'connected'),
+      ),
+    )
+    .limit(1);
+
+  if (existingConn) {
+    throw new ConflictError(`${provider} is already connected. Disconnect it first to reconnect.`);
+  }
+
   const config = getOAuthConfig(provider);
 
   // Exchange authorization code for access token

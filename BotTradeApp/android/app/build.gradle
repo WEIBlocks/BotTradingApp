@@ -18,6 +18,7 @@ android {
         targetSdk rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        missingDimensionStrategy 'store', 'play'
     }
 
     signingConfigs {

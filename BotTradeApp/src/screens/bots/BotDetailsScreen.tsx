@@ -21,7 +21,7 @@ const CHART_W = width - 40;
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BotDetails'>;
 
-type BotUserStatus = 'none' | 'shadow' | 'active' | 'paused' | 'stopped';
+type BotUserStatus = 'none' | 'shadow_running' | 'shadow_completed' | 'shadow_paused' | 'active' | 'paused' | 'stopped';
 
 interface UserBotState {
   status: BotUserStatus;
@@ -72,17 +72,32 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
       // Check active subscription
       const sub = activeBots.find((s: any) => s.botId === botId);
-      // Check shadow sessions (running ones first)
-      const shadow = shadowSessions.find(
+      // Check shadow sessions — find the most relevant one
+      const shadowRunning = shadowSessions.find(
         (s: any) => s.botId === botId && s.status === 'running',
+      );
+      const shadowCompleted = shadowSessions.find(
+        (s: any) => s.botId === botId && s.status === 'completed',
+      );
+      const shadowPaused = shadowSessions.find(
+        (s: any) => s.botId === botId && s.status === 'paused',
       );
 
       if (sub && (sub.subscriptionStatus === 'active' || sub.status === 'active')) {
         setUserBotState({status: 'active', subscriptionId: sub.subscriptionId || sub.id, mode: sub.subscriptionMode || sub.mode});
       } else if (sub && (sub.subscriptionStatus === 'paused' || sub.status === 'paused')) {
         setUserBotState({status: 'paused', subscriptionId: sub.subscriptionId || sub.id});
-      } else if (sub && (sub.subscriptionStatus === 'shadow' || sub.status === 'shadow') || shadow) {
-        setUserBotState({status: 'shadow', subscriptionId: sub?.subscriptionId || sub?.id, shadowSessionId: shadow?.id});
+      } else if (sub && (sub.subscriptionStatus === 'shadow' || sub.status === 'shadow') || shadowRunning || shadowCompleted || shadowPaused) {
+        // Determine shadow sub-status
+        if (shadowRunning) {
+          setUserBotState({status: 'shadow_running', subscriptionId: sub?.subscriptionId || sub?.id, shadowSessionId: shadowRunning.id});
+        } else if (shadowPaused) {
+          setUserBotState({status: 'shadow_paused', subscriptionId: sub?.subscriptionId || sub?.id, shadowSessionId: shadowPaused.id});
+        } else if (shadowCompleted) {
+          setUserBotState({status: 'shadow_completed', subscriptionId: sub?.subscriptionId || sub?.id, shadowSessionId: shadowCompleted.id});
+        } else {
+          setUserBotState({status: 'shadow_running', subscriptionId: sub?.subscriptionId || sub?.id});
+        }
       } else if (sub && (sub.subscriptionStatus === 'stopped' || sub.status === 'stopped')) {
         setUserBotState({status: 'stopped', subscriptionId: sub.subscriptionId || sub.id});
       } else {
@@ -102,11 +117,19 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
   const handleStartShadow = useCallback(() => {
     if (!bot) return;
+    if (userBotState.status === 'shadow_running') {
+      Alert.alert('Shadow Mode Active', 'This bot already has a shadow session running. View or stop the current session first.');
+      return;
+    }
+    if (userBotState.status === 'active') {
+      Alert.alert('Bot Already Active', 'This bot is already live trading. Stop it first to start shadow mode.');
+      return;
+    }
     setSelectedDurationIdx(null);
     setCustomDays('');
     setVirtualBalance('10000');
     setShadowModalVisible(true);
-  }, [bot]);
+  }, [bot, userBotState.status]);
 
   const handleConfirmShadow = useCallback(() => {
     if (!bot) return;
@@ -150,8 +173,12 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
   const handleActivate = useCallback(() => {
     if (!bot) return;
+    if (userBotState.status === 'active') {
+      Alert.alert('Already Active', 'This bot is already active and trading.');
+      return;
+    }
     navigation.navigate('BotPurchase', {botId: bot.id});
-  }, [navigation, bot]);
+  }, [navigation, bot, userBotState.status]);
 
   const handleViewShadow = useCallback(() => {
     navigation.navigate('ShadowMode');
@@ -266,7 +293,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
           <View style={styles.badgesRow}>
             {isCreator && <Badge label="YOUR BOT" variant="purple" size="sm" />}
             {userBotState.status === 'active' && <Badge label="LIVE" variant="green" size="sm" dot />}
-            {userBotState.status === 'shadow' && <Badge label="SHADOW RUNNING" variant="blue" size="sm" dot />}
+            {userBotState.status === 'shadow_running' && <Badge label="SHADOW RUNNING" variant="blue" size="sm" dot />}
+            {userBotState.status === 'shadow_paused' && <Badge label="SHADOW PAUSED" variant="orange" size="sm" />}
+            {userBotState.status === 'shadow_completed' && <Badge label="SHADOW COMPLETE" variant="green" size="sm" />}
             {userBotState.status === 'paused' && <Badge label="PAUSED" variant="orange" size="sm" />}
           </View>
 
@@ -541,8 +570,8 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </Text>
             </TouchableOpacity>
           </>
-        ) : userBotState.status === 'shadow' ? (
-          /* Shadow mode running — show status + view */
+        ) : userBotState.status === 'shadow_running' ? (
+          /* Shadow mode running */
           <>
             <View style={styles.statusCard}>
               <View style={styles.statusDot} />
@@ -558,6 +587,41 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               <Text style={styles.goLiveSmallText}>Go Live</Text>
             </TouchableOpacity>
           </>
+        ) : userBotState.status === 'shadow_paused' ? (
+          /* Shadow mode paused */
+          <>
+            <View style={styles.statusCard}>
+              <View style={[styles.statusDot, {backgroundColor: '#F97316'}]} />
+              <View style={styles.statusTextCol}>
+                <Text style={styles.statusTitle}>Shadow Mode Paused</Text>
+                <Text style={styles.statusSub}>Virtual trades paused</Text>
+              </View>
+            </View>
+            <TouchableOpacity style={styles.viewShadowBtn} onPress={handleViewShadow} activeOpacity={0.8}>
+              <Text style={styles.viewShadowText}>View</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.goLiveSmallBtn} onPress={handleActivate} activeOpacity={0.85}>
+              <Text style={styles.goLiveSmallText}>Go Live</Text>
+            </TouchableOpacity>
+          </>
+        ) : userBotState.status === 'shadow_completed' ? (
+          /* Shadow mode completed — two-row layout */
+          <View style={styles.shadowCompleteFooter}>
+            <View style={styles.shadowCompleteBanner}>
+              <View style={styles.shadowCompleteCheck}>
+                <Text style={{fontSize: 14}}>✓</Text>
+              </View>
+              <Text style={styles.shadowCompleteText}>Shadow Mode Complete</Text>
+            </View>
+            <View style={styles.shadowCompleteBtns}>
+              <TouchableOpacity style={styles.shadowCompleteResultsBtn} onPress={handleViewShadow} activeOpacity={0.8}>
+                <Text style={styles.shadowCompleteResultsText}>View Results</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.shadowCompleteGoLiveBtn} onPress={handleActivate} activeOpacity={0.85}>
+                <Text style={styles.shadowCompleteGoLiveText}>Go Live</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         ) : userBotState.status === 'active' ? (
           /* Bot is live — show status + pause/stop */
           <>
@@ -758,6 +822,40 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#10B981',
   },
   resumeBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
+
+  // Shadow completed footer — vertical layout
+  shadowCompleteFooter: {
+    flex: 1, flexDirection: 'column', gap: 10,
+  },
+  shadowCompleteBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: 10,
+    paddingVertical: 8, paddingHorizontal: 12,
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.2)',
+  },
+  shadowCompleteCheck: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: '#10B981',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  shadowCompleteText: {
+    fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#10B981',
+  },
+  shadowCompleteBtns: {
+    flexDirection: 'row', gap: 10,
+  },
+  shadowCompleteResultsBtn: {
+    flex: 1, height: 48, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(13,127,242,0.12)', borderWidth: 1, borderColor: 'rgba(13,127,242,0.3)',
+  },
+  shadowCompleteResultsText: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#0D7FF2'},
+  shadowCompleteGoLiveBtn: {
+    flex: 1, height: 48, borderRadius: 12,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#10B981',
+  },
+  shadowCompleteGoLiveText: {fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'},
 });
 
 const modalStyles = StyleSheet.create({

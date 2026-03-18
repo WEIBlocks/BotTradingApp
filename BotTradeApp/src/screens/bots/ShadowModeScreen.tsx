@@ -4,6 +4,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
 import {RootStackParamList} from '../../types';
 import {botsService} from '../../services/bots';
+import Svg, {Path, Rect as SvgRect} from 'react-native-svg';
 import MiniLineChart from '../../components/charts/MiniLineChart';
 import Badge from '../../components/common/Badge';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
@@ -182,14 +183,24 @@ export default function ShadowModeScreen({navigation}: Props) {
         {sessions.map(session => {
           const initial = parseFloat(session.virtualBalance) || 10000;
           const current = parseFloat(session.currentBalance) || initial;
-          const daysElapsed = Math.max(0, Math.floor((Date.now() - new Date(session.startedAt).getTime()) / 86400000));
-          const days = Math.min(daysElapsed, session.durationDays);
+          const elapsedMs = Math.max(0, Date.now() - new Date(session.startedAt).getTime());
           const totalDays = session.durationDays;
-          const progress = totalDays > 0 ? Math.min(days / totalDays, 1) : 0;
-          const isComplete = session.status === 'completed' || (session.status === 'running' && days >= totalDays);
+          // For short durations (< 1 day), use minute-based tracking
+          const totalMinutes = totalDays < 1 ? Math.round(totalDays * 1440) : 0;
+          const isMinuteBased = totalMinutes > 0;
+          const elapsedMinutes = isMinuteBased ? Math.floor(elapsedMs / 60000) : 0;
+          const daysElapsed = isMinuteBased ? 0 : Math.floor(elapsedMs / 86400000);
+          const days = isMinuteBased ? 0 : Math.min(daysElapsed, totalDays);
+          const progress = isMinuteBased
+            ? (totalMinutes > 0 ? Math.min(elapsedMinutes / totalMinutes, 1) : 0)
+            : (totalDays > 0 ? Math.min(days / totalDays, 1) : 0);
+          const isComplete = session.status === 'completed' || (session.status === 'running' && progress >= 1);
           const isRunning = session.status === 'running' && !isComplete;
           const isPaused = session.status === 'paused';
           const isCancelled = session.status === 'cancelled';
+          const progressLabel = isMinuteBased
+            ? `${Math.min(elapsedMinutes, totalMinutes)}/${totalMinutes}m`
+            : `${days}/${totalDays}d`;
 
           const totalReturnPct = parseFloat(session.totalReturn) || ((current - initial) / initial) * 100;
           const profit = current - initial;
@@ -236,12 +247,23 @@ export default function ShadowModeScreen({navigation}: Props) {
                 <View style={styles.shadowInfo}>
                   <Text style={styles.shadowBotName}>{session.botName || 'Unknown Bot'}</Text>
                   <View style={styles.badgeRow}>
+                    {isComplete && (
+                      <Svg width={14} height={14} viewBox="0 0 16 16" fill="none" style={{marginRight: 4}}>
+                        <Path d="M3 8.5L6.5 12L13 4" stroke="#10B981" strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+                      </Svg>
+                    )}
+                    {isRunning && <View style={styles.pulseDot} />}
+                    {isPaused && (
+                      <Svg width={12} height={12} viewBox="0 0 16 16" fill="none" style={{marginRight: 4}}>
+                        <SvgRect x={3} y={3} width={3.5} height={10} rx={1} fill="#F97316" />
+                        <SvgRect x={9.5} y={3} width={3.5} height={10} rx={1} fill="#F97316" />
+                      </Svg>
+                    )}
                     <Badge
-                      label={isComplete ? 'COMPLETE' : isRunning ? `DAY ${days}/${totalDays}` : isPaused ? 'PAUSED' : isCancelled ? 'STOPPED' : session.status.toUpperCase()}
+                      label={isComplete ? 'COMPLETE' : isRunning ? (isMinuteBased ? `${Math.min(elapsedMinutes, totalMinutes)}/${totalMinutes}m` : `DAY ${days}/${totalDays}`) : isPaused ? 'PAUSED' : isCancelled ? 'STOPPED' : session.status.toUpperCase()}
                       variant={isComplete ? 'green' : isRunning ? 'blue' : isPaused ? 'orange' : 'outline'}
                       size="sm"
                     />
-                    {isRunning && <View style={styles.pulseDot} />}
                   </View>
                 </View>
                 <MiniLineChart data={chartData} width={70} height={36} color={chartColor} />
@@ -283,7 +305,7 @@ export default function ShadowModeScreen({navigation}: Props) {
                 <View style={styles.progressBar}>
                   <View style={[styles.progressFill, {width: `${progress * 100}%` as any}]} />
                 </View>
-                <Text style={styles.progressText}>{days}/{totalDays}d</Text>
+                <Text style={styles.progressText}>{progressLabel}</Text>
               </View>
 
               {isComplete && (

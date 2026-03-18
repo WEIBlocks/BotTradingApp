@@ -580,6 +580,7 @@ async function seed() {
   const planDefs = [
     {
       name: "Free",
+      tier: "free" as const,
       price: "0.00",
       period: "monthly" as const,
       features: [
@@ -592,9 +593,10 @@ async function seed() {
     },
     {
       name: "Pro Monthly",
+      tier: "pro" as const,
       price: "29.99",
       period: "monthly" as const,
-      stripePriceId: "price_pro_monthly_placeholder",
+      stripePriceId: "tradingapp_pro_monthly",
       features: [
         "Unlimited bots",
         "Live & paper trading",
@@ -607,9 +609,10 @@ async function seed() {
     },
     {
       name: "Pro Yearly",
+      tier: "pro" as const,
       price: "249.99",
       period: "yearly" as const,
-      stripePriceId: "price_pro_yearly_placeholder",
+      stripePriceId: "tradingapp_pro_yearly",
       features: [
         "Unlimited bots",
         "Live & paper trading",

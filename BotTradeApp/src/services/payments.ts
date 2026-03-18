@@ -62,7 +62,7 @@ export const paymentsApi = {
     }));
   },
 
-  /** Confirm checkout / payment. */
+  /** Confirm checkout (legacy — used as fallback). */
   async confirmCheckout(data: {paymentMethodId: string; type: string; itemId?: string; amount: number}) {
     return api.post('/user/payment-methods/checkout/confirm', data as Record<string, unknown>);
   },

@@ -134,6 +134,31 @@
         }
       }
     },
+    "react-native-document-picker": {
+      "root": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\react-native-document-picker",
+      "name": "react-native-document-picker",
+      "platforms": {
+        "ios": {
+          "podspecPath": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\react-native-document-picker\\react-native-document-picker.podspec",
+          "version": "9.3.1",
+          "configurations": [],
+          "scriptPhases": []
+        },
+        "android": {
+          "sourceDir": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\react-native-document-picker\\android",
+          "packageImportPath": "import com.reactnativedocumentpicker.RNDocumentPickerPackage;",
+          "packageInstance": "new RNDocumentPickerPackage()",
+          "buildTypes": [],
+          "libraryName": "rndocumentpicker",
+          "componentDescriptors": [],
+          "cmakeListsPath": "D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-document-picker/android/build/generated/source/codegen/jni/CMakeLists.txt",
+          "cxxModuleCMakeListsModuleName": null,
+          "cxxModuleCMakeListsPath": null,
+          "cxxModuleHeaderName": null,
+          "isPureCxxDependency": false
+        }
+      }
+    },
     "react-native-gesture-handler": {
       "root": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\react-native-gesture-handler",
       "name": "react-native-gesture-handler",
@@ -180,6 +205,31 @@
           "libraryName": "RNHapticFeedbackSpec",
           "componentDescriptors": [],
           "cmakeListsPath": "D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-haptic-feedback/android/build/generated/source/codegen/jni/CMakeLists.txt",
+          "cxxModuleCMakeListsModuleName": null,
+          "cxxModuleCMakeListsPath": null,
+          "cxxModuleHeaderName": null,
+          "isPureCxxDependency": false
+        }
+      }
+    },
+    "react-native-iap": {
+      "root": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\react-native-iap",
+      "name": "react-native-iap",
+      "platforms": {
+        "ios": {
+          "podspecPath": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\react-native-iap\\RNIap.podspec",
+          "version": "12.15.5",
+          "configurations": [],
+          "scriptPhases": []
+        },
+        "android": {
+          "sourceDir": "D:\\Weiblocks\\Bot_App\\BotTradeApp\\node_modules\\react-native-iap\\android",
+          "packageImportPath": "import com.dooboolab.rniap.RNIapPackage;",
+          "packageInstance": "new RNIapPackage()",
+          "buildTypes": [],
+          "libraryName": "RNIap",
+          "componentDescriptors": [],
+          "cmakeListsPath": "D:/Weiblocks/Bot_App/BotTradeApp/node_modules/react-native-iap/android/build/generated/source/codegen/jni/CMakeLists.txt",
           "cxxModuleCMakeListsModuleName": null,
           "cxxModuleCMakeListsPath": null,
           "cxxModuleHeaderName": null,

@@ -7,6 +7,7 @@ import {
   integer,
   numeric,
   timestamp,
+  jsonb,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { users } from "./users";
@@ -19,6 +20,7 @@ export const uploadTypeEnum = pgEnum("upload_type", [
 ]);
 
 export const uploadStatusEnum = pgEnum("upload_status", [
+  "pending",
   "processing",
   "complete",
   "error",
@@ -44,7 +46,9 @@ export const trainingUploads = pgTable("training_uploads", {
   name: varchar("name", { length: 255 }).notNull(),
   fileUrl: text("file_url").notNull(),
   fileSize: integer("file_size"),
-  status: uploadStatusEnum("status").default("processing"),
+  status: uploadStatusEnum("status").default("pending"),
+  analysisResult: jsonb("analysis_result"),
+  errorMessage: text("error_message"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

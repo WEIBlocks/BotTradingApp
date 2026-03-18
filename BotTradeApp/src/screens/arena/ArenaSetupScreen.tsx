@@ -9,6 +9,17 @@ import {arenaApi, ArenaSession} from '../../services/arena';
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 const MAX_GLADIATORS = 5;
 
+// Duration presets
+const DURATION_OPTIONS = [
+  {label: '1 Min',   seconds: 60},
+  {label: '5 Min',   seconds: 300},
+  {label: '15 Min',  seconds: 900},
+  {label: '1 Hour',  seconds: 3600},
+  {label: '1 Day',   seconds: 86400},
+  {label: '7 Days',  seconds: 604800},
+  {label: '30 Days', seconds: 2592000},
+];
+
 // ─── Icons ─────────────────────────────────────────────────────────────────────
 
 function BackArrow() {
@@ -116,6 +127,7 @@ export default function ArenaSetupScreen() {
   const [gladiators, setGladiators] = useState<Gladiator[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSession, setActiveSession] = useState<ArenaSession | null>(null);
+  const [selectedDuration, setSelectedDuration] = useState(DURATION_OPTIONS[1]); // default 5 min
 
   useEffect(() => {
     Promise.all([
@@ -144,16 +156,27 @@ export default function ArenaSetupScreen() {
   }, [selectedCount]);
 
   const handleEnterArena = useCallback(() => {
+    if (activeSession && activeSession.status === 'running') {
+      Alert.alert(
+        'Battle In Progress',
+        'You already have an active arena battle running. Watch it or wait for it to finish before starting a new one.',
+        [
+          {text: 'OK'},
+          {text: 'Watch Live', onPress: () => navigation.navigate('ArenaLive', {gladiatorIds: [], sessionId: activeSession.id})},
+        ],
+      );
+      return;
+    }
     const ids = gladiators.filter(g => g.selected).map(g => g.id);
     Alert.alert(
       'Enter Arena',
       `Start a battle with ${ids.length} bots? This will begin a live trading competition.`,
       [
         {text: 'Cancel', style: 'cancel'},
-        {text: 'Enter Arena', onPress: () => navigation.navigate('ArenaLive', {gladiatorIds: ids})},
+        {text: 'Enter Arena', onPress: () => navigation.navigate('ArenaLive', {gladiatorIds: ids, durationSeconds: selectedDuration.seconds})},
       ],
     );
-  }, [gladiators, navigation]);
+  }, [gladiators, navigation, activeSession, selectedDuration]);
 
   return (
     <View style={styles.container}>
@@ -199,6 +222,33 @@ export default function ArenaSetupScreen() {
             </View>
           </TouchableOpacity>
         )}
+
+        {/* Duration picker */}
+        <Text style={styles.sectionLabel}>BATTLE DURATION</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.durationScroll}
+          contentContainerStyle={styles.durationScrollContent}>
+          {DURATION_OPTIONS.map(opt => (
+            <TouchableOpacity
+              key={opt.seconds}
+              style={[
+                styles.durationChip,
+                selectedDuration.seconds === opt.seconds && styles.durationChipActive,
+              ]}
+              onPress={() => setSelectedDuration(opt)}
+              activeOpacity={0.7}>
+              <Text
+                style={[
+                  styles.durationChipText,
+                  selectedDuration.seconds === opt.seconds && styles.durationChipTextActive,
+                ]}>
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
         {loading ? (
           <ActivityIndicator size="large" color="#10B981" style={{marginTop: 40}} />
@@ -392,4 +442,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 6,
   },
   activeBattleViewText: {fontFamily: 'Inter-Bold', fontSize: 10, color: '#0A0E14', letterSpacing: 0.5},
+
+  // Duration picker
+  sectionLabel: {
+    fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1.2,
+    color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase' as const,
+    marginBottom: 10, marginTop: 4,
+  },
+  durationScroll: {marginBottom: 20},
+  durationScrollContent: {gap: 8},
+  durationChip: {
+    paddingHorizontal: 16, paddingVertical: 10,
+    borderRadius: 12, borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: '#111820',
+  },
+  durationChipActive: {
+    borderColor: '#10B981',
+    backgroundColor: 'rgba(16,185,129,0.12)',
+  },
+  durationChipText: {
+    fontFamily: 'Inter-SemiBold', fontSize: 13,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  durationChipTextActive: {
+    color: '#10B981',
+  },
 });

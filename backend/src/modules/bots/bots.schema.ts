@@ -14,6 +14,7 @@ export const createBotBodySchema = z.object({
   takeProfit: z.number().optional(),
   maxPositionSize: z.number().optional(),
   tradingMode: z.string().optional(),
+  creatorFeePercent: z.number().min(0).max(50).optional(),
 });
 
 export const updateBotBodySchema = z.object({
@@ -25,6 +26,7 @@ export const updateBotBodySchema = z.object({
   stopLoss: z.number().optional(),
   takeProfit: z.number().optional(),
   maxPositionSize: z.number().optional(),
+  creatorFeePercent: z.number().min(0).max(50).optional(),
 });
 
 export const purchaseBotBodySchema = z.object({

@@ -10,8 +10,16 @@ import {configApi} from '../../services/config';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import CheckCircleIcon from '../../components/icons/CheckCircleIcon';
 import LockIcon from '../../components/icons/LockIcon';
+import {useIAP} from '../../context/IAPContext';
+import Svg, {Path} from 'react-native-svg';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BotPurchase'>;
+
+const GooglePlayIcon = ({size = 16}: {size?: number}) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M3 20.5V3.5a1 1 0 011.5-.87l15 8.5a1 1 0 010 1.74l-15 8.5A1 1 0 013 20.5z" stroke="rgba(255,255,255,0.35)" strokeWidth={1.5} strokeLinejoin="round" />
+  </Svg>
+);
 
 export default function BotPurchaseScreen({navigation, route}: Props) {
   const [bot, setBot] = useState<Bot | null>(null);
@@ -19,6 +27,8 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const [activating, setActivating] = useState(false);
   const [availableCapital, setAvailableCapital] = useState(0);
   const [feeRate, setFeeRate] = useState(0.07);
+
+  const {purchaseBot, processing: iapProcessing} = useIAP();
 
   useEffect(() => {
     Promise.all([
@@ -37,26 +47,50 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
 
   const handleActivate = async () => {
     if (!bot) return;
-    // Balance check: ensure user has enough capital for the bot price
-    if (bot.price > 0 && availableCapital < bot.price) {
+
+    // For paid bots, trigger Google Play purchase first
+    if (bot.price > 0) {
       Alert.alert(
-        'Insufficient Funds',
-        `You need at least $${bot.price} to activate this bot. Your available capital is $${availableCapital.toLocaleString()}.`,
-        [{text: 'Add Funds', onPress: () => navigation.navigate('WalletFunds')}, {text: 'Cancel', style: 'cancel'}],
+        'Confirm Purchase',
+        `Purchase ${bot.name} for $${bot.price}/month?\n\nPayment will be handled securely through Google Play.`,
+        [
+          {text: 'Cancel', style: 'cancel'},
+          {text: 'Purchase', onPress: async () => {
+            setActivating(true);
+            try {
+              const success = await purchaseBot(bot.id, bot.price);
+              if (success) {
+                // IAP succeeded — now activate on backend
+                await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: availableCapital || undefined});
+                Alert.alert('Bot Activated!', `${bot.name} is now running live.`, [
+                  {text: 'OK', onPress: () => navigation.navigate('Main')},
+                ]);
+              }
+            } catch (err: any) {
+              const msg = err?.response?.data?.message || err?.message || 'Failed to activate bot. Please try again.';
+              Alert.alert('Error', msg);
+            } finally {
+              setActivating(false);
+            }
+          }},
+        ],
       );
       return;
     }
-    // Confirmation dialog before financial commitment
+
+    // Free bot — just activate directly
     Alert.alert(
       'Confirm Activation',
-      `Activate ${bot.name} for ${bot.price === 0 ? 'free' : `$${bot.price}/month`}?\n\nCapital allocated: $${availableCapital > 0 ? availableCapital.toLocaleString() : '0'}`,
+      `Activate ${bot.name} for free?\n\nCapital allocated: $${availableCapital > 0 ? availableCapital.toLocaleString() : '0'}`,
       [
         {text: 'Cancel', style: 'cancel'},
         {text: 'Activate', onPress: async () => {
           setActivating(true);
           try {
             await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: availableCapital || undefined});
-            navigation.navigate('Main');
+            Alert.alert('Bot Activated!', `${bot.name} is now running live.`, [
+              {text: 'OK', onPress: () => navigation.navigate('Main')},
+            ]);
           } catch (err: any) {
             const msg = err?.response?.data?.message || err?.message || 'Failed to activate bot. Please try again.';
             Alert.alert('Error', msg);
@@ -95,6 +129,8 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
     'Performance analytics & reports',
   ];
 
+  const isProcessing = activating || iapProcessing;
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -120,8 +156,8 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
           <View style={styles.planHeader}>
             <Text style={styles.planName}>Monthly Plan</Text>
             <View style={styles.planPrice}>
-              <Text style={styles.priceAmount}>${bot.price}</Text>
-              <Text style={styles.priceUnit}>/month</Text>
+              <Text style={styles.priceAmount}>{bot.price === 0 ? 'Free' : `$${bot.price}`}</Text>
+              {bot.price > 0 && <Text style={styles.priceUnit}>/month</Text>}
             </View>
           </View>
           <Text style={styles.platformFee}>+ {Math.round(feeRate * 100)}% platform fee on profits earned</Text>
@@ -142,16 +178,30 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
           <Text style={styles.capitalValue}>${availableCapital > 0 ? availableCapital.toLocaleString() : '—'}</Text>
           <Text style={styles.capitalSub}>Adjust after activation</Text>
         </View>
+
+        {/* Payment info */}
+        {bot.price > 0 && (
+          <View style={styles.paymentInfoCard}>
+            <GooglePlayIcon size={16} />
+            <Text style={styles.paymentInfoText}>
+              Payment processed securely via Google Play. Cancel anytime from Play Store.
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       {/* Footer */}
       <View style={styles.footer}>
         <View style={styles.secRow}>
           <LockIcon size={12} color="rgba(255,255,255,0.3)" />
-          <Text style={styles.secText}>Secured payment • Cancel anytime</Text>
+          <Text style={styles.secText}>Secured by Google Play • Cancel anytime</Text>
         </View>
-        <TouchableOpacity style={styles.activateBtn} onPress={handleActivate} activeOpacity={0.85} disabled={activating}>
-          {activating ? (
+        <TouchableOpacity
+          style={[styles.activateBtn, isProcessing && {opacity: 0.6}]}
+          onPress={handleActivate}
+          activeOpacity={0.85}
+          disabled={isProcessing}>
+          {isProcessing ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
             <Text style={styles.activateBtnText}>
@@ -189,6 +239,18 @@ const styles = StyleSheet.create({
   capitalLabel: {fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 6},
   capitalValue: {fontFamily: 'Inter-Bold', fontSize: 26, color: '#FFFFFF'},
   capitalSub: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)'},
+  paymentInfoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.04)',
+  },
+  paymentInfoText: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', flex: 1},
   footer: {paddingHorizontal: 20, paddingBottom: 32, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)'},
   secRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 12},
   secText: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)'},

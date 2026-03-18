@@ -20,9 +20,9 @@ const envSchema = z.object({
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
 
-  STRIPE_SECRET_KEY: z.string().default('sk_test_placeholder'),
-  STRIPE_WEBHOOK_SECRET: z.string().default('whsec_placeholder'),
-  STRIPE_PUBLISHABLE_KEY: z.string().default('pk_test_placeholder'),
+  // Google Play IAP — service account key JSON for receipt verification (optional in dev)
+  GOOGLE_PLAY_SERVICE_KEY: z.string().default(''),
+  GOOGLE_PLAY_PACKAGE_NAME: z.string().default('com.botttradeapp'),
 
   BINANCE_API_KEY: z.string().default(''),
   BINANCE_API_SECRET: z.string().default(''),

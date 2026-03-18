@@ -3,8 +3,9 @@ import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator,
 import {subscriptionApi, SubPlan, CurrentSubscription} from '../../services/subscription';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
-import Svg, {Path, Circle, Rect, Line} from 'react-native-svg';
+import Svg, {Path, Circle, Line} from 'react-native-svg';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
+import {useIAP} from '../../context/IAPContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Subscription'>;
 
@@ -26,6 +27,13 @@ const CrownIcon = () => (
   <Svg width={28} height={28} viewBox="0 0 24 24" fill="none">
     <Path d="M2 8l4 10h12l4-10-5 4-5-8-5 8-5-4z" fill="#10B981" opacity={0.2} stroke="#10B981" strokeWidth={1.5} strokeLinejoin="round" />
     <Line x1="6" y1="18" x2="18" y2="18" stroke="#10B981" strokeWidth={1.5} strokeLinecap="round" />
+  </Svg>
+);
+
+const RestoreIcon = ({size = 16, color = '#10B981'}: {size?: number; color?: string}) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <Path d="M1 4v6h6" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    <Path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
   </Svg>
 );
 
@@ -52,6 +60,15 @@ export default function SubscriptionScreen({navigation}: Props) {
   const [current, setCurrent] = useState<CurrentSubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState<'monthly' | 'yearly'>('monthly');
+
+  const {
+    subscriptionProducts,
+    purchaseSubscription,
+    restorePurchases,
+    isPro,
+    processing: iapProcessing,
+  } = useIAP();
 
   const fetchData = useCallback(() => {
     Promise.all([
@@ -63,13 +80,65 @@ export default function SubscriptionScreen({navigation}: Props) {
     }).finally(() => { setLoading(false); setRefreshing(false); });
   }, []);
 
-  // Auto-refresh on focus — no useFocusEffect needed for a mostly-static screen
-  // but we add it for consistency
   React.useEffect(() => { fetchData(); }, [fetchData]);
 
-  const isPro = current?.tier === 'pro' && current?.status === 'active';
+  const isProActive = isPro || (current?.tier === 'pro' && current?.status === 'active');
   const proPlan = plans.find(p => p.tier === 'pro') || null;
   const proPrice = proPlan?.priceMonthly || 4.94;
+  const yearlyPrice = proPlan?.priceYearly || 49.99;
+
+  // Get store prices from Google Play (overrides backend prices when available)
+  const monthlySku = 'tradingapp_pro_monthly';
+  const yearlySku = 'tradingapp_pro_yearly';
+  const monthlyProduct = subscriptionProducts.find(p => p.productId === monthlySku);
+  const yearlyProduct = subscriptionProducts.find(p => p.productId === yearlySku);
+
+  const getOfferPrice = (product: any): string | undefined => {
+    return product?.subscriptionOfferDetails?.[0]?.pricingPhases?.pricingPhaseList?.[0]?.formattedPrice;
+  };
+  const getOfferToken = (product: any): string | undefined => {
+    return product?.subscriptionOfferDetails?.[0]?.offerToken;
+  };
+
+  const displayMonthlyPrice = getOfferPrice(monthlyProduct) || `$${proPrice.toFixed(2)}`;
+  const displayYearlyPrice = getOfferPrice(yearlyProduct) || `$${yearlyPrice.toFixed(2)}`;
+
+  const yearlySavings = Math.round(((proPrice * 12 - yearlyPrice) / (proPrice * 12)) * 100);
+
+  const handleSubscribe = async () => {
+    const sku = selectedPeriod === 'monthly' ? monthlySku : yearlySku;
+    const product = selectedPeriod === 'monthly' ? monthlyProduct : yearlyProduct;
+
+    // Get offer token for Android
+    const offerToken = getOfferToken(product);
+
+    const success = await purchaseSubscription(sku, offerToken);
+    if (success) {
+      // Also register on backend
+      if (proPlan?.id) {
+        await subscriptionApi.subscribe(proPlan.id).catch(() => {});
+      }
+      fetchData();
+    }
+  };
+
+  const handleCancel = () => {
+    Alert.alert(
+      'Cancel Subscription',
+      'To cancel your subscription, go to Google Play Store > Subscriptions > TradingApp Pro and cancel from there.\n\nYour access continues until the end of the billing period.',
+      [{text: 'Open Play Store', onPress: () => {
+        // Deep link to Google Play subscriptions
+        const {Linking} = require('react-native');
+        Linking.openURL('https://play.google.com/store/account/subscriptions');
+      }},
+      {text: 'OK', style: 'cancel'}],
+    );
+  };
+
+  const handleRestore = async () => {
+    await restorePurchases();
+    fetchData();
+  };
 
   return (
     <View style={styles.container}>
@@ -98,9 +167,9 @@ export default function SubscriptionScreen({navigation}: Props) {
         )}
         {/* Current plan badge */}
         <View style={styles.badgeRow}>
-          <View style={[styles.planBadge, isPro && styles.planBadgePro]}>
-            <Text style={[styles.planBadgeText, isPro && styles.planBadgeTextPro]}>
-              {isPro ? 'PRO' : 'FREE PLAN'}
+          <View style={[styles.planBadge, isProActive && styles.planBadgePro]}>
+            <Text style={[styles.planBadgeText, isProActive && styles.planBadgeTextPro]}>
+              {isProActive ? 'PRO' : 'FREE PLAN'}
             </Text>
           </View>
         </View>
@@ -111,9 +180,39 @@ export default function SubscriptionScreen({navigation}: Props) {
             <CrownIcon />
             <Text style={styles.heroTitle}>TradingApp Pro</Text>
           </View>
+
+          {/* Period toggle */}
+          {!isProActive && (
+            <View style={styles.periodToggle}>
+              <TouchableOpacity
+                style={[styles.periodBtn, selectedPeriod === 'monthly' && styles.periodBtnActive]}
+                onPress={() => setSelectedPeriod('monthly')}>
+                <Text style={[styles.periodBtnText, selectedPeriod === 'monthly' && styles.periodBtnTextActive]}>
+                  Monthly
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.periodBtn, selectedPeriod === 'yearly' && styles.periodBtnActive]}
+                onPress={() => setSelectedPeriod('yearly')}>
+                <Text style={[styles.periodBtnText, selectedPeriod === 'yearly' && styles.periodBtnTextActive]}>
+                  Yearly
+                </Text>
+                {yearlySavings > 0 && (
+                  <View style={styles.saveBadge}>
+                    <Text style={styles.saveBadgeText}>Save {yearlySavings}%</Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
           <View style={styles.priceRow}>
-            <Text style={styles.priceAmount}>${proPrice.toFixed(2)}</Text>
-            <Text style={styles.priceUnit}>/month</Text>
+            <Text style={styles.priceAmount}>
+              {selectedPeriod === 'monthly' ? displayMonthlyPrice : displayYearlyPrice}
+            </Text>
+            <Text style={styles.priceUnit}>
+              /{selectedPeriod === 'monthly' ? 'month' : 'year'}
+            </Text>
           </View>
 
           <View style={styles.featureList}>
@@ -129,7 +228,6 @@ export default function SubscriptionScreen({navigation}: Props) {
         {/* Comparison section */}
         <Text style={styles.sectionLabel}>FREE VS PRO</Text>
         <View style={styles.comparisonCard}>
-          {/* Table header */}
           <View style={styles.compHeaderRow}>
             <Text style={[styles.compHeaderCell, {flex: 1.4}]}>Feature</Text>
             <Text style={styles.compHeaderCell}>Free</Text>
@@ -146,22 +244,14 @@ export default function SubscriptionScreen({navigation}: Props) {
               <Text style={[styles.compFeature, {flex: 1.4}]}>{row.feature}</Text>
               <View style={styles.compCell}>
                 {typeof row.free === 'boolean' ? (
-                  row.free ? (
-                    <CheckIcon size={16} />
-                  ) : (
-                    <XMarkIcon size={16} />
-                  )
+                  row.free ? <CheckIcon size={16} /> : <XMarkIcon size={16} />
                 ) : (
                   <Text style={styles.compValue}>{row.free}</Text>
                 )}
               </View>
               <View style={styles.compCell}>
                 {typeof row.pro === 'boolean' ? (
-                  row.pro ? (
-                    <CheckIcon size={16} />
-                  ) : (
-                    <XMarkIcon size={16} />
-                  )
+                  row.pro ? <CheckIcon size={16} /> : <XMarkIcon size={16} />
                 ) : (
                   <Text style={[styles.compValue, {color: '#10B981'}]}>{row.pro}</Text>
                 )}
@@ -177,49 +267,39 @@ export default function SubscriptionScreen({navigation}: Props) {
             <Path d="M12 16v-4M12 8h.01" stroke="rgba(255,255,255,0.3)" strokeWidth={2} strokeLinecap="round" />
           </Svg>
           <Text style={styles.infoText}>
-            Platform takes 7% of all profit generated by bots
+            Platform takes 7% of all profit generated by bots. Payment is handled securely via Google Play.
           </Text>
         </View>
+
+        {/* Restore purchases */}
+        <TouchableOpacity style={styles.restoreBtn} activeOpacity={0.7} onPress={handleRestore}>
+          <RestoreIcon size={14} color="#10B981" />
+          <Text style={styles.restoreBtnText}>Restore Purchases</Text>
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Subscribe CTA */}
       <View style={styles.footer}>
-        {isPro ? (
+        {isProActive ? (
           <TouchableOpacity
-            style={[styles.subscribeBtn, {backgroundColor: '#EF4444'}]}
+            style={[styles.subscribeBtn, {backgroundColor: 'rgba(239,68,68,0.15)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.4)'}]}
             activeOpacity={0.85}
-            onPress={() => {
-              Alert.alert(
-                'Cancel Subscription',
-                'Are you sure you want to cancel your Pro subscription? You will lose access to all Pro features at the end of your billing period.',
-                [
-                  {text: 'Keep Pro', style: 'cancel'},
-                  {text: 'Cancel', style: 'destructive', onPress: async () => {
-                    try {
-                      await subscriptionApi.cancel();
-                      Alert.alert('Cancelled', 'Your subscription has been cancelled.');
-                      setCurrent(null);
-                    } catch (e: any) {
-                      Alert.alert('Error', e?.message || 'Could not cancel subscription.');
-                    }
-                  }},
-                ],
-              );
-            }}>
-            <Text style={styles.subscribeBtnText}>Cancel Subscription</Text>
+            onPress={handleCancel}>
+            <Text style={[styles.subscribeBtnText, {color: '#EF4444'}]}>Manage Subscription</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
-            style={styles.subscribeBtn}
+            style={[styles.subscribeBtn, iapProcessing && {opacity: 0.6}]}
             activeOpacity={0.85}
-            onPress={() =>
-              navigation.navigate('Checkout', {
-                type: 'subscription',
-                itemId: proPlan?.id || 'pro',
-                amount: proPrice,
-              })
-            }>
-            <Text style={styles.subscribeBtnText}>Subscribe — ${proPrice.toFixed(2)}/mo</Text>
+            disabled={iapProcessing}
+            onPress={handleSubscribe}>
+            {iapProcessing ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.subscribeBtnText}>
+                Subscribe — {selectedPeriod === 'monthly' ? displayMonthlyPrice : displayYearlyPrice}/{selectedPeriod === 'monthly' ? 'mo' : 'yr'}
+              </Text>
+            )}
           </TouchableOpacity>
         )}
       </View>
@@ -280,6 +360,41 @@ const styles = StyleSheet.create({
   },
   heroHeader: {flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12},
   heroTitle: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF'},
+
+  /* Period toggle */
+  periodToggle: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 16,
+  },
+  periodBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    gap: 6,
+  },
+  periodBtnActive: {
+    backgroundColor: 'rgba(16,185,129,0.15)',
+  },
+  periodBtnText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  periodBtnTextActive: {color: '#10B981'},
+  saveBadge: {
+    backgroundColor: 'rgba(16,185,129,0.2)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  saveBadgeText: {fontFamily: 'Inter-Bold', fontSize: 9, color: '#10B981', letterSpacing: 0.3},
+
   priceRow: {flexDirection: 'row', alignItems: 'flex-end', marginBottom: 20},
   priceAmount: {fontFamily: 'Inter-Bold', fontSize: 36, color: '#10B981'},
   priceUnit: {
@@ -356,6 +471,17 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.3)',
     flex: 1,
   },
+
+  /* Restore */
+  restoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  restoreBtnText: {fontFamily: 'Inter-Medium', fontSize: 13, color: '#10B981'},
 
   /* Footer */
   footer: {

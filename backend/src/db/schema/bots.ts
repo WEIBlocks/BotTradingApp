@@ -73,6 +73,8 @@ export const bots = pgTable("bots", {
   priceMonthly: numeric("price_monthly", { precision: 10, scale: 2 }).default(
     "0"
   ),
+  creatorFeePercent: numeric("creator_fee_percent", { precision: 5, scale: 2 }).default("10"),
+  platformFeePercent: numeric("platform_fee_percent", { precision: 5, scale: 2 }).default("3"),
   tags: text("tags").array(),
   avatarColor: varchar("avatar_color", { length: 9 }),
   avatarLetter: varchar("avatar_letter", { length: 2 }),
@@ -173,6 +175,36 @@ export const shadowSessions = pgTable("shadow_sessions", {
   dailyPerformance: jsonb("daily_performance"),
   totalTrades: integer("total_trades").default(0),
   winCount: integer("win_count").default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const earningStatusEnum = pgEnum("earning_status", [
+  "pending",
+  "paid",
+  "failed",
+]);
+
+export const creatorEarnings = pgTable("creator_earnings", {
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  creatorId: uuid("creator_id")
+    .notNull()
+    .references(() => users.id),
+  botId: uuid("bot_id")
+    .notNull()
+    .references(() => bots.id),
+  subscriberId: uuid("subscriber_id")
+    .notNull()
+    .references(() => users.id),
+  subscriberProfit: numeric("subscriber_profit", { precision: 12, scale: 2 }).notNull(),
+  creatorFeePercent: numeric("creator_fee_percent", { precision: 5, scale: 2 }).notNull(),
+  creatorEarning: numeric("creator_earning", { precision: 12, scale: 2 }).notNull(),
+  platformFeePercent: numeric("platform_fee_percent", { precision: 5, scale: 2 }).notNull(),
+  platformFee: numeric("platform_fee", { precision: 12, scale: 2 }).notNull(),
+  status: earningStatusEnum("status").default("pending"),
+  periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+  periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 

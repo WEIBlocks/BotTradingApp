@@ -14,7 +14,15 @@ import Svg, {Path, Circle} from 'react-native-svg';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
-import {creatorApi, CreatorStats, CreatorBot, MonthlyRevenue, AiSuggestion} from '../../services/creator';
+import {
+  creatorApi,
+  CreatorStats,
+  CreatorBot,
+  MonthlyRevenue,
+  AiSuggestion,
+  EarningsSummary,
+  EarningsProjection,
+} from '../../services/creator';
 
 function EditIcon() {
   return (
@@ -125,6 +133,25 @@ function UsersIcon() {
   );
 }
 
+function DollarIcon() {
+  return (
+    <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={10} stroke="#10B981" strokeWidth={1.5} />
+      <Path d="M12 6v12M9 9.5a2.5 2.5 0 012.5-2.5h1a2.5 2.5 0 010 5h-1A2.5 2.5 0 009 14.5v0A2.5 2.5 0 0011.5 17h1A2.5 2.5 0 0015 14.5"
+        stroke="#10B981" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+function TrendUpIcon() {
+  return (
+    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+      <Path d="M23 6l-9.5 9.5-5-5L1 18" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M17 6h6v6" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
 // ─── Revenue Bar Chart ──────────────────────────────────────────────────────
 
 function RevenueBarChart({data}: {data: MonthlyRevenue[]}) {
@@ -184,6 +211,231 @@ const chartStyles = StyleSheet.create({
   },
 });
 
+// ─── Earnings Calculator ────────────────────────────────────────────────────
+
+function EarningsCalculator({projections}: {projections: EarningsProjection[]}) {
+  const [followers, setFollowers] = useState(1000);
+  const [avgProfit, setAvgProfit] = useState(1000);
+  const feePercent = projections.length > 0 ? projections[0].creatorFeePercent : 10;
+  const platformPercent = projections.length > 0 ? projections[0].platformFeePercent : 3;
+
+  const totalSubscriberProfit = followers * avgProfit;
+  const creatorEarning = totalSubscriberProfit * (feePercent / 100);
+  const platformFee = totalSubscriberProfit * (platformPercent / 100);
+
+  const presets = [
+    {label: '100', val: 100},
+    {label: '500', val: 500},
+    {label: '1K', val: 1000},
+    {label: '5K', val: 5000},
+  ];
+
+  const profitPresets = [
+    {label: '$500', val: 500},
+    {label: '$1K', val: 1000},
+    {label: '$5K', val: 5000},
+    {label: '$10K', val: 10000},
+  ];
+
+  return (
+    <View style={calcStyles.container}>
+      <View style={calcStyles.header}>
+        <DollarIcon />
+        <Text style={calcStyles.title}>Earnings Calculator</Text>
+      </View>
+
+      {/* Fee Model */}
+      <View style={calcStyles.feeModelCard}>
+        <Text style={calcStyles.feeModelLabel}>YOUR FEE MODEL</Text>
+        <Text style={calcStyles.feeModelValue}>
+          Creator fee = <Text style={calcStyles.feeHighlight}>{feePercent}%</Text> of subscriber profits
+        </Text>
+        <Text style={calcStyles.feeModelSub}>
+          Platform takes <Text style={{color: '#F59E0B'}}>{platformPercent}%</Text>
+        </Text>
+      </View>
+
+      {/* Followers selector */}
+      <Text style={calcStyles.paramLabel}>If followers:</Text>
+      <View style={calcStyles.presetRow}>
+        {presets.map(p => (
+          <TouchableOpacity
+            key={p.val}
+            style={[calcStyles.presetChip, followers === p.val && calcStyles.presetChipActive]}
+            onPress={() => setFollowers(p.val)}
+            activeOpacity={0.7}>
+            <Text style={[calcStyles.presetText, followers === p.val && calcStyles.presetTextActive]}>
+              {p.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Avg profit selector */}
+      <Text style={calcStyles.paramLabel}>Each earns:</Text>
+      <View style={calcStyles.presetRow}>
+        {profitPresets.map(p => (
+          <TouchableOpacity
+            key={p.val}
+            style={[calcStyles.presetChip, avgProfit === p.val && calcStyles.presetChipActive]}
+            onPress={() => setAvgProfit(p.val)}
+            activeOpacity={0.7}>
+            <Text style={[calcStyles.presetText, avgProfit === p.val && calcStyles.presetTextActive]}>
+              {p.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Result */}
+      <View style={calcStyles.resultCard}>
+        <Text style={calcStyles.resultLabel}>Creator makes:</Text>
+        <Text style={calcStyles.resultValue}>
+          ${creatorEarning.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+        </Text>
+        <View style={calcStyles.resultDivider} />
+        <View style={calcStyles.breakdownRow}>
+          <Text style={calcStyles.breakdownLabel}>Total subscriber profits</Text>
+          <Text style={calcStyles.breakdownValue}>
+            ${totalSubscriberProfit.toLocaleString('en-US')}
+          </Text>
+        </View>
+        <View style={calcStyles.breakdownRow}>
+          <Text style={calcStyles.breakdownLabel}>Your {feePercent}% fee</Text>
+          <Text style={[calcStyles.breakdownValue, {color: '#10B981'}]}>
+            +${creatorEarning.toLocaleString('en-US')}
+          </Text>
+        </View>
+        <View style={calcStyles.breakdownRow}>
+          <Text style={calcStyles.breakdownLabel}>Platform {platformPercent}% fee</Text>
+          <Text style={[calcStyles.breakdownValue, {color: '#F59E0B'}]}>
+            -${platformFee.toLocaleString('en-US')}
+          </Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const calcStyles = StyleSheet.create({
+  container: {
+    backgroundColor: '#161B22',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.2)',
+    padding: 18,
+    marginBottom: 16,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 16,
+  },
+  title: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  feeModelCard: {
+    backgroundColor: 'rgba(16,185,129,0.06)',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+  },
+  feeModelLabel: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.4)',
+    letterSpacing: 1,
+    marginBottom: 6,
+  },
+  feeModelValue: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+  },
+  feeHighlight: {
+    color: '#10B981',
+    fontFamily: 'Inter-Bold',
+  },
+  feeModelSub: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 4,
+  },
+  paramLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+    marginBottom: 8,
+  },
+  presetRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  presetChip: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 10,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  presetChipActive: {
+    backgroundColor: 'rgba(16,185,129,0.15)',
+    borderColor: '#10B981',
+  },
+  presetText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  presetTextActive: {
+    color: '#10B981',
+  },
+  resultCard: {
+    backgroundColor: 'rgba(16,185,129,0.06)',
+    borderRadius: 14,
+    padding: 16,
+    marginTop: 4,
+  },
+  resultLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+    marginBottom: 4,
+  },
+  resultValue: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 32,
+    color: '#10B981',
+  },
+  resultDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginVertical: 12,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  breakdownLabel: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  breakdownValue: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.8)',
+  },
+});
+
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export default function CreatorStudioScreen() {
@@ -192,8 +444,11 @@ export default function CreatorStudioScreen() {
   const [bots, setBots] = useState<CreatorBot[]>([]);
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);
   const [aiSuggestions, setAiSuggestions] = useState<AiSuggestion[]>([]);
+  const [earnings, setEarnings] = useState<EarningsSummary | null>(null);
+  const [projections, setProjections] = useState<EarningsProjection[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [activeSection, setActiveSection] = useState<'overview' | 'earnings'>('overview');
 
   const fetchData = useCallback(() => {
     Promise.all([
@@ -201,13 +456,17 @@ export default function CreatorStudioScreen() {
       creatorApi.getBots(),
       creatorApi.getMonthlyRevenue(),
       creatorApi.getAiSuggestions(),
+      creatorApi.getEarnings(),
+      creatorApi.getEarningsProjection(),
     ])
-      .then(([s, b, mr, ai]) => {
+      .then(([s, b, mr, ai, e, p]) => {
         const latestMonthRev = mr.length > 0 ? mr[mr.length - 1].revenue : 0;
         setStats({...s, monthlyRevenue: latestMonthRev});
         setBots(b);
         setMonthlyRevenue(mr);
         setAiSuggestions(ai);
+        setEarnings(e);
+        setProjections(p);
       })
       .catch(() => Alert.alert('Error', 'Failed to load creator data. Pull down to retry.'))
       .finally(() => { setLoading(false); setRefreshing(false); });
@@ -244,6 +503,20 @@ export default function CreatorStudioScreen() {
         <View style={{width: 22}} />
       </View>
 
+      {/* Section Tabs */}
+      <View style={styles.sectionTabs}>
+        <TouchableOpacity
+          style={[styles.sectionTab, activeSection === 'overview' && styles.sectionTabActive]}
+          onPress={() => setActiveSection('overview')}>
+          <Text style={[styles.sectionTabText, activeSection === 'overview' && styles.sectionTabTextActive]}>Overview</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.sectionTab, activeSection === 'earnings' && styles.sectionTabActive]}
+          onPress={() => setActiveSection('earnings')}>
+          <Text style={[styles.sectionTabText, activeSection === 'earnings' && styles.sectionTabTextActive]}>Earnings</Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -256,163 +529,320 @@ export default function CreatorStudioScreen() {
             progressBackgroundColor="#161B22"
           />
         }>
-        {/* Revenue Metric Cards */}
-        <View style={styles.metricsRow}>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricLabel}>Total Revenue</Text>
-            <Text style={styles.metricValue}>
-              ${(stats?.totalRevenue ?? 0).toLocaleString('en-US', {minimumFractionDigits: 2})}
-            </Text>
-          </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricLabel}>Monthly</Text>
-            <Text style={styles.metricValue}>
-              ${(stats?.monthlyRevenue ?? 0).toLocaleString('en-US', {minimumFractionDigits: 2})}
-            </Text>
-          </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricLabel}>Total Users</Text>
-            <Text style={styles.metricValue}>
-              {stats?.totalUsers ?? 0}
-            </Text>
-          </View>
-        </View>
 
-        {/* Revenue Chart */}
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>MONTHLY REVENUE</Text>
-          <RevenueBarChart data={monthlyRevenue} />
-        </View>
+        {activeSection === 'overview' ? (
+          <>
+            {/* Revenue Metric Cards */}
+            <View style={styles.metricsRow}>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricLabel}>Total Revenue</Text>
+                <Text style={styles.metricValue}>
+                  ${(stats?.totalRevenue ?? 0).toLocaleString('en-US', {minimumFractionDigits: 2})}
+                </Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricLabel}>Monthly</Text>
+                <Text style={styles.metricValue}>
+                  ${(stats?.monthlyRevenue ?? 0).toLocaleString('en-US', {minimumFractionDigits: 2})}
+                </Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricLabel}>Followers</Text>
+                <Text style={styles.metricValue}>
+                  {stats?.totalUsers ?? 0}
+                </Text>
+              </View>
+            </View>
 
-        {/* Your Bots */}
-        <View style={styles.botsSectionHeader}>
-          <Text style={styles.sectionTitle}>Your Bots</Text>
-          <TouchableOpacity
-            style={styles.newBotBtn}
-            activeOpacity={0.7}
-            onPress={() => navigation.navigate('BotBuilder' as any)}>
-            <Text style={styles.newBotBtnText}>+ New Bot</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.card}>
-          {bots.length === 0 ? (
-            <View style={{alignItems: 'center', paddingVertical: 24}}>
-              <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 4}}>No bots created yet</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('BotBuilder' as any)} activeOpacity={0.7}>
-                <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: '#10B981'}}>Build your first bot</Text>
+            {/* Revenue Chart */}
+            <View style={styles.card}>
+              <Text style={styles.sectionLabel}>MONTHLY REVENUE</Text>
+              <RevenueBarChart data={monthlyRevenue} />
+            </View>
+
+            {/* Your Bots */}
+            <View style={styles.botsSectionHeader}>
+              <Text style={styles.sectionTitle}>Your Bots</Text>
+              <TouchableOpacity
+                style={styles.newBotBtn}
+                activeOpacity={0.7}
+                onPress={() => navigation.navigate('BotBuilder' as any)}>
+                <Text style={styles.newBotBtnText}>+ New Bot</Text>
               </TouchableOpacity>
             </View>
-          ) : bots.map((bot, index) => (
-            <View key={bot.id}>
-              <View style={styles.botRow}>
-                <View style={styles.botInfo}>
-                  <View style={styles.botNameRow}>
-                    <Text style={styles.botName}>{bot.name}</Text>
-                    <View style={[styles.statusBadge, bot.isPublished ? styles.statusPublished : styles.statusDraft]}>
-                      <Text style={[styles.statusBadgeText, bot.isPublished ? styles.statusPublishedText : styles.statusDraftText]}>
-                        {bot.isPublished ? 'PUBLISHED' : 'DRAFT'}
+            <View style={styles.card}>
+              {bots.length === 0 ? (
+                <View style={{alignItems: 'center', paddingVertical: 24}}>
+                  <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 4}}>No bots created yet</Text>
+                  <TouchableOpacity onPress={() => navigation.navigate('BotBuilder' as any)} activeOpacity={0.7}>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: '#10B981'}}>Build your first bot</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : bots.map((bot, index) => (
+                <View key={bot.id}>
+                  <View style={styles.botRow}>
+                    <View style={styles.botInfo}>
+                      <View style={styles.botNameRow}>
+                        <Text style={styles.botName}>{bot.name}</Text>
+                        <View style={[styles.statusBadge, bot.isPublished ? styles.statusPublished : styles.statusDraft]}>
+                          <Text style={[styles.statusBadgeText, bot.isPublished ? styles.statusPublishedText : styles.statusDraftText]}>
+                            {bot.isPublished ? 'PUBLISHED' : 'DRAFT'}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={styles.botMeta}>
+                        <UsersIcon />
+                        <Text style={styles.botMetaText}>{bot.users} users</Text>
+                        <Text style={styles.botFeeText}>{bot.creatorFeePercent}% fee</Text>
+                      </View>
+                    </View>
+                    <View style={styles.botStats}>
+                      <View style={styles.ratingRow}>
+                        <StarIcon filled />
+                        <Text style={styles.ratingText}>{bot.rating}</Text>
+                      </View>
+                      <Text style={styles.returnText}>
+                        +{bot.returnPercent}%
+                      </Text>
+                      <Text style={styles.revenueText}>
+                        ${bot.revenue.toLocaleString('en-US', {minimumFractionDigits: 2})}
                       </Text>
                     </View>
                   </View>
-                  <View style={styles.botMeta}>
-                    <UsersIcon />
-                    <Text style={styles.botMetaText}>{bot.users} users</Text>
+                  <View style={styles.botActions}>
+                    <TouchableOpacity
+                      style={styles.editBtn}
+                      activeOpacity={0.7}
+                      onPress={() => navigation.navigate('BotBuilder', {editBotId: bot.id})}>
+                      <EditIcon />
+                      <Text style={styles.editBtnText}>Edit</Text>
+                    </TouchableOpacity>
+                    {!bot.isPublished && (
+                      <TouchableOpacity
+                        style={styles.publishBtn}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          Alert.alert(
+                            'Publish Bot',
+                            `Are you sure you want to publish "${bot.name}" to the marketplace?`,
+                            [
+                              {text: 'Cancel', style: 'cancel'},
+                              {text: 'Publish', onPress: async () => {
+                                try {
+                                  await creatorApi.publishBot(bot.id);
+                                  Alert.alert('Published!', `${bot.name} is now live on the marketplace.`);
+                                  fetchData();
+                                } catch (e: any) {
+                                  Alert.alert('Error', e?.message || 'Failed to publish bot.');
+                                }
+                              }},
+                            ],
+                          );
+                        }}>
+                        <PublishIcon />
+                        <Text style={styles.publishBtnText}>Publish</Text>
+                      </TouchableOpacity>
+                    )}
+                    {bot.isPublished && (
+                      <TouchableOpacity
+                        style={styles.viewBtn}
+                        activeOpacity={0.7}
+                        onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}>
+                        <Text style={styles.viewBtnText}>View</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
+                  {index < bots.length - 1 && (
+                    <View style={styles.divider} />
+                  )}
                 </View>
-                <View style={styles.botStats}>
-                  <View style={styles.ratingRow}>
-                    <StarIcon filled />
-                    <Text style={styles.ratingText}>{bot.rating}</Text>
+              ))}
+            </View>
+
+            {/* AI Suggestions */}
+            <View style={styles.aiCard}>
+              <View style={styles.aiHeader}>
+                <SparkleIcon />
+                <Text style={styles.aiTitle}>AI Suggestions</Text>
+              </View>
+              {aiSuggestions.map((suggestion, i) => (
+                <View key={suggestion.id || i} style={styles.suggestionRow}>
+                  <View style={styles.bulletDot} />
+                  <Text style={styles.suggestionText}>{suggestion.description}</Text>
+                </View>
+              ))}
+            </View>
+
+            {/* Reviews Summary */}
+            <View style={styles.card}>
+              <Text style={styles.sectionLabel}>REVIEWS</Text>
+              <View style={styles.reviewSummary}>
+                <Text style={styles.avgRating}>
+                  {stats?.avgRating ?? 0}
+                </Text>
+                <View style={styles.reviewRight}>
+                  <View style={styles.starsRow}>
+                    {renderStars(stats?.avgRating ?? 0)}
                   </View>
-                  <Text style={styles.returnText}>
-                    +{bot.returnPercent}%
-                  </Text>
-                  <Text style={styles.revenueText}>
-                    ${bot.revenue.toLocaleString('en-US', {minimumFractionDigits: 2})}
+                  <Text style={styles.reviewCount}>
+                    {stats?.reviewCount ?? 0} reviews
                   </Text>
                 </View>
               </View>
-              <View style={styles.botActions}>
-                <TouchableOpacity
-                  style={styles.editBtn}
-                  activeOpacity={0.7}
-                  onPress={() => navigation.navigate('BotBuilder', {editBotId: bot.id})}>
-                  <EditIcon />
-                  <Text style={styles.editBtnText}>Edit</Text>
-                </TouchableOpacity>
-                {!bot.isPublished && (
-                  <TouchableOpacity
-                    style={styles.publishBtn}
-                    activeOpacity={0.7}
-                    onPress={() => {
-                      Alert.alert(
-                        'Publish Bot',
-                        `Are you sure you want to publish "${bot.name}" to the marketplace?`,
-                        [
-                          {text: 'Cancel', style: 'cancel'},
-                          {text: 'Publish', onPress: async () => {
-                            try {
-                              await creatorApi.publishBot(bot.id);
-                              Alert.alert('Published!', `${bot.name} is now live on the marketplace.`);
-                              fetchData();
-                            } catch (e: any) {
-                              Alert.alert('Error', e?.message || 'Failed to publish bot.');
-                            }
-                          }},
-                        ],
-                      );
-                    }}>
-                    <PublishIcon />
-                    <Text style={styles.publishBtnText}>Publish</Text>
-                  </TouchableOpacity>
-                )}
-                {bot.isPublished && (
-                  <TouchableOpacity
-                    style={styles.viewBtn}
-                    activeOpacity={0.7}
-                    onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}>
-                    <Text style={styles.viewBtnText}>View</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-              {index < bots.length - 1 && (
-                <View style={styles.divider} />
-              )}
             </View>
-          ))}
-        </View>
+          </>
+        ) : (
+          <>
+            {/* ─── EARNINGS TAB ─────────────────────────────────── */}
 
-        {/* AI Suggestions */}
-        <View style={styles.aiCard}>
-          <View style={styles.aiHeader}>
-            <SparkleIcon />
-            <Text style={styles.aiTitle}>AI Suggestions</Text>
-          </View>
-          {aiSuggestions.map((suggestion, i) => (
-            <View key={suggestion.id || i} style={styles.suggestionRow}>
-              <View style={styles.bulletDot} />
-              <Text style={styles.suggestionText}>{suggestion.description}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Reviews Summary */}
-        <View style={styles.card}>
-          <Text style={styles.sectionLabel}>REVIEWS</Text>
-          <View style={styles.reviewSummary}>
-            <Text style={styles.avgRating}>
-              {stats?.avgRating ?? 0}
-            </Text>
-            <View style={styles.reviewRight}>
-              <View style={styles.starsRow}>
-                {renderStars(stats?.avgRating ?? 0)}
+            {/* Earnings Overview Cards */}
+            <View style={styles.metricsRow}>
+              <View style={[styles.metricCard, {borderColor: 'rgba(16,185,129,0.2)'}]}>
+                <Text style={styles.metricLabel}>Total Earned</Text>
+                <Text style={[styles.metricValue, {color: '#10B981'}]}>
+                  ${(earnings?.totalEarnings ?? 0).toLocaleString('en-US', {minimumFractionDigits: 2})}
+                </Text>
               </View>
-              <Text style={styles.reviewCount}>
-                {stats?.reviewCount ?? 0} reviews
-              </Text>
+              <View style={[styles.metricCard, {borderColor: 'rgba(245,158,11,0.2)'}]}>
+                <Text style={styles.metricLabel}>Pending</Text>
+                <Text style={[styles.metricValue, {color: '#F59E0B'}]}>
+                  ${(earnings?.pendingPayout ?? 0).toLocaleString('en-US', {minimumFractionDigits: 2})}
+                </Text>
+              </View>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricLabel}>Followers</Text>
+                <Text style={styles.metricValue}>{earnings?.activeSubscribers ?? 0}</Text>
+              </View>
             </View>
-          </View>
-        </View>
+
+            {/* How Creators Earn */}
+            <View style={styles.howItWorksCard}>
+              <Text style={styles.howItWorksTitle}>How Creators Earn Money</Text>
+
+              <View style={styles.howStep}>
+                <View style={styles.howStepNum}><Text style={styles.howStepNumText}>1</Text></View>
+                <View style={{flex: 1}}>
+                  <Text style={styles.howStepTitle}>Users follow your bot</Text>
+                  <Text style={styles.howStepDesc}>Subscribers allocate capital and your bot trades for them</Text>
+                </View>
+              </View>
+
+              <View style={styles.howStep}>
+                <View style={styles.howStepNum}><Text style={styles.howStepNumText}>2</Text></View>
+                <View style={{flex: 1}}>
+                  <Text style={styles.howStepTitle}>They earn profits</Text>
+                  <Text style={styles.howStepDesc}>When your bot makes profitable trades for subscribers</Text>
+                </View>
+              </View>
+
+              <View style={styles.howStep}>
+                <View style={styles.howStepNum}><Text style={styles.howStepNumText}>3</Text></View>
+                <View style={{flex: 1}}>
+                  <Text style={styles.howStepTitle}>You take your fee</Text>
+                  <Text style={styles.howStepDesc}>You earn a % of their profits. Set your fee in Bot Builder.</Text>
+                </View>
+              </View>
+
+              <View style={styles.howDivider} />
+
+              <View style={styles.howFeeRow}>
+                <Text style={styles.howFeeLabel}>Creator fee</Text>
+                <Text style={styles.howFeeValue}>
+                  <Text style={{color: '#10B981', fontFamily: 'Inter-Bold'}}>
+                    {bots.length > 0 ? bots[0].creatorFeePercent : 10}%
+                  </Text> of subscriber profits
+                </Text>
+              </View>
+              <View style={styles.howFeeRow}>
+                <Text style={styles.howFeeLabel}>Platform fee</Text>
+                <Text style={styles.howFeeValue}>
+                  <Text style={{color: '#F59E0B', fontFamily: 'Inter-Bold'}}>
+                    {bots.length > 0 ? bots[0].platformFeePercent : 3}%
+                  </Text>
+                </Text>
+              </View>
+            </View>
+
+            {/* Earnings Calculator */}
+            <EarningsCalculator projections={projections} />
+
+            {/* Per-Bot Earnings Breakdown */}
+            {earnings && earnings.botEarnings.length > 0 && (
+              <>
+                <Text style={[styles.sectionTitle, {marginBottom: 10, marginTop: 4}]}>
+                  Earnings by Bot
+                </Text>
+                {earnings.botEarnings.map(be => (
+                  <View key={be.botId} style={styles.botEarningCard}>
+                    <View style={{flex: 1}}>
+                      <Text style={styles.botEarningName}>{be.botName}</Text>
+                      <Text style={styles.botEarningMeta}>
+                        {be.transactions} transactions · ${be.totalSubscriberProfit.toLocaleString()} subscriber profits
+                      </Text>
+                    </View>
+                    <Text style={styles.botEarningAmount}>
+                      +${be.totalEarning.toLocaleString('en-US', {minimumFractionDigits: 2})}
+                    </Text>
+                  </View>
+                ))}
+              </>
+            )}
+
+            {/* Recent Earnings */}
+            {earnings && earnings.recentEarnings.length > 0 && (
+              <>
+                <Text style={[styles.sectionTitle, {marginBottom: 10, marginTop: 16}]}>
+                  Recent Earnings
+                </Text>
+                <View style={styles.card}>
+                  {earnings.recentEarnings.slice(0, 10).map((e, i) => (
+                    <View key={e.id}>
+                      <View style={styles.earningRow}>
+                        <View style={{flex: 1}}>
+                          <Text style={styles.earningBotName}>{e.botName}</Text>
+                          <Text style={styles.earningMeta}>
+                            {parseFloat(e.creatorFeePercent)}% of ${parseFloat(e.subscriberProfit).toLocaleString()} profit
+                          </Text>
+                        </View>
+                        <View style={{alignItems: 'flex-end'}}>
+                          <Text style={styles.earningAmount}>
+                            +${parseFloat(e.creatorEarning).toLocaleString('en-US', {minimumFractionDigits: 2})}
+                          </Text>
+                          <View style={[
+                            styles.earningStatusBadge,
+                            {backgroundColor: e.status === 'paid' ? 'rgba(16,185,129,0.12)' : 'rgba(245,158,11,0.12)'},
+                          ]}>
+                            <Text style={[
+                              styles.earningStatusText,
+                              {color: e.status === 'paid' ? '#10B981' : '#F59E0B'},
+                            ]}>
+                              {e.status === 'paid' ? 'Paid' : 'Pending'}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                      {i < earnings.recentEarnings.length - 1 && i < 9 && (
+                        <View style={styles.divider} />
+                      )}
+                    </View>
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* Empty state for earnings */}
+            {(!earnings || (earnings.botEarnings.length === 0 && earnings.recentEarnings.length === 0)) && (
+              <View style={styles.emptyEarnings}>
+                <TrendUpIcon />
+                <Text style={styles.emptyEarningsTitle}>No earnings yet</Text>
+                <Text style={styles.emptyEarningsText}>
+                  Publish your bot and attract followers. You'll earn {bots.length > 0 ? bots[0].creatorFeePercent : 10}% of every
+                  profit your subscribers make.
+                </Text>
+              </View>
+            )}
+          </>
+        )}
 
         <View style={{height: 40}} />
       </ScrollView>
@@ -432,13 +862,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 54,
-    paddingBottom: 14,
+    paddingBottom: 10,
     paddingHorizontal: 20,
   },
   headerTitle: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 18,
     color: '#FFFFFF',
+  },
+  sectionTabs: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    marginBottom: 14,
+    gap: 0,
+  },
+  sectionTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  sectionTabActive: {
+    borderBottomColor: '#10B981',
+  },
+  sectionTabText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  sectionTabTextActive: {
+    color: '#10B981',
+    fontFamily: 'Inter-SemiBold',
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -559,6 +1014,16 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     fontSize: 12,
     color: 'rgba(255,255,255,0.5)',
+  },
+  botFeeText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 11,
+    color: '#10B981',
+    marginLeft: 6,
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
   botStats: {
     alignItems: 'flex-end',
@@ -693,5 +1158,154 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Regular',
     fontSize: 13,
     color: 'rgba(255,255,255,0.5)',
+  },
+
+  // ─── Earnings Tab ──────────────────────────────────
+  howItWorksCard: {
+    backgroundColor: '#161B22',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 18,
+    marginBottom: 16,
+  },
+  howItWorksTitle: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 17,
+    color: '#FFFFFF',
+    marginBottom: 18,
+  },
+  howStep: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 16,
+  },
+  howStepNum: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(16,185,129,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  howStepNumText: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 13,
+    color: '#10B981',
+  },
+  howStepTitle: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  howStepDesc: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+    lineHeight: 18,
+  },
+  howDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    marginVertical: 14,
+  },
+  howFeeRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  howFeeLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  howFeeValue: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.8)',
+  },
+
+  // Bot Earnings
+  botEarningCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#161B22',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 14,
+    marginBottom: 8,
+  },
+  botEarningName: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  botEarningMeta: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  botEarningAmount: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 16,
+    color: '#10B981',
+  },
+
+  // Recent Earnings
+  earningRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  earningBotName: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  earningMeta: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  earningAmount: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: '#10B981',
+    marginBottom: 4,
+  },
+  earningStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  earningStatusText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 10,
+  },
+
+  // Empty
+  emptyEarnings: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    gap: 8,
+  },
+  emptyEarningsTitle: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: 'rgba(255,255,255,0.6)',
+  },
+  emptyEarningsText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+    textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: 30,
   },
 });

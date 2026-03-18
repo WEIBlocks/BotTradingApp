@@ -13,7 +13,7 @@ import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import Svg, {Path, Rect, Circle, Line} from 'react-native-svg';
-import {exchangeApi} from '../../services/exchange';
+import {exchangeApi, ExchangeConnection} from '../../services/exchange';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -278,12 +278,20 @@ const ExchangeConnectScreen = () => {
   const [testing, setTesting] = useState(false);
   const [sandbox, setSandbox] = useState(false);
   const [expandedGuide, setExpandedGuide] = useState<string | null>(null);
+  const [connectedExchanges, setConnectedExchanges] = useState<ExchangeConnection[]>([]);
 
   useEffect(() => {
     exchangeApi.getAvailable()
       .then(data => setExchanges(data.length > 0 ? data.map(d => ({name: d.name, subtitle: d.subtitle, color: d.color})) : DEFAULT_EXCHANGES))
       .catch(() => setExchanges(DEFAULT_EXCHANGES));
+    // Fetch existing connections to prevent duplicates
+    exchangeApi.getConnections()
+      .then(conns => setConnectedExchanges(conns))
+      .catch(() => {});
   }, []);
+
+  const isExchangeConnected = (name: string) =>
+    connectedExchanges.some(c => c.provider.toLowerCase() === name.toLowerCase() && c.status === 'connected');
 
   const handleTestConnection = async () => {
     if (!selectedExchange) {
@@ -308,6 +316,10 @@ const ExchangeConnectScreen = () => {
   const handleSaveConnect = async () => {
     if (!selectedExchange) {
       Alert.alert('Select Exchange', 'Please select an exchange first.');
+      return;
+    }
+    if (isExchangeConnected(selectedExchange)) {
+      Alert.alert('Already Connected', `${selectedExchange} is already connected. Disconnect it first from your profile to reconnect with new credentials.`);
       return;
     }
     if (!apiKey.trim() || !apiSecret.trim()) {
@@ -414,13 +426,19 @@ const ExchangeConnectScreen = () => {
 
                 {/* Go to Connect button */}
                 <TouchableOpacity
-                  style={[guideStyles.useKeyBtn, {backgroundColor: `${guide.color}15`, borderColor: `${guide.color}40`}]}
+                  style={[guideStyles.useKeyBtn, {backgroundColor: isExchangeConnected(guide.name) ? 'rgba(16,185,129,0.1)' : `${guide.color}15`, borderColor: isExchangeConnected(guide.name) ? 'rgba(16,185,129,0.3)' : `${guide.color}40`}]}
                   activeOpacity={0.7}
                   onPress={() => {
+                    if (isExchangeConnected(guide.name)) {
+                      Alert.alert('Already Connected', `${guide.name} is already connected. Disconnect it first from your profile to reconnect.`);
+                      return;
+                    }
                     setSelectedExchange(guide.name);
                     setActiveTab('api');
                   }}>
-                  <Text style={[guideStyles.useKeyBtnText, {color: guide.color}]}>Enter API Keys</Text>
+                  <Text style={[guideStyles.useKeyBtnText, {color: isExchangeConnected(guide.name) ? '#10B981' : guide.color}]}>
+                    {isExchangeConnected(guide.name) ? 'Connected ✓' : 'Enter API Keys'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -439,17 +457,22 @@ const ExchangeConnectScreen = () => {
       <View style={styles.exchangeSelectorRow}>
         {exchanges.map((exchange) => {
           const isSelected = selectedExchange === exchange.name;
+          const alreadyConnected = isExchangeConnected(exchange.name);
           return (
             <TouchableOpacity
               key={exchange.name}
               style={[
                 styles.exchangeSelectorCard,
                 isSelected && styles.exchangeSelectorCardActive,
+                alreadyConnected && {borderColor: 'rgba(16,185,129,0.3)', opacity: 0.6},
               ]}
               activeOpacity={0.7}
               onPress={() => {
+                if (alreadyConnected) {
+                  Alert.alert('Already Connected', `${exchange.name} is already connected. Disconnect it first from your profile to reconnect.`);
+                  return;
+                }
                 setSelectedExchange(exchange.name);
-                // Reset sandbox when selecting an exchange without testnet
                 if (exchange.name !== 'Binance' && exchange.name !== 'Alpaca') {
                   setSandbox(false);
                 }
@@ -463,11 +486,15 @@ const ExchangeConnectScreen = () => {
               ]}>
                 {exchange.name}
               </Text>
-              {isSelected && (
+              {alreadyConnected ? (
+                <View style={[styles.checkBadge, {backgroundColor: '#10B981'}]}>
+                  <CheckIcon size={12} color="#FFFFFF" />
+                </View>
+              ) : isSelected ? (
                 <View style={styles.checkBadge}>
                   <CheckIcon size={12} color="#FFFFFF" />
                 </View>
-              )}
+              ) : null}
             </TouchableOpacity>
           );
         })}

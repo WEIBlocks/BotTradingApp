@@ -11,6 +11,7 @@ import {
 import { sql } from "drizzle-orm";
 import { users } from "./users";
 
+export const planTierEnum = pgEnum("plan_tier", ["free", "pro"]);
 export const planPeriodEnum = pgEnum("plan_period", ["monthly", "yearly"]);
 
 export const userSubStatusEnum = pgEnum("user_sub_status", [
@@ -25,6 +26,7 @@ export const subscriptionPlans = pgTable("subscription_plans", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   name: varchar("name", { length: 50 }).notNull(),
+  tier: planTierEnum("tier").default("free"),
   stripePriceId: varchar("stripe_price_id", { length: 255 }),
   price: numeric("price", { precision: 10, scale: 2 }).notNull(),
   period: planPeriodEnum("period"),
