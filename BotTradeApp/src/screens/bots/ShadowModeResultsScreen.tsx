@@ -7,7 +7,7 @@ import {RootStackParamList} from '../../types';
 import type {Bot} from '../../types';
 import {marketplaceApi} from '../../services/marketplace';
 import {botsService} from '../../services/bots';
-import InteractiveChart from '../../components/charts/InteractiveChart';
+import CandlestickChart from '../../components/charts/CandlestickChart';
 import CheckCircleIcon from '../../components/icons/CheckCircleIcon';
 import XIcon from '../../components/icons/XIcon';
 import StarIcon from '../../components/icons/StarIcon';
@@ -196,16 +196,18 @@ export default function ShadowModeResultsScreen({navigation, route}: Props) {
 
           {/* Performance chart */}
           <View style={styles.chartSection}>
-            <InteractiveChart
+            <CandlestickChart
               data={equityData}
               width={width - 40}
-              height={180}
+              height={220}
               label="PORTFOLIO GROWTH"
               timeframes={['1D', '1W', '2W', 'ALL']}
               showGrid
               showCrosshair
               showYLabels
               showXLabels
+              showVolume
+              showMA
             />
           </View>
 

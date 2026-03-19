@@ -6,7 +6,7 @@ import {RootStackParamList, Bot} from '../../types';
 import {marketplaceApi} from '../../services/marketplace';
 import {botsService} from '../../services/bots';
 import {useAuth} from '../../context/AuthContext';
-import InteractiveChart from '../../components/charts/InteractiveChart';
+import CandlestickChart from '../../components/charts/CandlestickChart';
 import MonthlyReturnBars from '../../components/charts/MonthlyReturnBars';
 import Badge from '../../components/common/Badge';
 import TradeRow from '../../components/common/TradeRow';
@@ -322,16 +322,18 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
         {/* Equity chart */}
         <View style={styles.chartSection}>
-          <InteractiveChart
+          <CandlestickChart
             data={bot.equityData}
             width={CHART_W}
-            height={200}
+            height={240}
             label="PERFORMANCE"
             timeframes={['1D', '1W', '1M', '3M', 'ALL']}
             showGrid
             showCrosshair
             showYLabels
             showXLabels
+            showVolume
+            showMA
           />
         </View>
 

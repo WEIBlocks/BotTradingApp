@@ -40,7 +40,7 @@ function resolveBotDisplayStatus(bot: DashActiveBot, shadowSessions: ShadowSessi
   if (completed) return {label: 'SHADOW DONE', color: '#10B981', icon: 'completed' as const};
   return {label: 'SHADOW', color: '#0D7FF2', icon: 'idle' as const};
 }
-import InteractiveChart from '../../components/charts/InteractiveChart';
+import CandlestickChart from '../../components/charts/CandlestickChart';
 import PlusIcon from '../../components/icons/PlusIcon';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
@@ -413,10 +413,10 @@ export default function DashboardScreen() {
 
         {/* Chart card */}
         <View style={styles.chartCard}>
-          <InteractiveChart
+          <CandlestickChart
             data={equityData.length >= 2 ? equityData : [totalBalance, totalBalance]}
             width={CHART_WIDTH - 32}
-            height={180}
+            height={220}
             selectedTimeframe={selectedTF}
             onTimeframeChange={setSelectedTF}
             label="EQUITY CURVE"
@@ -424,6 +424,8 @@ export default function DashboardScreen() {
             showCrosshair
             showYLabels
             showXLabels
+            showVolume
+            showMA
           />
         </View>
 
