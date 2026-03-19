@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   Animated,
 } from 'react-native';
@@ -13,6 +12,7 @@ import Svg, {Path, Rect, Circle, Line} from 'react-native-svg';
 import {useNavigation, useRoute, RouteProp} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
+import {useToast} from '../../context/ToastContext';
 import DocumentPicker, {types} from 'react-native-document-picker';
 import {
   trainingApi,
@@ -620,6 +620,7 @@ const analysisStyles = StyleSheet.create({
 export default function TrainingUploadScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
+  const {alert: showAlert} = useToast();
   const paramBotId = route.params?.botId;
 
   const [activeTab, setActiveTab] = useState<UploadTab>('Images');
@@ -695,7 +696,7 @@ export default function TrainingUploadScreen() {
 
   const handleUploadTap = async () => {
     if (!selectedBotId) {
-      Alert.alert('Select a Bot', 'Please select a bot to train first.');
+      showAlert('Select a Bot', 'Please select a bot to train first.');
       return;
     }
     try {
@@ -725,25 +726,25 @@ export default function TrainingUploadScreen() {
       setUploading(false);
 
       if (errorCount > 0 && successCount > 0) {
-        Alert.alert('Upload Complete', `${successCount} file(s) uploaded, ${errorCount} failed.`);
+        showAlert('Upload Complete', `${successCount} file(s) uploaded, ${errorCount} failed.`);
       } else if (errorCount > 0) {
-        Alert.alert('Upload Failed', 'Could not upload the selected file(s). Please try again.');
+        showAlert('Upload Failed', 'Could not upload the selected file(s). Please try again.');
       }
     } catch (err: any) {
       if (DocumentPicker.isCancel(err)) return;
       setUploading(false);
-      Alert.alert('Error', err?.message || 'Could not open file picker.');
+      showAlert('Error', err?.message || 'Could not open file picker.');
     }
   };
 
   const handleStartTraining = async () => {
     if (!selectedBotId) {
-      Alert.alert('Select a Bot', 'Please select a bot to train first.');
+      showAlert('Select a Bot', 'Please select a bot to train first.');
       return;
     }
     const pendingFiles = uploads.filter(u => u.status === 'pending');
     if (pendingFiles.length === 0) {
-      Alert.alert('No Pending Files', 'All files have already been analyzed, or upload some training data first.');
+      showAlert('No Pending Files', 'All files have already been analyzed, or upload some training data first.');
       return;
     }
 
@@ -785,7 +786,7 @@ export default function TrainingUploadScreen() {
     } catch (e: any) {
       if (progressInterval) clearInterval(progressInterval);
       setTraining(false);
-      Alert.alert('Training Failed', e?.message || 'Could not complete training.');
+      showAlert('Training Failed', e?.message || 'Could not complete training.');
       loadUploads(); // Refresh to get any partial results
     }
   };

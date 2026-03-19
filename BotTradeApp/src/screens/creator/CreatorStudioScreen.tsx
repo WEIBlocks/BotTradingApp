@@ -8,12 +8,12 @@ import {
   Dimensions,
   ActivityIndicator,
   RefreshControl,
-  Alert,
 } from 'react-native';
 import Svg, {Path, Circle} from 'react-native-svg';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
+import {useToast} from '../../context/ToastContext';
 import {
   creatorApi,
   CreatorStats,
@@ -440,6 +440,7 @@ const calcStyles = StyleSheet.create({
 
 export default function CreatorStudioScreen() {
   const navigation = useNavigation<Nav>();
+  const {alert: showAlert, showConfirm} = useToast();
   const [stats, setStats] = useState<CreatorStats | null>(null);
   const [bots, setBots] = useState<CreatorBot[]>([]);
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);
@@ -468,7 +469,7 @@ export default function CreatorStudioScreen() {
         setEarnings(e);
         setProjections(p);
       })
-      .catch(() => Alert.alert('Error', 'Failed to load creator data. Pull down to retry.'))
+      .catch(() => showAlert('Error', 'Failed to load creator data. Pull down to retry.'))
       .finally(() => { setLoading(false); setRefreshing(false); });
   }, []);
 
@@ -622,22 +623,20 @@ export default function CreatorStudioScreen() {
                         style={styles.publishBtn}
                         activeOpacity={0.7}
                         onPress={() => {
-                          Alert.alert(
-                            'Publish Bot',
-                            `Are you sure you want to publish "${bot.name}" to the marketplace?`,
-                            [
-                              {text: 'Cancel', style: 'cancel'},
-                              {text: 'Publish', onPress: async () => {
-                                try {
-                                  await creatorApi.publishBot(bot.id);
-                                  Alert.alert('Published!', `${bot.name} is now live on the marketplace.`);
-                                  fetchData();
-                                } catch (e: any) {
-                                  Alert.alert('Error', e?.message || 'Failed to publish bot.');
-                                }
-                              }},
-                            ],
-                          );
+                          showConfirm({
+                            title: 'Publish Bot',
+                            message: `Are you sure you want to publish "${bot.name}" to the marketplace?`,
+                            confirmText: 'Publish',
+                            onConfirm: async () => {
+                              try {
+                                await creatorApi.publishBot(bot.id);
+                                showAlert('Published!', `${bot.name} is now live on the marketplace.`);
+                                fetchData();
+                              } catch (e: any) {
+                                showAlert('Error', e?.message || 'Failed to publish bot.');
+                              }
+                            },
+                          });
                         }}>
                         <PublishIcon />
                         <Text style={styles.publishBtnText}>Publish</Text>

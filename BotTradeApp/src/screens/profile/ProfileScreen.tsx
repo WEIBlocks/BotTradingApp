@@ -1,10 +1,11 @@
 import React, {useState, useCallback, useEffect} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, RefreshControl} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl} from 'react-native';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
 import {useAuth} from '../../context/AuthContext';
+import {useToast} from '../../context/ToastContext';
 import {userApi, UserProfile, WalletData, ActivityItem} from '../../services/user';
 import SectionHeader from '../../components/common/SectionHeader';
 import ChevronRightIcon from '../../components/icons/ChevronRightIcon';
@@ -78,6 +79,7 @@ const SETTINGS = [
 export default function ProfileScreen() {
   const navigation = useNavigation<NavProp>();
   const {user: authUser, logout} = useAuth();
+  const {alert: showAlert, showConfirm} = useToast();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [wallet, setWallet] = useState<WalletData | null>(null);
@@ -121,28 +123,23 @@ export default function ProfileScreen() {
   }, [fetchData]);
 
   const handleLogout = useCallback(async () => {
-    Alert.alert(
-      'Log Out',
-      'Are you sure you want to log out?',
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {
-          text: 'Log Out',
-          style: 'destructive',
-          onPress: async () => {
-            setLoggingOut(true);
-            try {
-              await logout();
-              // Navigation switches automatically via AuthContext → AppNavigator
-            } catch {
-              setLoggingOut(false);
-              Alert.alert('Error', 'Failed to log out. Please try again.');
-            }
-          },
-        },
-      ],
-    );
-  }, [logout]);
+    showConfirm({
+      title: 'Log Out',
+      message: 'Are you sure you want to log out?',
+      confirmText: 'Log Out',
+      destructive: true,
+      onConfirm: async () => {
+        setLoggingOut(true);
+        try {
+          await logout();
+          // Navigation switches automatically via AuthContext → AppNavigator
+        } catch {
+          setLoggingOut(false);
+          showAlert('Error', 'Failed to log out. Please try again.');
+        }
+      },
+    });
+  }, [logout, showConfirm, showAlert]);
 
   // Derive display values
   const displayName = profile?.name || authUser?.name || 'User';

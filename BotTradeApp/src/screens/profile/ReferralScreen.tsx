@@ -1,9 +1,10 @@
 import React, {useState, useEffect} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Share} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Share} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Svg, {Path, Rect, Circle} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
 import {userApi, ReferralInfo} from '../../services/user';
+import {useToast} from '../../context/ToastContext';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import GiftIcon from '../../components/icons/GiftIcon';
 import CopyIcon from '../../components/icons/CopyIcon';
@@ -59,6 +60,7 @@ const REWARDS_HISTORY = [
 ];
 
 export default function ReferralScreen({navigation}: Props) {
+  const {alert: showAlert} = useToast();
   const [referral, setReferral] = useState<ReferralInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
@@ -67,7 +69,7 @@ export default function ReferralScreen({navigation}: Props) {
 
   const handleCopy = () => {
     setCopied(true);
-    Alert.alert('Copied!', 'Referral code copied to clipboard.');
+    showAlert('Copied!', 'Referral code copied to clipboard.');
     setTimeout(() => setCopied(false), 2000);
   };
 
@@ -81,7 +83,7 @@ export default function ReferralScreen({navigation}: Props) {
     userApi
       .getReferralInfo()
       .then(setReferral)
-      .catch(() => Alert.alert('Error', 'Failed to load referral info.'))
+      .catch(() => showAlert('Error', 'Failed to load referral info.'))
       .finally(() => setLoading(false));
   }, []);
 

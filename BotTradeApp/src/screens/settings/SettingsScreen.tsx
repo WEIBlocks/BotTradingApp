@@ -6,11 +6,11 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
-  Alert,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
+import {useToast} from '../../context/ToastContext';
 import Svg, {Path, Circle, Rect, Line} from 'react-native-svg';
 import {userApi} from '../../services/user';
 
@@ -265,6 +265,7 @@ interface SettingSection {
 
 export default function SettingsScreen() {
   const navigation = useNavigation<Nav>();
+  const {alert: showAlert} = useToast();
   const [twoFactor, setTwoFactor] = useState(false);
 
   useEffect(() => {
@@ -356,11 +357,11 @@ export default function SettingsScreen() {
 
   const handleRowPress = (row: SettingRow) => {
     if (row.label === 'Edit Profile' || row.label === 'Change Password') {
-      Alert.alert('Coming Soon', `${row.label} will be available in a future update.`);
+      showAlert('Coming Soon', `${row.label} will be available in a future update.`);
       return;
     }
     if (row.label === 'Terms of Service' || row.label === 'Privacy Policy') {
-      Alert.alert(row.label, 'You can view our full terms at bottrade.app/legal');
+      showAlert(row.label, 'You can view our full terms at bottrade.app/legal');
       return;
     }
     if (row.screen) {

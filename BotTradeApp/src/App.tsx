@@ -15,14 +15,14 @@ export default function App() {
       <ErrorBoundary>
         <NetworkProvider>
           <AuthProvider>
-            <IAPProvider>
-              <ToastProvider>
+            <ToastProvider>
+              <IAPProvider>
                 <NavigationContainer>
                   <StatusBar barStyle="light-content" backgroundColor="#0F1117" />
                   <AppNavigator />
                 </NavigationContainer>
-              </ToastProvider>
-            </IAPProvider>
+              </IAPProvider>
+            </ToastProvider>
           </AuthProvider>
         </NetworkProvider>
       </ErrorBoundary>

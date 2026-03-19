@@ -1,7 +1,8 @@
 import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert} from 'react-native';
+import {View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
+import {useToast} from '../../context/ToastContext';
 import {RootStackParamList} from '../../types';
 import type {Trade} from '../../types';
 import {tradesApi, TradeSummary} from '../../services/trades';
@@ -11,6 +12,7 @@ import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 type Props = NativeStackScreenProps<RootStackParamList, 'TradeHistory'>;
 
 export default function TradeHistoryScreen({navigation}: Props) {
+  const {alert: showAlert} = useToast();
   const [trades, setTrades] = useState<Trade[]>([]);
   const [summary, setSummary] = useState<TradeSummary>({totalPnl: 0, totalTrades: 0, winRate: 0});
   const [loading, setLoading] = useState(true);
@@ -22,7 +24,7 @@ export default function TradeHistoryScreen({navigation}: Props) {
       setTrades(historyRes.trades);
       setSummary(summaryRes);
     } catch {
-      Alert.alert('Error', 'Failed to load trade history. Pull down to retry.');
+      showAlert('Error', 'Failed to load trade history. Pull down to retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);

@@ -1,6 +1,7 @@
 import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, RefreshControl} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl} from 'react-native';
 import {subscriptionApi, SubPlan, CurrentSubscription} from '../../services/subscription';
+import {useToast} from '../../context/ToastContext';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import Svg, {Path, Circle, Line} from 'react-native-svg';
@@ -56,6 +57,7 @@ const comparisonRows: {feature: string; free: string | boolean; pro: string | bo
 ];
 
 export default function SubscriptionScreen({navigation}: Props) {
+  const {alert: showAlert, showConfirm} = useToast();
   const [plans, setPlans] = useState<SubPlan[]>([]);
   const [current, setCurrent] = useState<CurrentSubscription | null>(null);
   const [loading, setLoading] = useState(true);
@@ -123,16 +125,15 @@ export default function SubscriptionScreen({navigation}: Props) {
   };
 
   const handleCancel = () => {
-    Alert.alert(
-      'Cancel Subscription',
-      'To cancel your subscription, go to Google Play Store > Subscriptions > TradingApp Pro and cancel from there.\n\nYour access continues until the end of the billing period.',
-      [{text: 'Open Play Store', onPress: () => {
-        // Deep link to Google Play subscriptions
+    showConfirm({
+      title: 'Cancel Subscription',
+      message: 'To cancel your subscription, go to Google Play Store > Subscriptions > TradingApp Pro and cancel from there.\n\nYour access continues until the end of the billing period.',
+      confirmText: 'Open Play Store',
+      onConfirm: () => {
         const {Linking} = require('react-native');
         Linking.openURL('https://play.google.com/store/account/subscriptions');
-      }},
-      {text: 'OK', style: 'cancel'}],
-    );
+      },
+    });
   };
 
   const handleRestore = async () => {

@@ -1,7 +1,8 @@
 import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert} from 'react-native';
+import {View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
+import {useToast} from '../../context/ToastContext';
 import Svg, {Path, Circle, Rect} from 'react-native-svg';
 import {RootStackParamList, Notification} from '../../types';
 import {notificationsService} from '../../services/notifications';
@@ -71,6 +72,7 @@ function timeAgo(dateStr: string | Date): string {
 }
 
 export default function NotificationsScreen({navigation}: Props) {
+  const {alert: showAlert} = useToast();
   const [activeTab, setActiveTab] = useState('All');
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,7 +92,7 @@ export default function NotificationsScreen({navigation}: Props) {
       }));
       setNotifications(mapped);
     } catch {
-      Alert.alert('Error', 'Failed to load notifications. Pull down to retry.');
+      showAlert('Error', 'Failed to load notifications. Pull down to retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);

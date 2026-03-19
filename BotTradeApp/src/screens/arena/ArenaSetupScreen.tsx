@@ -1,10 +1,11 @@
 import React, {useState, useCallback, useEffect} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 import {RootStackParamList, Gladiator} from '../../types';
 import {arenaApi, ArenaSession} from '../../services/arena';
+import {useToast} from '../../context/ToastContext';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 const MAX_GLADIATORS = 5;
@@ -124,6 +125,7 @@ const pbSt = StyleSheet.create({
 
 export default function ArenaSetupScreen() {
   const navigation = useNavigation<NavProp>();
+  const {alert: showAlert, showConfirm} = useToast();
   const [gladiators, setGladiators] = useState<Gladiator[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSession, setActiveSession] = useState<ArenaSession | null>(null);
@@ -138,7 +140,7 @@ export default function ArenaSetupScreen() {
         setGladiators(bots);
         setActiveSession(session);
       })
-      .catch(() => Alert.alert('Error', 'Failed to load arena bots. Please try again.'))
+      .catch(() => showAlert('Error', 'Failed to load arena bots. Please try again.'))
       .finally(() => setLoading(false));
   }, []);
 
@@ -157,26 +159,22 @@ export default function ArenaSetupScreen() {
 
   const handleEnterArena = useCallback(() => {
     if (activeSession && activeSession.status === 'running') {
-      Alert.alert(
-        'Battle In Progress',
-        'You already have an active arena battle running. Watch it or wait for it to finish before starting a new one.',
-        [
-          {text: 'OK'},
-          {text: 'Watch Live', onPress: () => navigation.navigate('ArenaLive', {gladiatorIds: [], sessionId: activeSession.id})},
-        ],
-      );
+      showConfirm({
+        title: 'Battle In Progress',
+        message: 'You already have an active arena battle running. Watch it or wait for it to finish before starting a new one.',
+        confirmText: 'Watch Live',
+        onConfirm: () => navigation.navigate('ArenaLive', {gladiatorIds: [], sessionId: activeSession.id}),
+      });
       return;
     }
     const ids = gladiators.filter(g => g.selected).map(g => g.id);
-    Alert.alert(
-      'Enter Arena',
-      `Start a battle with ${ids.length} bots? This will begin a live trading competition.`,
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'Enter Arena', onPress: () => navigation.navigate('ArenaLive', {gladiatorIds: ids, durationSeconds: selectedDuration.seconds})},
-      ],
-    );
-  }, [gladiators, navigation, activeSession, selectedDuration]);
+    showConfirm({
+      title: 'Enter Arena',
+      message: `Start a battle with ${ids.length} bots? This will begin a live trading competition.`,
+      confirmText: 'Enter Arena',
+      onConfirm: () => navigation.navigate('ArenaLive', {gladiatorIds: ids, durationSeconds: selectedDuration.seconds}),
+    });
+  }, [gladiators, navigation, activeSession, selectedDuration, showConfirm]);
 
   return (
     <View style={styles.container}>
@@ -187,7 +185,7 @@ export default function ArenaSetupScreen() {
           <BackArrow />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>BOT BATTLE ARENA</Text>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => Alert.alert('Bot Battle Arena', 'Select 2-5 bots to compete in a real-time trading arena. Bots trade simultaneously and are ranked by performance. The arena runs until a winner emerges!')}>
+        <TouchableOpacity style={styles.headerBtn} onPress={() => showAlert('Bot Battle Arena', 'Select 2-5 bots to compete in a real-time trading arena. Bots trade simultaneously and are ranked by performance. The arena runs until a winner emerges!')}>
           <InfoCircleIcon />
         </TouchableOpacity>
       </View>

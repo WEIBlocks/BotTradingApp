@@ -6,11 +6,11 @@ import {
   ScrollView,
   TouchableOpacity,
   Switch,
-  Alert,
 } from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import {userApi} from '../../services/user';
+import {useToast} from '../../context/ToastContext';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import BellIcon from '../../components/icons/BellIcon';
 import ChartIcon from '../../components/icons/ChartIcon';
@@ -34,6 +34,7 @@ interface SettingSection {
 }
 
 export default function NotificationsSettingsScreen({navigation}: Props) {
+  const {alert: showAlert} = useToast();
   const [settings, setSettings] = useState<Record<string, boolean>>({
     // Trade Alerts
     tradeExecuted: true,
@@ -171,7 +172,7 @@ export default function NotificationsSettingsScreen({navigation}: Props) {
               Critical alerts only during sleep hours
             </Text>
           </View>
-          <TouchableOpacity style={styles.quietHoursEditBtn} onPress={() => Alert.alert('Quiet Hours', 'Quiet hours configuration will be available in a future update. Currently set to 10:00 PM — 7:00 AM.')}>
+          <TouchableOpacity style={styles.quietHoursEditBtn} onPress={() => showAlert('Quiet Hours', 'Quiet hours configuration will be available in a future update. Currently set to 10:00 PM — 7:00 AM.')}>
             <Text style={styles.quietHoursEditText}>Edit</Text>
           </TouchableOpacity>
         </View>

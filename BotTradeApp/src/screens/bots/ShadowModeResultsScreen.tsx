@@ -1,5 +1,5 @@
 import React, {useState, useEffect, useCallback, useRef} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, AppState, TextInput, Alert} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, AppState, TextInput} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Animated, {useSharedValue, useAnimatedStyle, withDelay, withSpring, withTiming} from 'react-native-reanimated';
 import LinearGradient from 'react-native-linear-gradient';
@@ -11,6 +11,7 @@ import CandlestickChart from '../../components/charts/CandlestickChart';
 import CheckCircleIcon from '../../components/icons/CheckCircleIcon';
 import XIcon from '../../components/icons/XIcon';
 import StarIcon from '../../components/icons/StarIcon';
+import {useToast} from '../../context/ToastContext';
 
 const {width} = Dimensions.get('window');
 type Props = NativeStackScreenProps<RootStackParamList, 'ShadowModeResults'>;
@@ -25,6 +26,7 @@ interface ShadowResultData {
 
 export default function ShadowModeResultsScreen({navigation, route}: Props) {
   const {botId, profit, winRate, sessionId} = route.params;
+  const {alert: showAlert} = useToast();
   const [bot, setBot] = useState<Bot | null>(null);
   const [shadowData, setShadowData] = useState<ShadowResultData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -120,7 +122,7 @@ export default function ShadowModeResultsScreen({navigation, route}: Props) {
 
   const handleSubmitReview = useCallback(async () => {
     if (reviewRating === 0) {
-      Alert.alert('Rating Required', 'Please tap a star to rate this bot.');
+      showAlert('Rating Required', 'Please tap a star to rate this bot.');
       return;
     }
     setReviewSubmitting(true);
@@ -128,7 +130,7 @@ export default function ShadowModeResultsScreen({navigation, route}: Props) {
       await botsService.addReview(botId, {rating: reviewRating, text: reviewText.trim()});
       setReviewSubmitted(true);
     } catch {
-      Alert.alert('Error', 'Failed to submit review. Please try again.');
+      showAlert('Error', 'Failed to submit review. Please try again.');
     } finally {
       setReviewSubmitting(false);
     }

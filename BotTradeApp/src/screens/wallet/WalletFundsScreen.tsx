@@ -1,7 +1,8 @@
 import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, Alert} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
+import {useToast} from '../../context/ToastContext';
 import Svg, {Path} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
 import {userApi, WalletData} from '../../services/user';
@@ -43,6 +44,7 @@ function TxIcon({type}: {type: string}) {
 type Props = NativeStackScreenProps<RootStackParamList, 'WalletFunds'>;
 
 export default function WalletFundsScreen({navigation}: Props) {
+  const {alert: showAlert, showConfirm} = useToast();
   const [selectedAction, setSelectedAction] = useState<'deposit' | 'withdraw' | null>(null);
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [dashSummary, setDashSummary] = useState<DashboardSummary | null>(null);
@@ -58,7 +60,7 @@ export default function WalletFundsScreen({navigation}: Props) {
       setWallet(w);
       setDashSummary(ds);
     } catch (e) {
-      Alert.alert('Error', 'Failed to load wallet data. Pull down to retry.');
+      showAlert('Error', 'Failed to load wallet data. Pull down to retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -134,10 +136,12 @@ export default function WalletFundsScreen({navigation}: Props) {
         <View style={styles.actionsRow}>
           <TouchableOpacity style={[styles.actionBtn, selectedAction === 'deposit' && styles.actionBtnActive]} onPress={() => {
             setSelectedAction('deposit');
-            Alert.alert('Deposit Funds', 'To deposit funds, connect an exchange account and transfer from your exchange wallet.', [
-              {text: 'Connect Exchange', onPress: () => navigation.navigate('ExchangeConnect')},
-              {text: 'Cancel', style: 'cancel'},
-            ]);
+            showConfirm({
+              title: 'Deposit Funds',
+              message: 'To deposit funds, connect an exchange account and transfer from your exchange wallet.',
+              confirmText: 'Connect Exchange',
+              onConfirm: () => navigation.navigate('ExchangeConnect'),
+            });
           }}>
             <ArrowDownIcon size={20} color="#10B981" />
             <Text style={styles.actionText}>Deposit</Text>
@@ -145,12 +149,10 @@ export default function WalletFundsScreen({navigation}: Props) {
           <TouchableOpacity style={[styles.actionBtn, selectedAction === 'withdraw' && styles.actionBtnActive]} onPress={() => {
             setSelectedAction('withdraw');
             if (buyingPower <= 0) {
-              Alert.alert('No Available Funds', 'You don\'t have any available funds to withdraw.');
+              showAlert('No Available Funds', 'You don\'t have any available funds to withdraw.');
               return;
             }
-            Alert.alert('Withdraw Funds', 'Withdrawals are processed to your connected exchange account. Please allow 1-3 business days.', [
-              {text: 'OK'},
-            ]);
+            showAlert('Withdraw Funds', 'Withdrawals are processed to your connected exchange account. Please allow 1-3 business days.');
           }}>
             <ArrowUpIcon size={20} color="#EF4444" />
             <Text style={styles.actionText}>Withdraw</Text>

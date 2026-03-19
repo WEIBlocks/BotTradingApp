@@ -1,13 +1,14 @@
 import React, {useState, useCallback} from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, Alert, ActivityIndicator, RefreshControl,
+  TextInput, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 import {RootStackParamList, Bot} from '../../types';
 import {marketplaceApi} from '../../services/marketplace';
+import {useToast} from '../../context/ToastContext';
 import {configApi} from '../../services/config';
 import Badge from '../../components/common/Badge';
 
@@ -233,6 +234,7 @@ function TrendingCard({bot, onPress}: {bot: Bot; onPress: () => void}) {
 
 export default function MarketplaceScreen() {
   const navigation = useNavigation<NavProp>();
+  const {alert: showAlert} = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
   const [sortDesc, setSortDesc] = useState(true);
@@ -257,7 +259,7 @@ export default function MarketplaceScreen() {
       setTrendingBots(trending.length > 0 ? trending.slice(0, 2) : botsRes.bots.slice(0, 2));
       if (config?.categories?.length) setCategories(config.categories);
     } catch {
-      Alert.alert('Error', 'Failed to load marketplace data. Pull down to retry.');
+      showAlert('Error', 'Failed to load marketplace data. Pull down to retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);

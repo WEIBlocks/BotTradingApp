@@ -1,6 +1,7 @@
 import React, {useEffect, useCallback, useState} from 'react';
-import {View, Text, StyleSheet, TouchableOpacity, Dimensions, Pressable, Alert} from 'react-native';
+import {View, Text, StyleSheet, TouchableOpacity, Dimensions, Pressable} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {useToast} from '../../context/ToastContext';
 import Animated, {
   useSharedValue, useAnimatedStyle, withSpring, runOnJS,
 } from 'react-native-reanimated';
@@ -69,6 +70,7 @@ const ACTIONS = [
 ];
 
 export default function QuickActionsModal({navigation}: Props) {
+  const {alert: showAlert, showConfirm} = useToast();
   const [pausing, setPausing] = useState(false);
   const translateY = useSharedValue(500);
 
@@ -78,37 +80,36 @@ export default function QuickActionsModal({navigation}: Props) {
       const res = await botsService.getActive();
       const activeBots = res?.subscriptions || [];
       if (activeBots.length === 0) {
-        Alert.alert('No Active Bots', 'You have no active bots to pause.');
+        showAlert('No Active Bots', 'You have no active bots to pause.');
         return;
       }
       await Promise.all(activeBots.map((sub: any) => botsService.pause(sub.id)));
-      Alert.alert('All Bots Paused', `${activeBots.length} bot(s) have been paused.`);
+      showAlert('All Bots Paused', `${activeBots.length} bot(s) have been paused.`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message || 'Could not pause bots.');
+      showAlert('Error', e?.message || 'Could not pause bots.');
     } finally {
       setPausing(false);
     }
   };
 
   const handleEmergencyStop = () => {
-    Alert.alert(
-      'Emergency Stop',
-      'This will close all positions and stop all bots. Are you sure?',
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'Stop Everything', style: 'destructive', onPress: async () => {
-          try {
-            const res = await botsService.getActive();
-            const activeBots = res?.subscriptions || [];
-            await Promise.all(activeBots.map((sub: any) => botsService.stop(sub.id)));
-            Alert.alert('All Stopped', 'All bots have been stopped.');
-            navigation.goBack();
-          } catch (e: any) {
-            Alert.alert('Error', e?.message || 'Could not stop bots.');
-          }
-        }},
-      ]
-    );
+    showConfirm({
+      title: 'Emergency Stop',
+      message: 'This will close all positions and stop all bots. Are you sure?',
+      confirmText: 'Stop Everything',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          const res = await botsService.getActive();
+          const activeBots = res?.subscriptions || [];
+          await Promise.all(activeBots.map((sub: any) => botsService.stop(sub.id)));
+          showAlert('All Stopped', 'All bots have been stopped.');
+          navigation.goBack();
+        } catch (e: any) {
+          showAlert('Error', e?.message || 'Could not stop bots.');
+        }
+      },
+    });
   };
 
   useEffect(() => {

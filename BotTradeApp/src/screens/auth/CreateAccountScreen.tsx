@@ -1,9 +1,10 @@
 import React, {useState, useCallback, useEffect} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, SafeAreaView, Keyboard, Alert, Image} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, SafeAreaView, Keyboard, Image} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {GoogleSignin, statusCodes} from '@react-native-google-signin/google-signin';
 import {AuthStackParamList} from '../../types';
 import {useAuth} from '../../context/AuthContext';
+import {useToast} from '../../context/ToastContext';
 import {ApiError} from '../../services/api';
 import {GOOGLE_WEB_CLIENT_ID} from '../../config/google';
 import Input from '../../components/common/Input';
@@ -128,6 +129,7 @@ function PolicyModal({visible, type, onClose}: {visible: boolean; type: PolicyTy
 
 export default function CreateAccountScreen({navigation}: Props) {
   const {register, googleSignIn} = useAuth();
+  const {alert: showAlert} = useToast();
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -269,7 +271,7 @@ export default function CreateAccountScreen({navigation}: Props) {
         <Text style={styles.subtitle}>Join 50,000+ traders using AI bots</Text>
 
         <OAuthButton provider="google" onPress={handleGoogleSignIn} disabled={googleLoading || loading} loading={googleLoading} />
-        <OAuthButton provider="apple" onPress={() => Alert.alert('Coming Soon', 'Apple Sign-In is not yet available on Android.')} disabled={loading || googleLoading} />
+        <OAuthButton provider="apple" onPress={() => showAlert('Coming Soon', 'Apple Sign-In is not yet available on Android.')} disabled={loading || googleLoading} />
 
         <Divider label="Or sign up with email" />
 

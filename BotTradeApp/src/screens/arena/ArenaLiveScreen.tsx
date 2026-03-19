@@ -1,9 +1,10 @@
 import React, {useState, useEffect, useRef, useCallback} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, Alert, BackHandler, Modal} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, BackHandler, Modal} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse, Polygon} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
 import {arenaApi, ArenaSession} from '../../services/arena';
+import {useToast} from '../../context/ToastContext';
 import ArenaMultilineChart from '../../components/charts/ArenaMultilineChart';
 
 const {width} = Dimensions.get('window');
@@ -86,6 +87,7 @@ function rankLabel(rank: number): string {
 
 export default function ArenaLiveScreen({navigation, route}: Props) {
   const {gladiatorIds, sessionId: existingSessionId, durationSeconds} = route.params;
+  const {alert: showAlert} = useToast();
   const [session, setSession] = useState<ArenaSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [exitModalVisible, setExitModalVisible] = useState(false);
@@ -101,7 +103,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
           sessionIdRef.current = s.id;
           setSession(s);
         })
-        .catch(() => Alert.alert('Error', 'Failed to load arena session.'))
+        .catch(() => showAlert('Error', 'Failed to load arena session.'))
         .finally(() => setLoading(false));
     } else {
       arenaApi.createSession(gladiatorIds, durationSeconds)
@@ -109,7 +111,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
           sessionIdRef.current = s.id;
           setSession(s);
         })
-        .catch(() => Alert.alert('Error', 'Failed to create arena session. Please try again.'))
+        .catch(() => showAlert('Error', 'Failed to create arena session. Please try again.'))
         .finally(() => setLoading(false));
     }
   }, [gladiatorIds, existingSessionId]);

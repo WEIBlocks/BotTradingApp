@@ -6,11 +6,11 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Alert,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
+import {useToast} from '../../context/ToastContext';
 import Svg, {Path, Circle, Rect, Line} from 'react-native-svg';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -132,6 +132,7 @@ const FAQ_ITEMS: FAQItem[] = [
 
 export default function HelpSupportScreen() {
   const navigation = useNavigation<Nav>();
+  const {alert: showAlert} = useToast();
   const [searchText, setSearchText] = useState('');
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
 
@@ -211,7 +212,7 @@ export default function HelpSupportScreen() {
             style={styles.contactBtn}
             activeOpacity={0.85}
             onPress={() =>
-              Alert.alert(
+              showAlert(
                 'Support Ticket Created',
                 'Our team will get back to you within 24 hours.',
               )
@@ -223,7 +224,7 @@ export default function HelpSupportScreen() {
             style={styles.outlineBtn}
             activeOpacity={0.85}
             onPress={() =>
-              Alert.alert(
+              showAlert(
                 'Bug Report',
                 'Thank you! Your bug report has been submitted.',
               )

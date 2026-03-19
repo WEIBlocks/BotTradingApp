@@ -1,11 +1,12 @@
 import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, useWindowDimensions, Alert, ActivityIndicator, RefreshControl} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, useWindowDimensions, ActivityIndicator, RefreshControl} from 'react-native';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {CommonActions} from '@react-navigation/native';
 import Svg, {Path, Rect, Circle, Polygon} from 'react-native-svg';
 import {RootStackParamList, Trade} from '../../types';
 import {useAuth} from '../../context/AuthContext';
+import {useToast} from '../../context/ToastContext';
 import {dashboardApi, DashboardSummary, ActiveBot as DashActiveBot} from '../../services/dashboard';
 import {botsService} from '../../services/bots';
 import {tradesApi} from '../../services/trades';
@@ -240,6 +241,7 @@ export default function DashboardScreen() {
   const navigation = useNavigation<NavProp>();
   const [selectedTF, setSelectedTF] = useState('1D');
   const {user: authUser, isNewUser} = useAuth();
+  const {alert: showAlert, showConfirm} = useToast();
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [activeBots, setActiveBots] = useState<DashActiveBot[]>([]);
@@ -270,7 +272,7 @@ export default function DashboardScreen() {
       setActiveArena(arenaSession);
       setShadowSessions(shadowRes);
     } catch (e) {
-      Alert.alert('Error', 'Failed to load dashboard data. Pull down to retry.');
+      showAlert('Error', 'Failed to load dashboard data. Pull down to retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -308,29 +310,26 @@ export default function DashboardScreen() {
   };
 
   const handlePauseBot = (botId: string, botName: string) => {
-    Alert.alert(
-      'Pause Bot',
-      `Pause "${botName}"? It will stop trading until resumed.`,
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'Pause', style: 'default', onPress: () => {
-          botsService.pause(botId).then(fetchData).catch(() => Alert.alert('Error', 'Failed to pause bot.'));
-        }},
-      ],
-    );
+    showConfirm({
+      title: 'Pause Bot',
+      message: `Pause "${botName}"? It will stop trading until resumed.`,
+      confirmText: 'Pause',
+      onConfirm: () => {
+        botsService.pause(botId).then(fetchData).catch(() => showAlert('Error', 'Failed to pause bot.'));
+      },
+    });
   };
 
   const handleStopBot = (botId: string, botName: string) => {
-    Alert.alert(
-      'Stop Bot',
-      `Stop "${botName}" permanently? This will close all open positions.`,
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'Stop', style: 'destructive', onPress: () => {
-          botsService.stop(botId).then(fetchData).catch(() => Alert.alert('Error', 'Failed to stop bot.'));
-        }},
-      ],
-    );
+    showConfirm({
+      title: 'Stop Bot',
+      message: `Stop "${botName}" permanently? This will close all open positions.`,
+      confirmText: 'Stop',
+      destructive: true,
+      onConfirm: () => {
+        botsService.stop(botId).then(fetchData).catch(() => showAlert('Error', 'Failed to stop bot.'));
+      },
+    });
   };
 
   if (loading) {
@@ -511,7 +510,7 @@ export default function DashboardScreen() {
                     <TouchableOpacity
                       style={styles.resumeSmallBtn}
                       onPress={() => {
-                        botsService.resume(bot.subscriptionId).then(fetchData).catch(() => Alert.alert('Error', 'Failed to resume bot.'));
+                        botsService.resume(bot.subscriptionId).then(fetchData).catch(() => showAlert('Error', 'Failed to resume bot.'));
                       }}
                       activeOpacity={0.7}>
                       <Text style={styles.resumeSmallText}>Resume</Text>

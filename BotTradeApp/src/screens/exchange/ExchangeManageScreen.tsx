@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
@@ -13,6 +12,7 @@ import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import {exchangeApi, ExchangeConnection} from '../../services/exchange';
+import {useToast} from '../../context/ToastContext';
 import Svg, {Path, Circle} from 'react-native-svg';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
@@ -99,6 +99,7 @@ const formatBalance = (balance: number): string =>
 
 const ExchangeManageScreen = () => {
   const navigation = useNavigation<NavProp>();
+  const {alert: showAlert, showConfirm} = useToast();
   const [connections, setConnections] = useState<ExchangeConnection[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -106,32 +107,31 @@ const ExchangeManageScreen = () => {
   const fetchConnections = useCallback(() => {
     exchangeApi.getConnections()
       .then(data => setConnections(data))
-      .catch(() => Alert.alert('Error', 'Failed to load exchange connections. Pull down to retry.'))
+      .catch(() => showAlert('Error', 'Failed to load exchange connections. Pull down to retry.'))
       .finally(() => { setLoading(false); setRefreshing(false); });
   }, []);
 
   useFocusEffect(useCallback(() => { fetchConnections(); }, [fetchConnections]));
 
   const handleResync = (connectionId: string, provider: string) => {
-    Alert.alert('Re-syncing', `Syncing data from ${provider}...`);
+    showAlert('Re-syncing', `Syncing data from ${provider}...`);
     exchangeApi.resync(connectionId)
       .then(() => fetchConnections())
-      .catch(() => Alert.alert('Error', 'Re-sync failed. Please try again.'));
+      .catch(() => showAlert('Error', 'Re-sync failed. Please try again.'));
   };
 
   const handleDisconnect = (connectionId: string, provider: string) => {
-    Alert.alert(
-      'Disconnect Exchange',
-      `Are you sure you want to disconnect ${provider}?`,
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'Disconnect', style: 'destructive', onPress: () => {
-          exchangeApi.disconnect(connectionId)
-            .then(() => fetchConnections())
-            .catch(() => Alert.alert('Error', 'Failed to disconnect exchange. Please try again.'));
-        }},
-      ],
-    );
+    showConfirm({
+      title: 'Disconnect Exchange',
+      message: `Are you sure you want to disconnect ${provider}?`,
+      confirmText: 'Disconnect',
+      destructive: true,
+      onConfirm: () => {
+        exchangeApi.disconnect(connectionId)
+          .then(() => fetchConnections())
+          .catch(() => showAlert('Error', 'Failed to disconnect exchange. Please try again.'));
+      },
+    });
   };
 
   return (

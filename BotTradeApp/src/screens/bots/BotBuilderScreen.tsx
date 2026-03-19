@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import {botsService} from '../../services/bots';
@@ -15,6 +14,7 @@ import Svg, {Path} from 'react-native-svg';
 import {useNavigation, useRoute, RouteProp} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
+import {useToast} from '../../context/ToastContext';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Route = RouteProp<RootStackParamList, 'BotBuilder'>;
@@ -80,6 +80,7 @@ function RocketIcon() {
 export default function BotBuilderScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
+  const {alert: showAlert} = useToast();
 
   const strategyName = route.params?.strategyName;
   const editBotId = route.params?.editBotId;
@@ -133,7 +134,7 @@ export default function BotBuilderScreen() {
           if (bot.creatorFeePercent) setCreatorFee(String(bot.creatorFeePercent));
         }
       })
-      .catch(() => Alert.alert('Error', 'Could not load bot data.'))
+      .catch(() => showAlert('Error', 'Could not load bot data.'))
       .finally(() => setLoadingBot(false));
   }, [editBotId]);
 
@@ -145,27 +146,27 @@ export default function BotBuilderScreen() {
 
   const validateForm = () => {
     if (!botName.trim()) {
-      Alert.alert('Missing Name', 'Please enter a bot name.');
+      showAlert('Missing Name', 'Please enter a bot name.');
       return false;
     }
     if (stopLoss) {
       const sl = parseFloat(stopLoss);
       if (isNaN(sl) || sl <= 0 || sl > 50) {
-        Alert.alert('Invalid Stop Loss', 'Stop loss must be between 0.1% and 50%.');
+        showAlert('Invalid Stop Loss', 'Stop loss must be between 0.1% and 50%.');
         return false;
       }
     }
     if (takeProfit) {
       const tp = parseFloat(takeProfit);
       if (isNaN(tp) || tp <= 0 || tp > 500) {
-        Alert.alert('Invalid Take Profit', 'Take profit must be between 0.1% and 500%.');
+        showAlert('Invalid Take Profit', 'Take profit must be between 0.1% and 500%.');
         return false;
       }
     }
     if (maxPosition) {
       const mp = parseFloat(maxPosition);
       if (isNaN(mp) || mp < 10 || mp > 1000000) {
-        Alert.alert('Invalid Max Position', 'Max position size must be between $10 and $1,000,000.');
+        showAlert('Invalid Max Position', 'Max position size must be between $10 and $1,000,000.');
         return false;
       }
     }
@@ -187,11 +188,11 @@ export default function BotBuilderScreen() {
   const handleDeploy = async () => {
     if (!validateForm()) return;
     if (!selectedStrategy) {
-      Alert.alert('Missing Strategy', 'Please select a strategy.');
+      showAlert('Missing Strategy', 'Please select a strategy.');
       return;
     }
     if (selectedPairs.length === 0) {
-      Alert.alert('Missing Pairs', 'Please select at least one trading pair.');
+      showAlert('Missing Pairs', 'Please select at least one trading pair.');
       return;
     }
     setDeploying(true);
@@ -208,17 +209,15 @@ export default function BotBuilderScreen() {
           maxPositionSize: maxPosition ? parseFloat(maxPosition) : undefined,
           creatorFeePercent: creatorFee ? parseFloat(creatorFee) : 10,
         });
-        Alert.alert('Bot Updated!', `${botName} has been updated.`, [
-          {text: 'OK', onPress: () => navigation.goBack()},
-        ]);
+        showAlert('Bot Updated!', `${botName} has been updated.`);
+        navigation.goBack();
       } else {
         await botsService.createBot(getBotPayload());
-        Alert.alert('Bot Deployed!', `${botName} is now ${tradingMode === 'paper' ? 'paper' : 'live'} trading.`, [
-          {text: 'OK', onPress: () => navigation.goBack()},
-        ]);
+        showAlert('Bot Deployed!', `${botName} is now ${tradingMode === 'paper' ? 'paper' : 'live'} trading.`);
+        navigation.goBack();
       }
     } catch (e: any) {
-      Alert.alert(isEditMode ? 'Update Failed' : 'Deploy Failed', e?.message || 'Could not save bot.');
+      showAlert(isEditMode ? 'Update Failed' : 'Deploy Failed', e?.message || 'Could not save bot.');
     } finally {
       setDeploying(false);
     }
@@ -239,15 +238,14 @@ export default function BotBuilderScreen() {
           takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
           maxPositionSize: maxPosition ? parseFloat(maxPosition) : undefined,
         });
-        Alert.alert('Bot Updated!', `${botName} has been saved.`, [
-          {text: 'OK', onPress: () => navigation.goBack()},
-        ]);
+        showAlert('Bot Updated!', `${botName} has been saved.`);
+        navigation.goBack();
       } else {
         await botsService.createBot({...getBotPayload(), description: 'Draft'});
-        Alert.alert('Draft Saved!', `${botName} has been saved as a draft.`);
+        showAlert('Draft Saved!', `${botName} has been saved as a draft.`);
       }
     } catch (e: any) {
-      Alert.alert('Save Failed', e?.message || 'Could not save draft.');
+      showAlert('Save Failed', e?.message || 'Could not save draft.');
     } finally {
       setDeploying(false);
     }

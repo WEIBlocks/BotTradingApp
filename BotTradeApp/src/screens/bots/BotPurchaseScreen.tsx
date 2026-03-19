@@ -1,5 +1,5 @@
 import React, {useState, useEffect} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import type {Bot} from '../../types';
@@ -11,6 +11,7 @@ import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import CheckCircleIcon from '../../components/icons/CheckCircleIcon';
 import LockIcon from '../../components/icons/LockIcon';
 import {useIAP} from '../../context/IAPContext';
+import {useToast} from '../../context/ToastContext';
 import Svg, {Path} from 'react-native-svg';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BotPurchase'>;
@@ -29,6 +30,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const [feeRate, setFeeRate] = useState(0.07);
 
   const {purchaseBot, processing: iapProcessing} = useIAP();
+  const {alert: showAlert, showConfirm} = useToast();
 
   useEffect(() => {
     Promise.all([
@@ -41,7 +43,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
         setAvailableCapital(portfolio.totalValue || 0);
         setFeeRate(config.platformFeeRate || 0.07);
       })
-      .catch(() => Alert.alert('Error', 'Failed to load bot details'))
+      .catch(() => showAlert('Error', 'Failed to load bot details'))
       .finally(() => setLoading(false));
   }, [route.params.botId]);
 
@@ -50,56 +52,50 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
 
     // For paid bots, trigger Google Play purchase first
     if (bot.price > 0) {
-      Alert.alert(
-        'Confirm Purchase',
-        `Purchase ${bot.name} for $${bot.price}/month?\n\nPayment will be handled securely through Google Play.`,
-        [
-          {text: 'Cancel', style: 'cancel'},
-          {text: 'Purchase', onPress: async () => {
-            setActivating(true);
-            try {
-              const success = await purchaseBot(bot.id, bot.price);
-              if (success) {
-                // IAP succeeded — now activate on backend
-                await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: availableCapital || undefined});
-                Alert.alert('Bot Activated!', `${bot.name} is now running live.`, [
-                  {text: 'OK', onPress: () => navigation.navigate('Main')},
-                ]);
-              }
-            } catch (err: any) {
-              const msg = err?.response?.data?.message || err?.message || 'Failed to activate bot. Please try again.';
-              Alert.alert('Error', msg);
-            } finally {
-              setActivating(false);
+      showConfirm({
+        title: 'Confirm Purchase',
+        message: `Purchase ${bot.name} for $${bot.price}/month?\n\nPayment will be handled securely through Google Play.`,
+        confirmText: 'Purchase',
+        onConfirm: async () => {
+          setActivating(true);
+          try {
+            const success = await purchaseBot(bot.id, bot.price);
+            if (success) {
+              // IAP succeeded — now activate on backend
+              await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: availableCapital || undefined});
+              showAlert('Bot Activated!', `${bot.name} is now running live.`);
+              navigation.navigate('Main');
             }
-          }},
-        ],
-      );
+          } catch (err: any) {
+            const msg = err?.response?.data?.message || err?.message || 'Failed to activate bot. Please try again.';
+            showAlert('Error', msg);
+          } finally {
+            setActivating(false);
+          }
+        },
+      });
       return;
     }
 
     // Free bot — just activate directly
-    Alert.alert(
-      'Confirm Activation',
-      `Activate ${bot.name} for free?\n\nCapital allocated: $${availableCapital > 0 ? availableCapital.toLocaleString() : '0'}`,
-      [
-        {text: 'Cancel', style: 'cancel'},
-        {text: 'Activate', onPress: async () => {
-          setActivating(true);
-          try {
-            await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: availableCapital || undefined});
-            Alert.alert('Bot Activated!', `${bot.name} is now running live.`, [
-              {text: 'OK', onPress: () => navigation.navigate('Main')},
-            ]);
-          } catch (err: any) {
-            const msg = err?.response?.data?.message || err?.message || 'Failed to activate bot. Please try again.';
-            Alert.alert('Error', msg);
-          } finally {
-            setActivating(false);
-          }
-        }},
-      ],
-    );
+    showConfirm({
+      title: 'Confirm Activation',
+      message: `Activate ${bot.name} for free?\n\nCapital allocated: $${availableCapital > 0 ? availableCapital.toLocaleString() : '0'}`,
+      confirmText: 'Activate',
+      onConfirm: async () => {
+        setActivating(true);
+        try {
+          await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: availableCapital || undefined});
+          showAlert('Bot Activated!', `${bot.name} is now running live.`);
+          navigation.navigate('Main');
+        } catch (err: any) {
+          const msg = err?.response?.data?.message || err?.message || 'Failed to activate bot. Please try again.';
+          showAlert('Error', msg);
+        } finally {
+          setActivating(false);
+        }
+      },
+    });
   };
 
   if (loading) {

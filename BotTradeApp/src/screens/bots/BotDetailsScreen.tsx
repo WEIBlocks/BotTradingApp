@@ -1,5 +1,5 @@
 import React, {useCallback, useState} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, RefreshControl, Alert, Modal, TextInput} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, RefreshControl, Modal, TextInput} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
 import {RootStackParamList, Bot} from '../../types';
@@ -15,6 +15,7 @@ import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import ShareIcon from '../../components/icons/ShareIcon';
 import StarIcon from '../../components/icons/StarIcon';
 import XIcon from '../../components/icons/XIcon';
+import {useToast} from '../../context/ToastContext';
 
 const {width} = Dimensions.get('window');
 const CHART_W = width - 40;
@@ -32,6 +33,7 @@ interface UserBotState {
 
 export default function BotDetailsScreen({navigation, route}: Props) {
   const {user} = useAuth();
+  const {alert: showAlert, showConfirm} = useToast();
   const [bot, setBot] = useState<Bot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -118,11 +120,11 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const handleStartShadow = useCallback(() => {
     if (!bot) return;
     if (userBotState.status === 'shadow_running') {
-      Alert.alert('Shadow Mode Active', 'This bot already has a shadow session running. View or stop the current session first.');
+      showAlert('Shadow Mode Active', 'This bot already has a shadow session running. View or stop the current session first.');
       return;
     }
     if (userBotState.status === 'active') {
-      Alert.alert('Bot Already Active', 'This bot is already live trading. Stop it first to start shadow mode.');
+      showAlert('Bot Already Active', 'This bot is already live trading. Stop it first to start shadow mode.');
       return;
     }
     setSelectedDurationIdx(null);
@@ -134,12 +136,12 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const handleConfirmShadow = useCallback(() => {
     if (!bot) return;
     if (selectedDurationIdx === null) {
-      Alert.alert('Select Duration', 'Please select how long to run shadow mode.');
+      showAlert('Select Duration', 'Please select how long to run shadow mode.');
       return;
     }
     const balance = parseFloat(virtualBalance) || 10000;
     if (balance < 100) {
-      Alert.alert('Invalid Balance', 'Virtual balance must be at least $100.');
+      showAlert('Invalid Balance', 'Virtual balance must be at least $100.');
       return;
     }
 
@@ -149,7 +151,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       // Custom days
       const days = parseInt(customDays, 10);
       if (!days || days <= 0) {
-        Alert.alert('Invalid Duration', 'Please enter a valid number of days.');
+        showAlert('Invalid Duration', 'Please enter a valid number of days.');
         return;
       }
       apiConfig = {virtualBalance: balance, durationDays: days};
@@ -167,14 +169,14 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     botsService
       .startShadowMode(bot.id, apiConfig)
       .then(() => navigation.navigate('ShadowMode'))
-      .catch(() => Alert.alert('Error', 'Failed to start shadow mode.'))
+      .catch(() => showAlert('Error', 'Failed to start shadow mode.'))
       .finally(() => setActionLoading(false));
   }, [navigation, bot, selectedDurationIdx, customDays, virtualBalance, DURATION_OPTIONS]);
 
   const handleActivate = useCallback(() => {
     if (!bot) return;
     if (userBotState.status === 'active') {
-      Alert.alert('Already Active', 'This bot is already active and trading.');
+      showAlert('Already Active', 'This bot is already active and trading.');
       return;
     }
     navigation.navigate('BotPurchase', {botId: bot.id});
@@ -186,19 +188,18 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
   const handlePause = useCallback(() => {
     if (!userBotState.subscriptionId) return;
-    Alert.alert('Pause Bot', 'This will pause the bot. No new trades will be placed.', [
-      {text: 'Cancel', style: 'cancel'},
-      {
-        text: 'Pause',
-        onPress: () => {
-          setActionLoading(true);
-          botsService.pause(userBotState.subscriptionId!)
-            .then(() => fetchData())
-            .catch(() => Alert.alert('Error', 'Failed to pause bot.'))
-            .finally(() => setActionLoading(false));
-        },
+    showConfirm({
+      title: 'Pause Bot',
+      message: 'This will pause the bot. No new trades will be placed.',
+      confirmText: 'Pause',
+      onConfirm: () => {
+        setActionLoading(true);
+        botsService.pause(userBotState.subscriptionId!)
+          .then(() => fetchData())
+          .catch(() => showAlert('Error', 'Failed to pause bot.'))
+          .finally(() => setActionLoading(false));
       },
-    ]);
+    });
   }, [userBotState.subscriptionId, fetchData]);
 
   const handleResume = useCallback(() => {
@@ -206,26 +207,25 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     setActionLoading(true);
     botsService.resume(userBotState.subscriptionId)
       .then(() => fetchData())
-      .catch(() => Alert.alert('Error', 'Failed to resume bot.'))
+      .catch(() => showAlert('Error', 'Failed to resume bot.'))
       .finally(() => setActionLoading(false));
   }, [userBotState.subscriptionId, fetchData]);
 
   const handleStop = useCallback(() => {
     if (!userBotState.subscriptionId) return;
-    Alert.alert('Stop Bot', 'This will stop the bot and close all positions. This cannot be undone.', [
-      {text: 'Cancel', style: 'cancel'},
-      {
-        text: 'Stop',
-        style: 'destructive',
-        onPress: () => {
-          setActionLoading(true);
-          botsService.stop(userBotState.subscriptionId!)
-            .then(() => fetchData())
-            .catch(() => Alert.alert('Error', 'Failed to stop bot.'))
-            .finally(() => setActionLoading(false));
-        },
+    showConfirm({
+      title: 'Stop Bot',
+      message: 'This will stop the bot and close all positions. This cannot be undone.',
+      confirmText: 'Stop',
+      destructive: true,
+      onConfirm: () => {
+        setActionLoading(true);
+        botsService.stop(userBotState.subscriptionId!)
+          .then(() => fetchData())
+          .catch(() => showAlert('Error', 'Failed to stop bot.'))
+          .finally(() => setActionLoading(false));
       },
-    ]);
+    });
   }, [userBotState.subscriptionId, fetchData]);
 
   // ─── Render ──────────────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import React, {createContext, useContext, useEffect, useState, useCallback, useRef} from 'react';
-import {Alert, Platform} from 'react-native';
+import {Platform} from 'react-native';
+import {useToast} from './ToastContext';
 import {
   type ProductPurchase,
   type SubscriptionPurchase,
@@ -37,6 +38,7 @@ const IAPContext = createContext<IAPContextValue | null>(null);
 // ─── Provider ─────────────────────────────────────────────────────────────
 
 export function IAPProvider({children}: {children: React.ReactNode}) {
+  const {alert: showAlert} = useToast();
   const [state, setState] = useState<IAPState>({
     initialized: false,
     subscriptionProducts: [],
@@ -80,7 +82,7 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
     } catch (err) {
       console.error('[IAP] Purchase verification failed:', err);
       setState(prev => ({...prev, processing: false}));
-      Alert.alert('Purchase Error', 'Payment was received but verification failed. Please contact support.');
+      showAlert('Purchase Error', 'Payment was received but verification failed. Please contact support.');
     }
   }, []);
 
@@ -89,7 +91,7 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
     setState(prev => ({...prev, processing: false}));
     if (error.code === 'E_USER_CANCELLED') return;
     console.warn('[IAP] Purchase error:', error);
-    Alert.alert('Purchase Failed', error.message || 'Could not complete purchase. Please try again.');
+    showAlert('Purchase Failed', error.message || 'Could not complete purchase. Please try again.');
   }, []);
 
   // Initialize on mount
@@ -144,7 +146,7 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
       return true;
     } catch (err: any) {
       setState(prev => ({...prev, processing: false}));
-      Alert.alert('Purchase Failed', err?.message || 'Could not complete purchase.');
+      showAlert('Purchase Failed', err?.message || 'Could not complete purchase.');
       return false;
     }
   }, [state.processing]);
@@ -156,7 +158,7 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
 
     const productId = getBotProductId(price);
     if (!productId) {
-      Alert.alert('Error', 'This bot price tier is not available for purchase.');
+      showAlert('Error', 'This bot price tier is not available for purchase.');
       return false;
     }
 
@@ -172,7 +174,7 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
       return true;
     } catch (err: any) {
       setState(prev => ({...prev, processing: false}));
-      Alert.alert('Purchase Failed', err?.message || 'Could not complete purchase.');
+      showAlert('Purchase Failed', err?.message || 'Could not complete purchase.');
       return false;
     }
   }, [state.processing]);
@@ -205,12 +207,12 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
         activeSubscription: activeSub?.productId || null,
       }));
 
-      Alert.alert('Restore Complete', purchases.length > 0
+      showAlert('Restore Complete', purchases.length > 0
         ? `Restored ${purchases.length} purchase(s).`
         : 'No previous purchases found.');
     } catch (err: any) {
       setState(prev => ({...prev, processing: false}));
-      Alert.alert('Restore Failed', err?.message || 'Could not restore purchases.');
+      showAlert('Restore Failed', err?.message || 'Could not restore purchases.');
     }
   }, []);
 

@@ -1,9 +1,10 @@
 import React, {useState, useCallback, useEffect} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Keyboard, Alert, Image} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Keyboard, Image} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {GoogleSignin, statusCodes} from '@react-native-google-signin/google-signin';
 import {AuthStackParamList} from '../../types';
 import {useAuth} from '../../context/AuthContext';
+import {useToast} from '../../context/ToastContext';
 import {ApiError} from '../../services/api';
 import {authApi} from '../../services/auth';
 import {GOOGLE_WEB_CLIENT_ID} from '../../config/google';
@@ -17,6 +18,7 @@ type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
 export default function LoginScreen({navigation}: Props) {
   const {login, googleSignIn} = useAuth();
+  const {alert: showAlert, showConfirm} = useToast();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -140,7 +142,7 @@ export default function LoginScreen({navigation}: Props) {
         <Text style={styles.subtitle}>Sign in to your trading account</Text>
 
         <OAuthButton provider="google" onPress={handleGoogleSignIn} disabled={googleLoading || loading} loading={googleLoading} />
-        <OAuthButton provider="apple" onPress={() => Alert.alert('Coming Soon', 'Apple Sign-In is not yet available on Android.')} disabled={loading || googleLoading} />
+        <OAuthButton provider="apple" onPress={() => showAlert('Coming Soon', 'Apple Sign-In is not yet available on Android.')} disabled={loading || googleLoading} />
 
         <Divider label="Or sign in with email" />
 
@@ -179,24 +181,22 @@ export default function LoginScreen({navigation}: Props) {
           onPress={() => {
             const trimmedEmail = email.trim().toLowerCase();
             if (!trimmedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
-              Alert.alert('Reset Password', 'Please enter your email address above, then tap "Forgot Password?" again.');
+              showAlert('Reset Password', 'Please enter your email address above, then tap "Forgot Password?" again.');
               return;
             }
-            Alert.alert(
-              'Reset Password',
-              `We'll send a password reset link to:\n${trimmedEmail}`,
-              [
-                {text: 'Cancel', style: 'cancel'},
-                {text: 'Send Link', onPress: async () => {
-                  try {
-                    await authApi.requestPasswordReset(trimmedEmail);
-                  } catch {
-                    // Always show success to prevent email enumeration
-                  }
-                  Alert.alert('Email Sent', 'If an account exists with that email, you will receive a password reset link shortly.');
-                }},
-              ],
-            );
+            showConfirm({
+              title: 'Reset Password',
+              message: `We'll send a password reset link to:\n${trimmedEmail}`,
+              confirmText: 'Send Link',
+              onConfirm: async () => {
+                try {
+                  await authApi.requestPasswordReset(trimmedEmail);
+                } catch {
+                  // Always show success to prevent email enumeration
+                }
+                showAlert('Email Sent', 'If an account exists with that email, you will receive a password reset link shortly.');
+              },
+            });
           }}>
           <Text style={styles.forgotText}>Forgot Password?</Text>
         </TouchableOpacity>

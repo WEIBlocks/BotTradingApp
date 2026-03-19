@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import Animated, {
@@ -16,6 +15,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
+import {useToast} from '../../context/ToastContext';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import CheckCircleIcon from '../../components/icons/CheckCircleIcon';
 import InfoIcon from '../../components/icons/InfoIcon';
@@ -33,6 +33,7 @@ const DURATION_OPTIONS = [
 ];
 
 export default function PaperTradingSetupScreen({navigation}: Props) {
+  const {alert: showAlert} = useToast();
   const [selectedBalance, setSelectedBalance] = useState(10000);
   const [customBalance, setCustomBalance] = useState('');
   const [selectedDuration, setSelectedDuration] = useState(30);
@@ -52,11 +53,11 @@ export default function PaperTradingSetupScreen({navigation}: Props) {
 
   const handleStart = async () => {
     if (displayBalance < 100) {
-      Alert.alert('Invalid Amount', 'Starting balance must be at least $100.');
+      showAlert('Invalid Amount', 'Starting balance must be at least $100.');
       return;
     }
     if (displayBalance > 10000000) {
-      Alert.alert('Invalid Amount', 'Starting balance cannot exceed $10,000,000.');
+      showAlert('Invalid Amount', 'Starting balance cannot exceed $10,000,000.');
       return;
     }
     btnScale.value = withSpring(0.96, {}, () => {
@@ -71,7 +72,7 @@ export default function PaperTradingSetupScreen({navigation}: Props) {
       });
       setStep('confirm');
     } catch (e: any) {
-      Alert.alert('Setup Failed', e?.message || 'Could not start paper trading.');
+      showAlert('Setup Failed', e?.message || 'Could not start paper trading.');
     } finally {
       setSubmitting(false);
     }

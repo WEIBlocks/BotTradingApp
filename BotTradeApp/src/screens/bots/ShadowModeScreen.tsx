@@ -1,5 +1,5 @@
 import React, {useState, useCallback, useRef, useEffect} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, AppState} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, AppState} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
 import {RootStackParamList} from '../../types';
@@ -9,6 +9,7 @@ import MiniLineChart from '../../components/charts/MiniLineChart';
 import Badge from '../../components/common/Badge';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import ChevronRightIcon from '../../components/icons/ChevronRightIcon';
+import {useToast} from '../../context/ToastContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ShadowMode'>;
 
@@ -34,6 +35,7 @@ interface ShadowSession {
 const POLL_INTERVAL = 15000; // 15 seconds
 
 export default function ShadowModeScreen({navigation}: Props) {
+  const {alert: showAlert, showConfirm} = useToast();
   const [sessions, setSessions] = useState<ShadowSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
@@ -67,7 +69,7 @@ export default function ShadowModeScreen({navigation}: Props) {
       });
     } catch {
       if (isInitial) {
-        Alert.alert('Error', 'Failed to load shadow sessions.');
+        showAlert('Error', 'Failed to load shadow sessions.');
       }
     } finally {
       if (isInitial) setLoading(false);
@@ -103,41 +105,46 @@ export default function ShadowModeScreen({navigation}: Props) {
   }, [fetchSessions]);
 
   const handlePauseShadow = useCallback((sessionId: string) => {
-    Alert.alert('Pause Shadow Mode', 'Pause this shadow session? No virtual trades will be placed while paused.', [
-      {text: 'Cancel', style: 'cancel'},
-      {text: 'Pause', onPress: async () => {
+    showConfirm({
+      title: 'Pause Shadow Mode',
+      message: 'Pause this shadow session? No virtual trades will be placed while paused.',
+      confirmText: 'Pause',
+      onConfirm: async () => {
         setActionLoadingId(sessionId);
         try {
           await botsService.pauseShadowSession(sessionId);
           fetchSessions(false);
-        } catch { Alert.alert('Error', 'Failed to pause session.'); }
+        } catch { showAlert('Error', 'Failed to pause session.'); }
         setActionLoadingId(null);
-      }},
-    ]);
-  }, [fetchSessions]);
+      },
+    });
+  }, [fetchSessions, showConfirm, showAlert]);
 
   const handleResumeShadow = useCallback(async (sessionId: string) => {
     setActionLoadingId(sessionId);
     try {
       await botsService.resumeShadowSession(sessionId);
       fetchSessions(false);
-    } catch { Alert.alert('Error', 'Failed to resume session.'); }
+    } catch { showAlert('Error', 'Failed to resume session.'); }
     setActionLoadingId(null);
-  }, [fetchSessions]);
+  }, [fetchSessions, showAlert]);
 
   const handleStopShadow = useCallback((sessionId: string) => {
-    Alert.alert('Stop Shadow Mode', 'Stop and cancel this shadow session? This cannot be undone.', [
-      {text: 'Cancel', style: 'cancel'},
-      {text: 'Stop', style: 'destructive', onPress: async () => {
+    showConfirm({
+      title: 'Stop Shadow Mode',
+      message: 'Stop and cancel this shadow session? This cannot be undone.',
+      confirmText: 'Stop',
+      destructive: true,
+      onConfirm: async () => {
         setActionLoadingId(sessionId);
         try {
           await botsService.stopShadowSession(sessionId);
           fetchSessions(false);
-        } catch { Alert.alert('Error', 'Failed to stop session.'); }
+        } catch { showAlert('Error', 'Failed to stop session.'); }
         setActionLoadingId(null);
-      }},
-    ]);
-  }, [fetchSessions]);
+      },
+    });
+  }, [fetchSessions, showConfirm, showAlert]);
 
   const hasRunningSessions = sessions.some(s => s.status === 'running');
 

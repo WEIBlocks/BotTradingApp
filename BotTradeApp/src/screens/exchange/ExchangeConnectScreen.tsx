@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
@@ -14,6 +13,7 @@ import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import Svg, {Path, Rect, Circle, Line} from 'react-native-svg';
 import {exchangeApi, ExchangeConnection} from '../../services/exchange';
+import {useToast} from '../../context/ToastContext';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -268,6 +268,7 @@ function WarningIcon({size = 14, color = '#F59E0B'}: {size?: number; color?: str
 
 const ExchangeConnectScreen = () => {
   const navigation = useNavigation<NavProp>();
+  const {alert: showAlert} = useToast();
   const [activeTab, setActiveTab] = useState<'guide' | 'api'>('guide');
   const [selectedExchange, setSelectedExchange] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState('');
@@ -295,19 +296,19 @@ const ExchangeConnectScreen = () => {
 
   const handleTestConnection = async () => {
     if (!selectedExchange) {
-      Alert.alert('Select Exchange', 'Please select an exchange first.');
+      showAlert('Select Exchange', 'Please select an exchange first.');
       return;
     }
     if (!apiKey.trim() || !apiSecret.trim()) {
-      Alert.alert('Missing Fields', 'Please fill in both API Key and API Secret.');
+      showAlert('Missing Fields', 'Please fill in both API Key and API Secret.');
       return;
     }
     setTesting(true);
     try {
       const res = await exchangeApi.testConnection(selectedExchange, apiKey.trim(), apiSecret.trim(), sandbox);
-      Alert.alert('Connection Successful', res?.data?.message || `${selectedExchange} API keys are valid!`);
+      showAlert('Connection Successful', res?.data?.message || `${selectedExchange} API keys are valid!`);
     } catch (e: any) {
-      Alert.alert('Connection Failed', e?.message || 'Could not connect. Please check your API credentials.');
+      showAlert('Connection Failed', e?.message || 'Could not connect. Please check your API credentials.');
     } finally {
       setTesting(false);
     }
@@ -315,25 +316,24 @@ const ExchangeConnectScreen = () => {
 
   const handleSaveConnect = async () => {
     if (!selectedExchange) {
-      Alert.alert('Select Exchange', 'Please select an exchange first.');
+      showAlert('Select Exchange', 'Please select an exchange first.');
       return;
     }
     if (isExchangeConnected(selectedExchange)) {
-      Alert.alert('Already Connected', `${selectedExchange} is already connected. Disconnect it first from your profile to reconnect with new credentials.`);
+      showAlert('Already Connected', `${selectedExchange} is already connected. Disconnect it first from your profile to reconnect with new credentials.`);
       return;
     }
     if (!apiKey.trim() || !apiSecret.trim()) {
-      Alert.alert('Missing Fields', 'Please fill in both API Key and API Secret.');
+      showAlert('Missing Fields', 'Please fill in both API Key and API Secret.');
       return;
     }
     setConnecting(true);
     try {
       await exchangeApi.connectApiKey(selectedExchange, apiKey.trim(), apiSecret.trim(), sandbox);
-      Alert.alert('Connected!', `${selectedExchange} has been connected successfully.`, [
-        {text: 'OK', onPress: () => navigation.goBack()},
-      ]);
+      showAlert('Connected!', `${selectedExchange} has been connected successfully.`);
+      navigation.goBack();
     } catch (e: any) {
-      Alert.alert('Connection Failed', e?.message || 'Could not connect exchange.');
+      showAlert('Connection Failed', e?.message || 'Could not connect exchange.');
     } finally {
       setConnecting(false);
     }
@@ -430,7 +430,7 @@ const ExchangeConnectScreen = () => {
                   activeOpacity={0.7}
                   onPress={() => {
                     if (isExchangeConnected(guide.name)) {
-                      Alert.alert('Already Connected', `${guide.name} is already connected. Disconnect it first from your profile to reconnect.`);
+                      showAlert('Already Connected', `${guide.name} is already connected. Disconnect it first from your profile to reconnect.`);
                       return;
                     }
                     setSelectedExchange(guide.name);
@@ -469,7 +469,7 @@ const ExchangeConnectScreen = () => {
               activeOpacity={0.7}
               onPress={() => {
                 if (alreadyConnected) {
-                  Alert.alert('Already Connected', `${exchange.name} is already connected. Disconnect it first from your profile to reconnect.`);
+                  showAlert('Already Connected', `${exchange.name} is already connected. Disconnect it first from your profile to reconnect.`);
                   return;
                 }
                 setSelectedExchange(exchange.name);

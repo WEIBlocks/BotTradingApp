@@ -1,7 +1,8 @@
 import React, {useState, useEffect} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
+import {useToast} from '../../context/ToastContext';
 import Svg, {Path, Circle} from 'react-native-svg';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import {configApi} from '../../services/config';
@@ -39,6 +40,7 @@ const ShieldIcon = () => (
 );
 
 export default function CheckoutScreen({navigation, route}: Props) {
+  const {alert: showAlert} = useToast();
   const {type, itemId, amount} = route.params;
   const [processing, setProcessing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -96,9 +98,8 @@ export default function CheckoutScreen({navigation, route}: Props) {
         if (success) {
           // Also register on backend
           await subscriptionApi.subscribe(itemId).catch(() => {});
-          Alert.alert('Subscription Active!', 'Welcome to TradingApp Pro!', [
-            {text: 'OK', onPress: () => navigation.navigate('Main')},
-          ]);
+          showAlert('Subscription Active!', 'Welcome to TradingApp Pro!');
+          navigation.navigate('Main');
         }
       } else {
         // Bot purchase via Google Play
@@ -106,13 +107,12 @@ export default function CheckoutScreen({navigation, route}: Props) {
         if (success) {
           // Activate bot on backend
           await botsService.purchase(itemId, {mode: 'live'});
-          Alert.alert('Purchase Complete!', 'Your bot is now active.', [
-            {text: 'OK', onPress: () => navigation.navigate('Main')},
-          ]);
+          showAlert('Purchase Complete!', 'Your bot is now active.');
+          navigation.navigate('Main');
         }
       }
     } catch (e: any) {
-      Alert.alert('Payment Failed', e?.message || 'Could not process payment.');
+      showAlert('Payment Failed', e?.message || 'Could not process payment.');
     } finally {
       setProcessing(false);
     }
