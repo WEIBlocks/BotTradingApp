@@ -51,6 +51,10 @@ export type RootStackParamList = {
   TradingRoom: undefined;
   Settings: undefined;
   HelpSupport: undefined;
+  TermsOfService: undefined;
+  PrivacyPolicy: undefined;
+  EditProfile: undefined;
+  ChangePassword: undefined;
 };
 
 // ============ Screen Props ============

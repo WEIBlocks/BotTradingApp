@@ -396,6 +396,35 @@ export async function refreshToken(token: string) {
   return tokens;
 }
 
+export async function changePassword(userId: string, currentPassword: string, newPassword: string) {
+  const [user] = await db
+    .select({ id: users.id, passwordHash: users.passwordHash })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (!user) {
+    throw new UnauthorizedError('User not found');
+  }
+
+  if (!user.passwordHash) {
+    throw new AppError(400, 'Password change is not available for social login accounts. You signed in with Google or Apple.', 'SOCIAL_AUTH_NO_PASSWORD');
+  }
+
+  const valid = await verifyPassword(currentPassword, user.passwordHash);
+  if (!valid) {
+    throw new UnauthorizedError('Current password is incorrect');
+  }
+
+  const newHash = await hashPassword(newPassword);
+  await db
+    .update(users)
+    .set({ passwordHash: newHash, updatedAt: new Date() })
+    .where(eq(users.id, userId));
+
+  return { success: true };
+}
+
 export async function logout(userId: string, token: string) {
   const storedTokens = await db
     .select()

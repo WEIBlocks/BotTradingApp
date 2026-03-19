@@ -52,6 +52,10 @@ export const authApi = {
     return data;
   },
 
+  async changePassword(currentPassword: string, newPassword: string): Promise<{success: boolean}> {
+    return api.post<{success: boolean}>('/auth/change-password', { currentPassword, newPassword });
+  },
+
   async requestPasswordReset(email: string): Promise<void> {
     await api.post('/auth/forgot-password', {email}, {auth: false});
   },

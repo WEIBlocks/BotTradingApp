@@ -267,10 +267,14 @@ export default function SettingsScreen() {
   const navigation = useNavigation<Nav>();
   const {alert: showAlert} = useToast();
   const [twoFactor, setTwoFactor] = useState(false);
+  const [authProvider, setAuthProvider] = useState<string>('email');
 
   useEffect(() => {
     userApi.getSettings()
       .then(s => { if (s) setTwoFactor(s.pushEnabled ?? false); })
+      .catch(() => {});
+    userApi.getProfile()
+      .then(p => { if (p?.authProvider) setAuthProvider(p.authProvider); })
       .catch(() => {});
   }, []);
 
@@ -356,12 +360,24 @@ export default function SettingsScreen() {
   ];
 
   const handleRowPress = (row: SettingRow) => {
-    if (row.label === 'Edit Profile' || row.label === 'Change Password') {
-      showAlert('Coming Soon', `${row.label} will be available in a future update.`);
+    if (row.label === 'Edit Profile') {
+      navigation.navigate('EditProfile');
       return;
     }
-    if (row.label === 'Terms of Service' || row.label === 'Privacy Policy') {
-      showAlert(row.label, 'You can view our full terms at bottrade.app/legal');
+    if (row.label === 'Change Password') {
+      if (authProvider !== 'email') {
+        showAlert('Not Available', `Password change is not available for ${authProvider === 'google' ? 'Google' : 'Apple'} sign-in accounts.`);
+        return;
+      }
+      navigation.navigate('ChangePassword');
+      return;
+    }
+    if (row.label === 'Terms of Service') {
+      navigation.navigate('TermsOfService');
+      return;
+    }
+    if (row.label === 'Privacy Policy') {
+      navigation.navigate('PrivacyPolicy');
       return;
     }
     if (row.screen) {

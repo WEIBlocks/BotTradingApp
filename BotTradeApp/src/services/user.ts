@@ -15,6 +15,7 @@ export interface UserProfile {
   onboardingComplete: boolean;
   isActive: boolean;
   createdAt: string;
+  authProvider?: 'email' | 'google' | 'apple';
 }
 
 export interface WalletData {

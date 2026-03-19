@@ -65,6 +65,13 @@ export const authResponseSchema = z.object({
   onboardingComplete: z.boolean().optional(),
 });
 
+export const changePasswordSchema = {
+  body: z.object({
+    currentPassword: z.string().min(1, 'Current password is required'),
+    newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+  }),
+};
+
 export type RegisterBody = z.infer<typeof registerSchema.body>;
 export type LoginBody = z.infer<typeof loginSchema.body>;
 export type RefreshTokenBody = z.infer<typeof refreshTokenSchema.body>;

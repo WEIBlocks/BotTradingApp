@@ -141,6 +141,9 @@ export async function getProfile(userId: string) {
       onboardingComplete: users.onboardingComplete,
       isActive: users.isActive,
       createdAt: users.createdAt,
+      googleId: users.googleId,
+      appleId: users.appleId,
+      passwordHash: users.passwordHash,
     })
     .from(users)
     .where(eq(users.id, userId))
@@ -150,7 +153,11 @@ export async function getProfile(userId: string) {
     throw new NotFoundError('User');
   }
 
-  return user;
+  // Derive auth provider and strip sensitive fields
+  const authProvider = user.googleId ? 'google' : user.appleId ? 'apple' : 'email';
+  const { googleId, appleId, passwordHash, ...safeUser } = user;
+
+  return { ...safeUser, authProvider };
 }
 
 export async function updateProfile(userId: string, data: UpdateProfileBody) {

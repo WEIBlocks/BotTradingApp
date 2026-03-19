@@ -35,6 +35,10 @@ import TrainingUploadScreen from '../screens/training/TrainingUploadScreen';
 import LiveTradesScreen from '../screens/trades/LiveTradesScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
 import HelpSupportScreen from '../screens/settings/HelpSupportScreen';
+import TermsOfServiceScreen from '../screens/settings/TermsOfServiceScreen';
+import PrivacyPolicyScreen from '../screens/settings/PrivacyPolicyScreen';
+import EditProfileScreen from '../screens/profile/EditProfileScreen';
+import ChangePasswordScreen from '../screens/settings/ChangePasswordScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -105,6 +109,10 @@ export default function AppNavigator() {
           <Stack.Screen name="TradingRoom" component={TradingRoomScreen} />
           <Stack.Screen name="Settings" component={SettingsScreen} />
           <Stack.Screen name="HelpSupport" component={HelpSupportScreen} />
+          <Stack.Screen name="TermsOfService" component={TermsOfServiceScreen} />
+          <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
+          <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+          <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
           <Stack.Screen
             name="QuickActions"
             component={QuickActionsModal}

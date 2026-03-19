@@ -1,4 +1,5 @@
 import { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
 import * as authService from './auth.service.js';
@@ -8,6 +9,7 @@ import {
   refreshTokenSchema,
   oauthSchema,
   logoutSchema,
+  changePasswordSchema,
   appleAuthSchema,
   authResponseSchema,
   refreshTokenResponseSchema,
@@ -65,6 +67,20 @@ export async function authRoutes(app: FastifyInstance) {
     const { refreshToken } = request.body;
     await authService.logout(request.user.userId, refreshToken || '');
     return reply.status(200).send({ message: 'Logged out successfully' });
+  });
+
+  // POST /change-password (requires auth)
+  zApp.post('/change-password', {
+    preHandler: [authenticate],
+    schema: {
+      body: changePasswordSchema.body,
+      response: { 200: z.any() },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { currentPassword, newPassword } = request.body;
+    const result = await authService.changePassword(request.user.userId, currentPassword, newPassword);
+    return reply.status(200).send(result);
   });
 
   // POST /google - Google OAuth (verify ID token from mobile SDK)
