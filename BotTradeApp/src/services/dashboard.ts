@@ -128,10 +128,15 @@ export const dashboardApi = {
   },
 
   /**
-   * Placeholder — returns empty until the trades API is wired up.
+   * Fetches recent trades from the backend.
    */
-  async getRecentTrades(): Promise<RecentTrade[]> {
-    return [];
+  async getRecentTrades(): Promise<any[]> {
+    try {
+      const res = await api.get<any[]>('/trades/recent?limit=5');
+      return (res as any)?.data ?? res ?? [];
+    } catch {
+      return [];
+    }
   },
 
   /** Get equity history for chart. */

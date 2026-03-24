@@ -40,3 +40,23 @@ export const dataResponseSchema = z.object({
 export const messageResponseSchema = z.object({
   message: z.string(),
 });
+
+export const sendNotificationBodySchema = z.object({
+  target: z.enum(['all', 'subscribers', 'creators']),
+  title: z.string().min(1, 'Title is required'),
+  body: z.string().min(1, 'Message body is required'),
+  priority: z.enum(['low', 'normal', 'high']).optional().default('normal'),
+});
+
+export const tradesQuerySchema = paginationQuerySchema.extend({
+  userId: z.string().optional(),
+  botId: z.string().optional(),
+});
+
+export const chatsQuerySchema = paginationQuerySchema.extend({
+  userId: z.string().optional(),
+});
+
+export const reviewIdParamsSchema = z.object({
+  id: z.string().min(1),
+});

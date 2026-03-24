@@ -12,7 +12,11 @@ import {
   updateUserBodySchema,
   rejectBotBodySchema,
   updateSettingsBodySchema,
+  sendNotificationBodySchema,
   dataResponseSchema,
+  tradesQuerySchema,
+  chatsQuerySchema,
+  reviewIdParamsSchema,
 } from './admin.schema.js';
 
 export async function adminRoutes(app: FastifyInstance) {
@@ -56,8 +60,11 @@ export async function adminRoutes(app: FastifyInstance) {
       response: { 200: dataResponseSchema },
       security: [{ bearerAuth: [] }],
     },
-  }, async (request, _reply) => {
+  }, async (request, reply) => {
     const { id } = request.params;
+    if (id === request.user.userId) {
+      throw new Error('Cannot modify your own account via admin panel');
+    }
     const user = await adminService.updateUser(id, request.body);
     return { data: user };
   });
@@ -127,6 +134,103 @@ export async function adminRoutes(app: FastifyInstance) {
     const { id } = request.params;
     const bot = await adminService.suspendBot(id);
     return { data: bot };
+  });
+
+  // PATCH /bots/:id/reactivate
+  zApp.patch('/bots/:id/reactivate', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { id } = request.params;
+    const bot = await adminService.reactivateBot(id);
+    return { data: bot };
+  });
+
+  // GET /bots/:id/detail
+  zApp.get('/bots/:id/detail', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { id } = request.params;
+    const detail = await adminService.getBotDetail(id);
+    return { data: detail };
+  });
+
+  // ---- User Detail ----
+
+  // GET /users/:id/detail
+  zApp.get('/users/:id/detail', {
+    schema: {
+      params: userIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { id } = request.params;
+    const detail = await adminService.getUserDetail(id);
+    return { data: detail };
+  });
+
+  // ---- Trades ----
+
+  // GET /trades
+  zApp.get('/trades', {
+    schema: {
+      querystring: tradesQuerySchema,
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { page, limit, userId, botId } = request.query;
+    const result = await adminService.listTrades(page, limit, userId, botId);
+    return result;
+  });
+
+  // ---- Chats ----
+
+  // GET /chats
+  zApp.get('/chats', {
+    schema: {
+      querystring: chatsQuerySchema,
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { page, limit, userId } = request.query;
+    const result = await adminService.listChats(page, limit, userId);
+    return result;
+  });
+
+  // ---- Shadow Sessions ----
+
+  // GET /shadow-sessions
+  zApp.get('/shadow-sessions', {
+    schema: {
+      querystring: paginationQuerySchema,
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { page, limit } = request.query;
+    const result = await adminService.listShadowSessions(page, limit);
+    return result;
+  });
+
+  // ---- Reviews ----
+
+  // DELETE /reviews/:id
+  zApp.delete('/reviews/:id', {
+    schema: {
+      params: reviewIdParamsSchema,
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { id } = request.params;
+    const result = await adminService.deleteReview(id);
+    return result;
   });
 
   // ---- Subscriptions & Exchanges ----
@@ -223,6 +327,20 @@ export async function adminRoutes(app: FastifyInstance) {
   }, async (request, _reply) => {
     const result = await adminService.updateSettings(request.body as Record<string, any>);
     return result;
+  });
+
+  // ---- Notifications ----
+
+  // POST /notifications
+  zApp.post('/notifications', {
+    schema: {
+      body: sendNotificationBodySchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const result = await adminService.sendMassNotification(request.body);
+    return { data: result };
   });
 
   // ---- System Health ----

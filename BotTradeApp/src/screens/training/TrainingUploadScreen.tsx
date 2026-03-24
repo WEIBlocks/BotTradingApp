@@ -634,6 +634,7 @@ export default function TrainingUploadScreen() {
   const [summary, setSummary] = useState<TrainingSummary | null>(null);
   const [trainingProgress, setTrainingProgress] = useState(0);
   const [currentFile, setCurrentFile] = useState('');
+  const [trainingInProgress, setTrainingInProgress] = useState(false);
   const pulseAnim = useRef(new Animated.Value(0.3)).current;
 
   // Pulse animation for training
@@ -749,6 +750,7 @@ export default function TrainingUploadScreen() {
     }
 
     setTraining(true);
+    setTrainingInProgress(true);
     setTrainingProgress(0);
     setCurrentFile(pendingFiles[0]?.name || '');
 
@@ -781,11 +783,13 @@ export default function TrainingUploadScreen() {
       // Wait a beat then show results
       setTimeout(() => {
         setTraining(false);
+        setTrainingInProgress(false);
         setScreenView('results');
       }, 800);
     } catch (e: any) {
       if (progressInterval) clearInterval(progressInterval);
       setTraining(false);
+      setTrainingInProgress(false);
       showAlert('Training Failed', e?.message || 'Could not complete training.');
       loadUploads(); // Refresh to get any partial results
     }
@@ -987,6 +991,15 @@ export default function TrainingUploadScreen() {
             />
             <Text style={styles.trainingHint}>
               This may take a moment depending on file count
+            </Text>
+          </View>
+        )}
+
+        {!training && trainingInProgress && (
+          <View style={styles.trainingBanner}>
+            <ActivityIndicator size="small" color="#F59E0B" style={{marginRight: 10}} />
+            <Text style={styles.trainingBannerText}>
+              Training in progress... Your bot is learning from the uploaded data. This may take a few minutes.
             </Text>
           </View>
         )}
@@ -1548,6 +1561,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: 'rgba(245,158,11,0.9)',
     textAlign: 'center',
+    lineHeight: 20,
+  },
+  trainingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245,158,11,0.08)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.2)',
+    padding: 16,
+    marginBottom: 16,
+  },
+  trainingBannerText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: 'rgba(245,158,11,0.9)',
+    flex: 1,
     lineHeight: 20,
   },
 });

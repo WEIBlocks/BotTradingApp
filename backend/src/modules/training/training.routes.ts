@@ -47,8 +47,11 @@ export async function trainingRoutes(app: FastifyInstance) {
     if (mime.startsWith('image/')) fileType = 'image';
     else if (mime.startsWith('video/')) fileType = 'video';
 
+    // Sanitize filename to prevent path traversal
+    const safeName = path.basename(data.filename || 'file');
+
     // Generate unique filename and save
-    const ext = path.extname(data.filename || '.bin');
+    const ext = path.extname(safeName || '.bin');
     const uniqueName = `${randomUUID()}${ext}`;
     const filePath = path.join(UPLOADS_DIR, uniqueName);
 
@@ -74,7 +77,7 @@ export async function trainingRoutes(app: FastifyInstance) {
       request.user.userId,
       botId,
       fileType,
-      data.filename || 'Untitled',
+      safeName || 'Untitled',
       fileUrl,
       fileSize,
     );

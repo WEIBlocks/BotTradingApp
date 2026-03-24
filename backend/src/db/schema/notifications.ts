@@ -7,6 +7,7 @@ import {
   boolean,
   timestamp,
   jsonb,
+  index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { users } from "./users";
@@ -23,22 +24,28 @@ export const notificationPriorityEnum = pgEnum("notification_priority", [
   "high",
 ]);
 
-export const notifications = pgTable("notifications", {
-  id: uuid("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id),
-  type: notificationTypeEnum("type"),
-  title: varchar("title", { length: 200 }).notNull(),
-  body: text("body"),
-  priority: notificationPriorityEnum("priority").default("normal"),
-  read: boolean("read").default(false),
-  tradeId: uuid("trade_id"),
-  chartData: jsonb("chart_data"),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    type: notificationTypeEnum("type"),
+    title: varchar("title", { length: 200 }).notNull(),
+    body: text("body"),
+    priority: notificationPriorityEnum("priority").default("normal"),
+    read: boolean("read").default(false),
+    tradeId: uuid("trade_id"),
+    chartData: jsonb("chart_data"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    userIdIdx: index("notifications_user_id_idx").on(t.userId),
+  })
+);
 
 export const notificationSettings = pgTable("notification_settings", {
   id: uuid("id")

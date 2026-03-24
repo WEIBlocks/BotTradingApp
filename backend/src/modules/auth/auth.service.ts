@@ -422,6 +422,9 @@ export async function changePassword(userId: string, currentPassword: string, ne
     .set({ passwordHash: newHash, updatedAt: new Date() })
     .where(eq(users.id, userId));
 
+  // Revoke all existing refresh tokens for this user
+  await db.update(refreshTokens).set({ revoked: true }).where(eq(refreshTokens.userId, userId));
+
   return { success: true };
 }
 

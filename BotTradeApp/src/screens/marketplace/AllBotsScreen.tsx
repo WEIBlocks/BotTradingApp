@@ -138,7 +138,7 @@ export default function AllBotsScreen() {
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const searchTimeout = useRef<NodeJS.Timeout | null>(null);
+  const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchBots = useCallback(async (pageNum: number, append = false) => {
     try {

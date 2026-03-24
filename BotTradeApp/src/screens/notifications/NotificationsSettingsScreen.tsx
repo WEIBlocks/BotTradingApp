@@ -63,7 +63,13 @@ export default function NotificationsSettingsScreen({navigation}: Props) {
       // Debounce API call to persist settings
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
-        userApi.updateSettings({notification_preferences: updated}).catch(() => {});
+        userApi.updateSettings({
+          trade_alerts: updated.tradeAlerts ?? true,
+          system_updates: updated.systemUpdates ?? true,
+          price_alerts: updated.priceAlerts ?? true,
+          push_enabled: updated.pushEnabled ?? true,
+          email_enabled: updated.emailEnabled ?? false,
+        }).catch(() => {});
       }, 800);
       return updated;
     });
@@ -73,7 +79,14 @@ export default function NotificationsSettingsScreen({navigation}: Props) {
   useEffect(() => {
     userApi.getSettings()
       .then(s => {
-        if (s?.notificationPreferences) setSettings(prev => ({...prev, ...s.notificationPreferences}));
+        if (s) setSettings(prev => ({
+          ...prev,
+          tradeAlerts: s.tradeAlerts ?? prev.tradeAlerts,
+          systemUpdates: s.systemUpdates ?? prev.systemUpdates,
+          priceAlerts: s.priceAlerts ?? prev.priceAlerts,
+          pushEnabled: s.pushEnabled ?? prev.pushEnabled,
+          emailEnabled: s.emailEnabled ?? prev.emailEnabled,
+        }));
       })
       .catch(() => {});
   }, []);

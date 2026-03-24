@@ -170,6 +170,11 @@ export default function BotBuilderScreen() {
         return false;
       }
     }
+    const price = parseFloat(creatorFee);
+    if (!isNaN(price) && price > 20) {
+      showAlert('Invalid Price', 'Bot price cannot exceed $20.00 per month.');
+      return false;
+    }
     return true;
   };
 

@@ -10,6 +10,7 @@ import {
   timestamp,
   jsonb,
   unique,
+  index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { users } from "./users";
@@ -150,33 +151,41 @@ export const botSubscriptions = pgTable(
       t.userId,
       t.botId
     ),
+    userIdIdx: index("bot_subs_user_id_idx").on(t.userId),
+    botIdIdx: index("bot_subs_bot_id_idx").on(t.botId),
   })
 );
 
-export const shadowSessions = pgTable("shadow_sessions", {
-  id: uuid("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id),
-  botId: uuid("bot_id").references(() => bots.id),
-  virtualBalance: numeric("virtual_balance", {
-    precision: 12,
-    scale: 2,
-  }).notNull(),
-  currentBalance: numeric("current_balance", { precision: 12, scale: 2 }),
-  durationDays: integer("duration_days").notNull(),
-  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
-  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
-  status: shadowStatusEnum("status").default("running"),
-  enableRiskLimits: boolean("enable_risk_limits").default(true),
-  enableRealisticFees: boolean("enable_realistic_fees").default(true),
-  dailyPerformance: jsonb("daily_performance"),
-  totalTrades: integer("total_trades").default(0),
-  winCount: integer("win_count").default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+export const shadowSessions = pgTable(
+  "shadow_sessions",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    botId: uuid("bot_id").references(() => bots.id),
+    virtualBalance: numeric("virtual_balance", {
+      precision: 12,
+      scale: 2,
+    }).notNull(),
+    currentBalance: numeric("current_balance", { precision: 12, scale: 2 }),
+    durationDays: integer("duration_days").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    status: shadowStatusEnum("status").default("running"),
+    enableRiskLimits: boolean("enable_risk_limits").default(true),
+    enableRealisticFees: boolean("enable_realistic_fees").default(true),
+    dailyPerformance: jsonb("daily_performance"),
+    totalTrades: integer("total_trades").default(0),
+    winCount: integer("win_count").default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    userStatusIdx: index("shadow_sessions_user_status_idx").on(t.userId, t.status),
+  })
+);
 
 export const earningStatusEnum = pgEnum("earning_status", [
   "pending",
@@ -226,5 +235,6 @@ export const reviews = pgTable(
   },
   (t) => ({
     userBotUnique: unique("reviews_user_bot_unique").on(t.userId, t.botId),
+    botIdIdx: index("reviews_bot_id_idx").on(t.botId),
   })
 );

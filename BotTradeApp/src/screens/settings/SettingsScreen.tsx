@@ -289,12 +289,13 @@ export default function SettingsScreen() {
       rows: [
         {label: 'Edit Profile', icon: <UserIcon />, type: 'nav'},
         {label: 'Change Password', icon: <LockIcon />, type: 'nav'},
-        {
-          label: 'Two-Factor Authentication',
-          icon: <ShieldIcon />,
-          type: 'toggle',
-          toggleKey: 'twoFactor',
-        },
+        // Two-Factor Authentication — commented out until backend 2FA is implemented
+        // {
+        //   label: 'Two-Factor Authentication',
+        //   icon: <ShieldIcon />,
+        //   type: 'toggle',
+        //   toggleKey: 'twoFactor',
+        // },
         {
           label: 'Connected Exchanges',
           icon: <LinkIcon />,

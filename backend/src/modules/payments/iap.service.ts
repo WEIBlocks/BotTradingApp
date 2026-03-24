@@ -122,16 +122,15 @@ export async function verifyReceipt(userId: string, data: VerifyReceiptData): Pr
 
   // If it's a subscription, update subscription status
   if (data.type === 'subscription') {
-    const existing = await db.query.userSubscriptions.findFirst({
-      where: eq(userSubscriptions.userId, userId),
-    });
+    const [existing] = await db.select().from(userSubscriptions)
+      .where(eq(userSubscriptions.userId, userId)).limit(1);
 
     if (existing) {
       await db.update(userSubscriptions)
         .set({
           status: 'active',
-          currentPeriodEnd: verification.expiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-          updatedAt: new Date().toISOString(),
+          currentPeriodEnd: verification.expiresAt ? new Date(verification.expiresAt) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          updatedAt: new Date(),
         })
         .where(eq(userSubscriptions.id, existing.id));
     }

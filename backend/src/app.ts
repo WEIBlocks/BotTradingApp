@@ -44,6 +44,7 @@ export async function buildApp() {
       level: env.NODE_ENV === 'production' ? 'info' : 'debug',
       transport: env.NODE_ENV === 'development' ? { target: 'pino-pretty' } : undefined,
     },
+    bodyLimit: 1048576, // 1MB
   }).withTypeProvider<ZodTypeProvider>();
 
   // Set Zod as validator/serializer
@@ -56,7 +57,9 @@ export async function buildApp() {
 
   // CORS
   await app.register(cors, {
-    origin: true,
+    origin: process.env.NODE_ENV === 'production'
+      ? (process.env.CORS_ORIGINS || 'https://bottrade.app').split(',')
+      : true,
     credentials: true,
   });
 
@@ -104,6 +107,17 @@ export async function buildApp() {
 
   await app.register(swaggerUI, {
     routePrefix: '/docs',
+  });
+
+  // Security headers
+  app.addHook('onSend', async (_request, reply) => {
+    reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('X-Frame-Options', 'DENY');
+    reply.header('X-XSS-Protection', '1; mode=block');
+    reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
+    if (process.env.NODE_ENV === 'production') {
+      reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    }
   });
 
   // Health check

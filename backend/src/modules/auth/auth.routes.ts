@@ -21,6 +21,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   // POST /register
   zApp.post('/register', {
+    config: { rateLimit: { max: 15, timeWindow: '1 minute' } },
     schema: {
       body: registerSchema.body,
       response: { 201: authResponseSchema },
@@ -33,6 +34,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   // POST /login
   zApp.post('/login', {
+    config: { rateLimit: { max: 15, timeWindow: '1 minute' } },
     schema: {
       body: loginSchema.body,
       response: { 200: authResponseSchema },

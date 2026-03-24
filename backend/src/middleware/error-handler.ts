@@ -40,8 +40,11 @@ export function errorHandler(
 
   // Unknown errors
   const statusCode = 'statusCode' in error ? (error as any).statusCode : 500;
+  const message = statusCode === 500
+    ? (process.env.NODE_ENV === 'production' ? 'Internal server error' : error.message)
+    : error.message;
   return reply.status(statusCode).send({
-    error: statusCode === 500 ? 'Internal Server Error' : error.message,
+    error: message,
     code: 'INTERNAL_ERROR',
   });
 }
