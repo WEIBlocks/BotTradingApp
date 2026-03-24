@@ -60,3 +60,8 @@ export const chatsQuerySchema = paginationQuerySchema.extend({
 export const reviewIdParamsSchema = z.object({
   id: z.string().min(1),
 });
+
+export const grantSubscriptionBodySchema = z.object({
+  tier: z.string().default('pro'),
+  durationDays: z.coerce.number().int().min(1).default(30),
+});

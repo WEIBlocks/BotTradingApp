@@ -70,9 +70,11 @@ const SETTINGS = [
   {icon: WalletIcon, label: 'Wallet & Funds', screen: 'WalletFunds'},
   {icon: WalletIcon, label: 'Connected Exchanges', screen: 'ExchangeManage'},
   {icon: GearIcon, label: 'Subscription', screen: 'Subscription'},
+  {icon: GearIcon, label: 'Trading Room', screen: 'TradingRoom'},
   {icon: GearIcon, label: 'Creator Studio', screen: 'CreatorStudio'},
   {icon: SwordsMenuIcon, label: 'Battle History', screen: 'ArenaHistory'},
-  {icon: GiftIcon, label: 'Refer a Friend', screen: 'Referral'},
+  // Refer a Friend — commented out until referral rewards system is fully integrated
+  // {icon: GiftIcon, label: 'Refer a Friend', screen: 'Referral'},
   {icon: GearIcon, label: 'Settings', screen: 'Settings'},
 ];
 
@@ -208,10 +210,12 @@ export default function ProfileScreen() {
               <Text style={styles.statNum}>{investmentGoal}</Text>
               <Text style={styles.statLbl}>Goal</Text>
             </View>
+            {/* Referral code — commented out until referral system is fully integrated
             <View style={styles.statItem}>
               <Text style={styles.statNum}>{referralCode}</Text>
               <Text style={styles.statLbl}>Ref. Code</Text>
             </View>
+            */}
           </View>
         </View>
 

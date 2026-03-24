@@ -7,6 +7,7 @@ import {RootStackParamList} from '../../types';
 import Svg, {Path, Circle, Line} from 'react-native-svg';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import {useIAP} from '../../context/IAPContext';
+import {useAuth} from '../../context/AuthContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Subscription'>;
 
@@ -58,6 +59,7 @@ const comparisonRows: {feature: string; free: string | boolean; pro: string | bo
 
 export default function SubscriptionScreen({navigation}: Props) {
   const {alert: showAlert, showConfirm} = useToast();
+  const {user} = useAuth();
   const [plans, setPlans] = useState<SubPlan[]>([]);
   const [current, setCurrent] = useState<CurrentSubscription | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,7 +86,7 @@ export default function SubscriptionScreen({navigation}: Props) {
 
   React.useEffect(() => { fetchData(); }, [fetchData]);
 
-  const isProActive = isPro || (current?.tier === 'pro' && current?.status === 'active');
+  const isProActive = isPro || (current?.tier === 'pro' && current?.status === 'active') || user?.role === 'admin';
   const proPlan = plans.find(p => p.tier === 'pro') || null;
   const proPrice = proPlan?.priceMonthly || 4.94;
   const yearlyPrice = proPlan?.priceYearly || 49.99;

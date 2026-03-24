@@ -10,6 +10,7 @@ import {subscriptionApi} from '../../services/subscription';
 import {botsService} from '../../services/bots';
 import {useIAP} from '../../context/IAPContext';
 import {SUB_SKUS} from '../../services/iap';
+import {useAuth} from '../../context/AuthContext';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Checkout'>;
 
@@ -41,6 +42,7 @@ const ShieldIcon = () => (
 
 export default function CheckoutScreen({navigation, route}: Props) {
   const {alert: showAlert} = useToast();
+  const {user} = useAuth();
   const {type, itemId, amount} = route.params;
   const [processing, setProcessing] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -61,7 +63,7 @@ export default function CheckoutScreen({navigation, route}: Props) {
       subscriptionApi.getCurrent().catch(() => null),
     ]).then(([config, sub]) => {
       setPlatformFeeRate(config.platformFeeRate ?? 0.07);
-      const isProSub = isPro || (sub?.tier === 'pro' && sub?.status === 'active');
+      const isProSub = isPro || (sub?.tier === 'pro' && sub?.status === 'active') || user?.role === 'admin';
       if (isProSub && type !== 'subscription') {
         setProDiscount(config.proDiscountRate ?? 0.03);
       }

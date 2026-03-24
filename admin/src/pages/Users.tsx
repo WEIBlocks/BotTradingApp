@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, ChevronDown, X } from 'lucide-react';
+import { Search, ChevronDown, X, Crown } from 'lucide-react';
 import { adminService, type User, type PaginatedResponse } from '../services/admin';
 
 function RoleBadge({ role }: { role: string }) {
@@ -54,6 +54,13 @@ export default function Users() {
   const [newRole, setNewRole] = useState('');
   const [modalLoading, setModalLoading] = useState(false);
   const [modalError, setModalError] = useState('');
+
+  // Subscription modal state
+  const [subUser, setSubUser] = useState<User | null>(null);
+  const [subTier, setSubTier] = useState('pro');
+  const [subDays, setSubDays] = useState(30);
+  const [subLoading, setSubLoading] = useState(false);
+  const [subError, setSubError] = useState('');
 
   // Dropdown state
   const [openDropdown, setOpenDropdown] = useState<string | null>(null);
@@ -135,6 +142,49 @@ export default function Users() {
       setModalError(err instanceof Error ? err.message : 'Failed to deactivate user');
     } finally {
       setModalLoading(false);
+    }
+  };
+
+  const openSubModal = (user: User) => {
+    setSubUser(user);
+    setSubTier('pro');
+    setSubDays(30);
+    setSubError('');
+    setOpenDropdown(null);
+  };
+
+  const closeSubModal = () => {
+    setSubUser(null);
+    setSubError('');
+  };
+
+  const handleGrantSub = async () => {
+    if (!subUser) return;
+    setSubLoading(true);
+    setSubError('');
+    try {
+      await adminService.grantSubscription(subUser.id, subTier, subDays);
+      closeSubModal();
+      fetchUsers(page, search);
+    } catch (err) {
+      setSubError(err instanceof Error ? err.message : 'Failed to grant subscription');
+    } finally {
+      setSubLoading(false);
+    }
+  };
+
+  const handleRevokeSub = async () => {
+    if (!subUser) return;
+    setSubLoading(true);
+    setSubError('');
+    try {
+      await adminService.revokeSubscription(subUser.id);
+      closeSubModal();
+      fetchUsers(page, search);
+    } catch (err) {
+      setSubError(err instanceof Error ? err.message : 'Failed to revoke subscription');
+    } finally {
+      setSubLoading(false);
     }
   };
 
@@ -247,7 +297,14 @@ export default function Users() {
                       {formatDate(user.createdAt)}
                     </td>
                     <td className="px-5 py-3 text-right">
-                      <div className="relative inline-block">
+                      <div className="relative inline-flex items-center gap-1">
+                        <button
+                          onClick={() => openSubModal(user)}
+                          title="Manage Subscription"
+                          className="p-1.5 rounded-lg hover:bg-amber-500/10 text-amber-400/50 hover:text-amber-400 transition-colors"
+                        >
+                          <Crown size={16} />
+                        </button>
                         <button
                           onClick={() =>
                             setOpenDropdown(openDropdown === user.id ? null : user.id)
@@ -425,6 +482,81 @@ export default function Users() {
                 className="flex-1 px-4 py-2.5 text-sm rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {modalLoading ? 'Deactivating...' : 'Deactivate'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Subscription Management Modal */}
+      {subUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div className="absolute inset-0 bg-black/60" onClick={closeSubModal} />
+          <div className="relative bg-[#161B22] border border-white/10 rounded-2xl w-full max-w-md p-6 shadow-2xl">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-white font-semibold text-lg flex items-center gap-2">
+                <Crown size={18} className="text-amber-400" />
+                Manage Subscription
+              </h3>
+              <button
+                onClick={closeSubModal}
+                className="text-white/30 hover:text-white/60 transition-colors"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <p className="text-white/40 text-sm mb-4">
+              Subscription for <span className="text-white font-medium">{subUser.name}</span>
+            </p>
+
+            {subError && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-lg px-4 py-3 mb-4">
+                {subError}
+              </div>
+            )}
+
+            {/* Plan tier */}
+            <label className="block text-white/50 text-xs font-medium mb-1.5 uppercase tracking-wider">Plan Tier</label>
+            <select
+              value={subTier}
+              onChange={(e) => setSubTier(e.target.value)}
+              className="w-full bg-[#0D1117] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm mb-4 focus:outline-none focus:border-[#10B981]/50 focus:ring-1 focus:ring-[#10B981]/30 transition-colors"
+            >
+              <option value="free">Free</option>
+              <option value="pro">Pro</option>
+            </select>
+
+            {/* Duration */}
+            <label className="block text-white/50 text-xs font-medium mb-1.5 uppercase tracking-wider">Duration (days)</label>
+            <input
+              type="number"
+              min={1}
+              value={subDays}
+              onChange={(e) => setSubDays(Math.max(1, parseInt(e.target.value) || 1))}
+              className="w-full bg-[#0D1117] border border-white/10 rounded-lg px-3 py-2.5 text-white text-sm mb-6 focus:outline-none focus:border-[#10B981]/50 focus:ring-1 focus:ring-[#10B981]/30 transition-colors"
+            />
+
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={handleGrantSub}
+                disabled={subLoading}
+                className="w-full px-4 py-2.5 text-sm rounded-lg bg-[#10B981] hover:bg-[#0EA472] text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {subLoading ? 'Processing...' : 'Grant Subscription'}
+              </button>
+              <button
+                onClick={handleRevokeSub}
+                disabled={subLoading}
+                className="w-full px-4 py-2.5 text-sm rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {subLoading ? 'Processing...' : 'Revoke Subscription'}
+              </button>
+              <button
+                onClick={closeSubModal}
+                className="w-full px-4 py-2.5 text-sm rounded-lg border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.06] transition-colors"
+              >
+                Close
               </button>
             </div>
           </div>

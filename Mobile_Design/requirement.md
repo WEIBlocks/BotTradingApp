@@ -1,5 +1,5 @@
-"Shadow Mode" - Risk-Free Trial
-Every bot can run in "shadow mode" for any user:
+"Shadow Mode" - Risk-Free Trial 
+Every bot can run in "shadow mode" for any user: 
 Bot makes "virtual trades" with your portfolio size
 Shows what would happen if you were using it
 No real trades executed

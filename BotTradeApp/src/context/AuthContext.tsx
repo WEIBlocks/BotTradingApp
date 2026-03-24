@@ -8,7 +8,8 @@ import React, {
 } from 'react';
 import {GoogleSignin} from '@react-native-google-signin/google-signin';
 import {authApi, AuthUser} from '../services/auth';
-import {ApiError} from '../services/api';
+import {api, ApiError} from '../services/api';
+import {storage} from '../services/storage';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,8 @@ interface AuthContextValue extends AuthState {
   logout: () => Promise<void>;
   saveQuizResults: (data: {riskTolerance: number; investmentGoal?: string; timeHorizon?: string}) => Promise<void>;
   completeOnboarding: () => void;
+  /** Refresh local user data (e.g. after role change) */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -129,6 +132,20 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     setState(prev => ({...prev, isOnboarding: false}));
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const profile = await api.get<{id: string; name: string; email: string; role: string}>('/user/profile');
+      const updated = {
+        id: profile.id,
+        name: profile.name,
+        email: profile.email,
+        role: profile.role,
+      };
+      await storage.setUser(updated);
+      setState(prev => ({...prev, user: updated}));
+    } catch {}
+  }, []);
+
   const value = useMemo<AuthContextValue>(() => ({
     ...state,
     login,
@@ -138,7 +155,8 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     logout,
     saveQuizResults,
     completeOnboarding,
-  }), [state, login, register, googleSignIn, appleSignIn, logout, saveQuizResults, completeOnboarding]);
+    refreshUser,
+  }), [state, login, register, googleSignIn, appleSignIn, logout, saveQuizResults, completeOnboarding, refreshUser]);
 
   return (
     <AuthContext.Provider value={value}>

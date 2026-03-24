@@ -17,6 +17,7 @@ import {
   tradesQuerySchema,
   chatsQuerySchema,
   reviewIdParamsSchema,
+  grantSubscriptionBodySchema,
 } from './admin.schema.js';
 
 export async function adminRoutes(app: FastifyInstance) {
@@ -231,6 +232,35 @@ export async function adminRoutes(app: FastifyInstance) {
     const { id } = request.params;
     const result = await adminService.deleteReview(id);
     return result;
+  });
+
+  // ---- User Subscription Management ----
+
+  // POST /users/:id/subscription — grant or update
+  zApp.post('/users/:id/subscription', {
+    schema: {
+      params: userIdParamsSchema,
+      body: grantSubscriptionBodySchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { id } = request.params;
+    const { tier, durationDays } = request.body;
+    const result = await adminService.grantSubscription(id, tier, durationDays);
+    return { data: result };
+  });
+
+  // DELETE /users/:id/subscription — revoke
+  zApp.delete('/users/:id/subscription', {
+    schema: {
+      params: userIdParamsSchema,
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { id } = request.params;
+    const result = await adminService.revokeSubscription(id);
+    return { data: result };
   });
 
   // ---- Subscriptions & Exchanges ----

@@ -353,6 +353,55 @@ export async function getDashboardAnalytics() {
   };
 }
 
+// ---- Grant / Revoke Subscription ----
+
+export async function grantSubscription(userId: string, planTier: string, durationDays: number) {
+  // Find the plan by tier
+  let [plan] = await db.select().from(subscriptionPlans)
+    .where(eq(subscriptionPlans.tier, planTier as any)).limit(1);
+
+  if (!plan) {
+    // Create a default pro plan if none exists
+    [plan] = await db.insert(subscriptionPlans).values({
+      name: planTier === 'pro' ? 'Pro' : 'Free',
+      tier: planTier as any,
+      price: planTier === 'pro' ? '4.94' : '0',
+      period: 'monthly',
+      features: planTier === 'pro' ? ['Trading Rooms', 'Live Feed', '3% Discount'] : [],
+      isActive: true,
+    }).returning();
+  }
+
+  const now = new Date();
+  const end = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+
+  // Check if user already has a subscription
+  const [existing] = await db.select().from(userSubscriptions)
+    .where(eq(userSubscriptions.userId, userId)).limit(1);
+
+  if (existing) {
+    // Update existing
+    const [updated] = await db.update(userSubscriptions)
+      .set({ status: 'active', currentPeriodStart: now, currentPeriodEnd: end, planId: plan.id, updatedAt: now })
+      .where(eq(userSubscriptions.id, existing.id)).returning();
+    return updated;
+  } else {
+    // Create new
+    const [created] = await db.insert(userSubscriptions)
+      .values({ userId, planId: plan.id, status: 'active', currentPeriodStart: now, currentPeriodEnd: end })
+      .returning();
+    return created;
+  }
+}
+
+export async function revokeSubscription(userId: string) {
+  const [updated] = await db.update(userSubscriptions)
+    .set({ status: 'cancelled', updatedAt: new Date() })
+    .where(eq(userSubscriptions.userId, userId)).returning();
+  if (!updated) throw new NotFoundError('Subscription');
+  return updated;
+}
+
 // ---- Settings ----
 
 export async function getSettings() {

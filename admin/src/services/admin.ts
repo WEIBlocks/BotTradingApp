@@ -272,6 +272,17 @@ export const adminService = {
     return normalizePaginated(data);
   },
 
+  // Subscription Management (grant / revoke)
+  async grantSubscription(userId: string, tier: string, durationDays: number) {
+    const { data } = await api.post(`/admin/users/${userId}/subscription`, { tier, durationDays });
+    return data.data ?? data;
+  },
+
+  async revokeSubscription(userId: string) {
+    const { data } = await api.delete(`/admin/users/${userId}/subscription`);
+    return data.data ?? data;
+  },
+
   // Subscriptions
   async getSubscriptions(page = 1, limit = 20): Promise<PaginatedResponse<Subscription>> {
     const { data } = await api.get('/admin/subscriptions', { params: { page, limit } });

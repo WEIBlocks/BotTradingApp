@@ -60,6 +60,20 @@ export async function createBot(userId: string, data: CreateBotData) {
   // Create initial statistics row
   await db.insert(botStatistics).values({ botId: bot.id });
 
+  // Auto-upgrade user role to 'creator' on first bot creation
+  const [currentUser] = await db
+    .select({ role: users.role })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+
+  if (currentUser && currentUser.role === 'user') {
+    await db
+      .update(users)
+      .set({ role: 'creator', updatedAt: new Date() })
+      .where(eq(users.id, userId));
+  }
+
   return bot;
 }
 

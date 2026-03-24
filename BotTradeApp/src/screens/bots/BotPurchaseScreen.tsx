@@ -12,6 +12,7 @@ import CheckCircleIcon from '../../components/icons/CheckCircleIcon';
 import LockIcon from '../../components/icons/LockIcon';
 import {useIAP} from '../../context/IAPContext';
 import {useToast} from '../../context/ToastContext';
+import {useAuth} from '../../context/AuthContext';
 import Svg, {Path} from 'react-native-svg';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BotPurchase'>;
@@ -31,6 +32,8 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
 
   const {purchaseBot, processing: iapProcessing} = useIAP();
   const {alert: showAlert, showConfirm} = useToast();
+  const {user} = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     Promise.all([
@@ -50,8 +53,8 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const handleActivate = async () => {
     if (!bot) return;
 
-    // For paid bots, trigger Google Play purchase first
-    if (bot.price > 0) {
+    // Admin bypasses payment — activate directly
+    if (bot.price > 0 && !isAdmin) {
       showConfirm({
         title: 'Confirm Purchase',
         message: `Purchase ${bot.name} for $${bot.price}/month?\n\nPayment will be handled securely through Google Play.`,

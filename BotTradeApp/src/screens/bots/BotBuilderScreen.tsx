@@ -15,6 +15,7 @@ import {useNavigation, useRoute, RouteProp} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import {useToast} from '../../context/ToastContext';
+import {useAuth} from '../../context/AuthContext';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Route = RouteProp<RootStackParamList, 'BotBuilder'>;
@@ -81,6 +82,7 @@ export default function BotBuilderScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
   const {alert: showAlert} = useToast();
+  const {refreshUser} = useAuth();
 
   const strategyName = route.params?.strategyName;
   const editBotId = route.params?.editBotId;
@@ -218,6 +220,7 @@ export default function BotBuilderScreen() {
         navigation.goBack();
       } else {
         await botsService.createBot(getBotPayload());
+        await refreshUser(); // role may have upgraded to 'creator'
         showAlert('Bot Deployed!', `${botName} is now ${tradingMode === 'paper' ? 'paper' : 'live'} trading.`);
         navigation.goBack();
       }
@@ -247,6 +250,7 @@ export default function BotBuilderScreen() {
         navigation.goBack();
       } else {
         await botsService.createBot({...getBotPayload(), description: 'Draft'});
+        await refreshUser(); // role may have upgraded to 'creator'
         showAlert('Draft Saved!', `${botName} has been saved as a draft.`);
       }
     } catch (e: any) {

@@ -35,6 +35,7 @@ import { arenaRoutes } from './modules/arena/arena.routes.js';
 import { trainingRoutes } from './modules/training/training.routes.js';
 import { aiRoutes } from './modules/ai/ai.routes.js';
 import { adminRoutes } from './modules/admin/admin.routes.js';
+import { tradingRoomRoutes } from './modules/trading-room/trading-room.routes.js';
 
 import { wsRoutes } from './modules/ws/ws.routes.js';
 
@@ -163,6 +164,7 @@ export async function buildApp() {
   await app.register(trainingRoutes, { prefix: '/training' });
   await app.register(aiRoutes, { prefix: '/ai' });
   await app.register(adminRoutes, { prefix: '/admin' });
+  await app.register(tradingRoomRoutes, { prefix: '/trading-room' });
 
   // WebSocket routes
   await app.register(wsRoutes, { prefix: '/ws' });
