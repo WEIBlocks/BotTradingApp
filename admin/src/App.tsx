@@ -13,6 +13,7 @@ import Settings from './pages/Settings';
 import Trades from './pages/Trades';
 import Chats from './pages/Chats';
 import ShadowSessions from './pages/ShadowSessions';
+import Support from './pages/Support';
 
 export default function App() {
   return (
@@ -35,6 +36,7 @@ export default function App() {
             <Route path="/shadow-sessions" element={<ShadowSessions />} />
             <Route path="/subscriptions" element={<Subscriptions />} />
             <Route path="/exchanges" element={<Exchanges />} />
+            <Route path="/support" element={<Support />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/settings" element={<Settings />} />
           </Route>

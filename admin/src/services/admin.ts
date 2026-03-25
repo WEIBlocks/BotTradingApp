@@ -317,4 +317,30 @@ export const adminService = {
     const { data } = await api.post('/admin/notifications', payload);
     return data.data ?? data;
   },
+
+  // Support Tickets
+  async getTickets(params: { page?: number; limit?: number; status?: string; type?: string }) {
+    const { data } = await api.get('/admin/support/tickets', { params });
+    return data;
+  },
+
+  async getTicketMessages(ticketId: string) {
+    const { data } = await api.get(`/support/tickets/${ticketId}/messages`);
+    return data;
+  },
+
+  async replyToTicket(ticketId: string, content: string) {
+    const { data } = await api.post(`/admin/support/tickets/${ticketId}/messages`, { content });
+    return data.data ?? data;
+  },
+
+  async updateTicketStatus(ticketId: string, status: string, priority?: string) {
+    const { data } = await api.patch(`/admin/support/tickets/${ticketId}`, { status, priority });
+    return data.data ?? data;
+  },
+
+  async sendDirectNotification(userId: string, title: string, body: string) {
+    const { data } = await api.post(`/admin/users/${userId}/notify`, { title, body });
+    return data.data ?? data;
+  },
 };

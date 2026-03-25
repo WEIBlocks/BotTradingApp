@@ -6,7 +6,7 @@ import {
   FlatList,
   TouchableOpacity,
   TextInput,
-  KeyboardAvoidingView,
+  Keyboard,
   Platform,
   ActivityIndicator,
   Animated,
@@ -247,6 +247,31 @@ export default function TradingRoomScreen() {
 
   const flatListRef = useRef<FlatList>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const keyboardHeight = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        Animated.timing(keyboardHeight, {
+          toValue: e.endCoordinates.height,
+          duration: Platform.OS === 'ios' ? 250 : 100,
+          useNativeDriver: false,
+        }).start();
+      },
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        Animated.timing(keyboardHeight, {
+          toValue: 0,
+          duration: Platform.OS === 'ios' ? 250 : 100,
+          useNativeDriver: false,
+        }).start();
+      },
+    );
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, [keyboardHeight]);
 
   useEffect(() => {
     let mounted = true;
@@ -361,10 +386,7 @@ export default function TradingRoomScreen() {
   }, [user?.id]);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior="padding"
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+    <Animated.View style={[styles.container, {paddingBottom: keyboardHeight}]}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
@@ -465,7 +487,7 @@ export default function TradingRoomScreen() {
         members={members}
         loading={membersLoading}
       />
-    </KeyboardAvoidingView>
+    </Animated.View>
   );
 }
 

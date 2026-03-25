@@ -10,6 +10,7 @@ import {
   CreditCard,
   ArrowLeftRight,
   Bell,
+  LifeBuoy,
   Settings,
   LogOut,
   Menu,
@@ -28,6 +29,7 @@ const navItems = [
   { path: '/shadow-sessions', label: 'Shadow Sessions', icon: Eye },
   { path: '/subscriptions', label: 'Subscriptions', icon: CreditCard },
   { path: '/exchanges', label: 'Exchanges', icon: ArrowLeftRight },
+  { path: '/support', label: 'Support', icon: LifeBuoy },
   { path: '/notifications', label: 'Notifications', icon: Bell },
   { path: '/settings', label: 'Settings', icon: Settings },
 ];

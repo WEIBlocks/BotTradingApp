@@ -1,7 +1,7 @@
 import React, {useState, useRef, useCallback, useEffect} from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  TextInput, KeyboardAvoidingView, Platform, Dimensions, ScrollView,
+  TextInput, Keyboard, Animated, Platform, Dimensions, ScrollView,
 } from 'react-native';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 import {useNavigation} from '@react-navigation/native';
@@ -136,6 +136,31 @@ export default function AIChatScreen() {
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const keyboardHeight = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => {
+        Animated.timing(keyboardHeight, {
+          toValue: e.endCoordinates.height,
+          duration: Platform.OS === 'ios' ? 250 : 100,
+          useNativeDriver: false,
+        }).start();
+      },
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        Animated.timing(keyboardHeight, {
+          toValue: 0,
+          duration: Platform.OS === 'ios' ? 250 : 100,
+          useNativeDriver: false,
+        }).start();
+      },
+    );
+    return () => { showSub.remove(); hideSub.remove(); };
+  }, [keyboardHeight]);
 
   // Load previous conversation on mount
   useEffect(() => {
@@ -250,10 +275,7 @@ export default function AIChatScreen() {
   }, [strategyCardWidth, navigation]);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior="padding"
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}>
+    <Animated.View style={[styles.container, {paddingBottom: keyboardHeight}]}>
 
       {/* Header */}
       <View style={styles.header}>
@@ -331,7 +353,7 @@ export default function AIChatScreen() {
           </TouchableOpacity>
         </View>
       </View>
-    </KeyboardAvoidingView>
+    </Animated.View>
   );
 }
 

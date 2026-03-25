@@ -51,6 +51,28 @@ export interface ReferralInfo {
   activeReferrals: number;
 }
 
+export interface SupportTicket {
+  id: string;
+  userId: string;
+  type: 'support' | 'bug' | 'feature';
+  title: string;
+  description: string;
+  status: 'open' | 'in_progress' | 'resolved' | 'closed';
+  category?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TicketMessage {
+  id: string;
+  ticketId: string;
+  senderId: string;
+  senderName: string;
+  senderRole: 'user' | 'admin';
+  content: string;
+  createdAt: string;
+}
+
 export interface NotificationSettings {
   id: string;
   userId: string;
@@ -103,5 +125,41 @@ export const userApi = {
   async getReferralInfo(): Promise<ReferralInfo> {
     const res = await api.get<{data: ReferralInfo}>('/user/referral');
     return res.data;
+  },
+
+  // ─── Support Tickets ────────────────────────────────────────────────────────
+
+  async createTicket(
+    type: string,
+    title: string,
+    description: string,
+    category?: string,
+  ): Promise<SupportTicket> {
+    const res = await api.post<{data: SupportTicket}>('/support/tickets', {
+      type,
+      title,
+      description,
+      category,
+    } as Record<string, unknown>);
+    return (res as any).data ?? res;
+  },
+
+  async getMyTickets(
+    page = 1,
+    limit = 20,
+  ): Promise<{data: SupportTicket[]; pagination: {page: number; limit: number; total: number; totalPages: number}}> {
+    return api.get(`/support/tickets?page=${page}&limit=${limit}`);
+  },
+
+  async getTicketMessages(ticketId: string): Promise<{data: TicketMessage[]}> {
+    return api.get(`/support/tickets/${ticketId}/messages`);
+  },
+
+  async replyToTicket(ticketId: string, content: string): Promise<TicketMessage> {
+    const res = await api.post<{data: TicketMessage}>(
+      `/support/tickets/${ticketId}/messages`,
+      {content} as Record<string, unknown>,
+    );
+    return (res as any).data ?? res;
   },
 };
