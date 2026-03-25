@@ -68,6 +68,14 @@ function SearchIconSvg({size = 18, color = 'rgba(255,255,255,0.6)'}: {size?: num
   );
 }
 
+function ChatRoomIcon({size = 18, color = 'rgba(255,255,255,0.6)'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
 // Bell icon with dot — contained strictly within viewBox so no stretching
 function BellIconSvg({size = 20, color = 'rgba(255,255,255,0.6)', hasDot = false}: {size?: number; color?: string; hasDot?: boolean}) {
   return (
@@ -359,6 +367,11 @@ export default function DashboardScreen() {
         <View style={styles.headerActions}>
           <TouchableOpacity style={styles.iconBtn} onPress={handleSearch}>
             <SearchIconSvg size={18} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => navigation.navigate('TradingRoom' as any)}>
+            <ChatRoomIcon size={18} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.iconBtn}

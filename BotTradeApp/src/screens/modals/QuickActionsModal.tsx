@@ -66,7 +66,8 @@ const ACTIONS = [
   {label: 'Add Capital', subtitle: 'Deposit funds to trade', iconType: 'capital', bg: 'rgba(16,185,129,0.15)', color: '#10B981', screen: 'WalletFunds'},
   {label: 'Live Trades', subtitle: 'View open positions', iconType: 'trades', bg: 'rgba(13,127,242,0.15)', color: '#0D7FF2', screen: 'LiveTrades'},
   {label: 'Strategies', subtitle: 'Build & manage bots', iconType: 'strategies', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)', screen: 'BotBuilder'},
-  {label: 'Voice AI', subtitle: 'Talk to your assistant', iconType: 'mic', bg: 'rgba(168,85,247,0.15)', color: '#A855F7', screen: 'VoiceAssistant'},
+  // Voice AI — commented out until fully functional
+  // {label: 'Voice AI', subtitle: 'Talk to your assistant', iconType: 'mic', bg: 'rgba(168,85,247,0.15)', color: '#A855F7', screen: 'VoiceAssistant'},
 ];
 
 export default function QuickActionsModal({navigation}: Props) {

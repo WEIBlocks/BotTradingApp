@@ -325,8 +325,8 @@ export default function Chats() {
         {/* Left Panel - User List */}
         <div
           className={`bg-[#161B22] border border-white/[0.06] rounded-2xl flex flex-col overflow-hidden
-            ${mobileShowChat ? 'hidden md:flex' : 'flex'}
-            w-full md:w-1/3 md:min-w-[320px] md:max-w-[400px]`}
+            ${mobileShowChat ? 'hidden lg:flex' : 'flex'}
+            w-full lg:w-1/3 lg:min-w-[320px] lg:max-w-[400px]`}
         >
           {/* Search */}
           <div className="p-3 border-b border-white/[0.06] shrink-0">
@@ -413,8 +413,8 @@ export default function Chats() {
         {/* Right Panel - Chat View */}
         <div
           className={`bg-[#161B22] border border-white/[0.06] rounded-2xl flex flex-col overflow-hidden
-            ${!mobileShowChat ? 'hidden md:flex' : 'flex'}
-            w-full md:flex-1`}
+            ${!mobileShowChat ? 'hidden lg:flex' : 'flex'}
+            w-full lg:flex-1`}
         >
           {!selectedUserId ? (
             /* Empty state */
@@ -438,7 +438,7 @@ export default function Chats() {
                 {/* Back button on mobile */}
                 <button
                   onClick={handleBack}
-                  className="md:hidden p-1.5 -ml-1 rounded-lg hover:bg-white/[0.06] text-white/60 transition-colors"
+                  className="lg:hidden p-1.5 -ml-1 rounded-lg hover:bg-white/[0.06] text-white/60 transition-colors"
                 >
                   <ArrowLeft size={20} />
                 </button>

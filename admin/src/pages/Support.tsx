@@ -303,8 +303,8 @@ export default function Support() {
         {/* Left Panel - Ticket List */}
         <div
           className={`${
-            showDetail ? 'hidden md:flex' : 'flex'
-          } flex-col w-full md:w-[420px] md:shrink-0 bg-[#161B22] border border-white/[0.06] rounded-2xl overflow-hidden`}
+            showDetail ? 'hidden lg:flex' : 'flex'
+          } flex-col w-full lg:w-[420px] lg:shrink-0 bg-[#161B22] border border-white/[0.06] rounded-2xl overflow-hidden`}
         >
           {/* Status Tabs */}
           <div className="flex border-b border-white/[0.06] shrink-0 overflow-x-auto">
@@ -427,7 +427,7 @@ export default function Support() {
         {/* Right Panel - Ticket Detail */}
         <div
           className={`${
-            showDetail ? 'flex' : 'hidden md:flex'
+            showDetail ? 'flex' : 'hidden lg:flex'
           } flex-col flex-1 bg-[#161B22] border border-white/[0.06] rounded-2xl overflow-hidden min-w-0`}
         >
           {selectedTicket ? (
@@ -438,7 +438,7 @@ export default function Support() {
                   {/* Mobile back button */}
                   <button
                     onClick={() => setShowDetail(false)}
-                    className="md:hidden p-1 rounded hover:bg-white/10 transition-colors shrink-0 mt-0.5"
+                    className="lg:hidden p-1 rounded hover:bg-white/10 transition-colors shrink-0 mt-0.5"
                   >
                     <ChevronLeft size={20} />
                   </button>
