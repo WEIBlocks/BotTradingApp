@@ -139,12 +139,13 @@ export default function AIChatScreen() {
   const keyboardHeight = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    const TAB_BAR_HEIGHT = 218;
     const showSub = Keyboard.addListener(
       Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      (e) => {
+      () => {
         Animated.timing(keyboardHeight, {
-          toValue: e.endCoordinates.height,
-          duration: Platform.OS === 'ios' ? 250 : 100,
+          toValue: TAB_BAR_HEIGHT,
+          duration: 150,
           useNativeDriver: false,
         }).start();
       },
@@ -154,7 +155,7 @@ export default function AIChatScreen() {
       () => {
         Animated.timing(keyboardHeight, {
           toValue: 0,
-          duration: Platform.OS === 'ios' ? 250 : 100,
+          duration: 150,
           useNativeDriver: false,
         }).start();
       },
