@@ -192,7 +192,7 @@ export default function Support() {
     setMessagesLoading(true);
     try {
       const result = await adminService.getTicketMessages(ticketId);
-      const msgs = result.data ?? result;
+      const msgs = result.messages ?? result.data?.messages ?? result.data ?? result;
       setMessages(Array.isArray(msgs) ? msgs : []);
     } catch {
       setMessages([]);
@@ -517,7 +517,7 @@ export default function Support() {
                   </div>
                 ) : (
                   messages.map((msg) => {
-                    const isAdmin = msg.role === 'admin';
+                    const isAdmin = msg.isAdmin === true || msg.is_admin === true || msg.role === 'admin';
                     return (
                       <div key={msg.id} className={`flex ${isAdmin ? 'justify-end' : 'justify-start'}`}>
                         <div

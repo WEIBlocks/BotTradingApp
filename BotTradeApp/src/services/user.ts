@@ -54,7 +54,7 @@ export interface ReferralInfo {
 export interface SupportTicket {
   id: string;
   userId: string;
-  type: 'support' | 'bug' | 'feature';
+  type: 'support' | 'bug_report' | 'feature_request';
   title: string;
   description: string;
   status: 'open' | 'in_progress' | 'resolved' | 'closed';
@@ -155,8 +155,8 @@ export const userApi = {
     return api.get(`/support/tickets/${ticketId}/messages`);
   },
 
-  async replyToTicket(ticketId: string, content: string): Promise<TicketMessage> {
-    const res = await api.post<{data: TicketMessage}>(
+  async replyToTicket(ticketId: string, content: string): Promise<any> {
+    const res = await api.post<{data: any}>(
       `/support/tickets/${ticketId}/messages`,
       {content} as Record<string, unknown>,
     );

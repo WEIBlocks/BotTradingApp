@@ -9,6 +9,7 @@ export interface TradingRoomMessage {
   userName: string;
   avatarInitials: string | null;
   avatarColor: string | null;
+  userRole?: string;
 }
 
 export interface TradingRoomMember {

@@ -41,6 +41,14 @@ input, select, textarea {
 input:focus, select:focus, textarea:focus {
   border-color: #10B981;
 }
+select option {
+  background: #161B22;
+  color: #fff;
+}
+select option:hover, select option:checked {
+  background: #10B981;
+  color: #fff;
+}
 
 table { width: 100%; border-collapse: collapse; }
 th {

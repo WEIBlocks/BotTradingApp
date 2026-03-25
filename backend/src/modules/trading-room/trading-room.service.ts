@@ -3,6 +3,7 @@ import { tradingRoomMessages } from '../../db/schema/trading-room';
 import { users } from '../../db/schema/users';
 import { userSubscriptions } from '../../db/schema/subscriptions';
 import { subscriptionPlans } from '../../db/schema/subscriptions';
+import { notifications } from '../../db/schema/notifications';
 import { eq, desc, lt, and, sql, count } from 'drizzle-orm';
 import { ForbiddenError, NotFoundError, AppError } from '../../lib/errors.js';
 
@@ -99,6 +100,9 @@ export async function postMessage(userId: string, content: string) {
     .where(eq(users.id, userId))
     .limit(1);
 
+  // Notify all other Pro users about the new message
+  notifyProUsers(userId, user.name || 'Someone', content).catch(() => {});
+
   return {
     data: {
       ...message,
@@ -107,6 +111,51 @@ export async function postMessage(userId: string, content: string) {
       avatarColor: user.avatarColor,
     },
   };
+}
+
+// Background: send notification to all Pro subscribers except sender
+async function notifyProUsers(senderId: string, senderName: string, content: string) {
+  // Find all active Pro subscribers + admins (excluding sender)
+  const proUsers = await db
+    .select({ userId: userSubscriptions.userId })
+    .from(userSubscriptions)
+    .innerJoin(subscriptionPlans, eq(userSubscriptions.planId, subscriptionPlans.id))
+    .where(
+      and(
+        eq(userSubscriptions.status, 'active'),
+        eq(subscriptionPlans.tier, 'pro'),
+      ),
+    );
+
+  const adminUsers = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.role, 'admin'));
+
+  // Combine unique user IDs, exclude sender
+  const allIds = new Set<string>();
+  proUsers.forEach(u => allIds.add(u.userId));
+  adminUsers.forEach(u => allIds.add(u.id));
+  allIds.delete(senderId);
+
+  if (allIds.size === 0) return;
+
+  // Truncate message for notification preview
+  const preview = content.length > 80 ? content.substring(0, 80) + '...' : content;
+
+  // Batch insert notifications
+  const rows = Array.from(allIds).map(uid => ({
+    userId: uid,
+    type: 'system' as const,
+    title: `💬 ${senderName} in Trading Room`,
+    body: preview,
+    priority: 'normal' as const,
+  }));
+
+  // Insert in chunks of 50 to avoid huge queries
+  for (let i = 0; i < rows.length; i += 50) {
+    await db.insert(notifications).values(rows.slice(i, i + 50));
+  }
 }
 
 export async function deleteMessage(userId: string, messageId: string, role?: string) {
