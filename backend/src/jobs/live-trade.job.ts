@@ -15,6 +15,9 @@ interface BotConfig {
   stopLoss?: number;
   takeProfit?: number;
   maxPositionSize?: number;
+  tradeDirection?: 'buy' | 'sell' | 'both';
+  dailyLossLimit?: number;
+  orderType?: 'market' | 'limit';
 }
 
 async function processLiveTrades() {
@@ -106,6 +109,9 @@ async function processLiveTrades() {
             stopLoss: config.stopLoss,
             takeProfit: config.takeProfit,
             maxPositionPct: config.maxPositionSize ? config.maxPositionSize / 100 : 10,
+            tradeDirection: config.tradeDirection ?? 'both',
+            dailyLossLimit: config.dailyLossLimit ?? 0,
+            orderType: config.orderType ?? 'market',
             mode: 'live',
             exchangeConnId: exchangeConnId,
             subscriptionId: subscription.id,
@@ -121,6 +127,7 @@ async function processLiveTrades() {
               bot.id,
               subscription.id,
               exchangeConnId,
+              config.orderType ?? 'market',
             );
 
             if (result.success) {

@@ -1,6 +1,11 @@
 package com.botttradeapp
 
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
+import android.os.Build
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
 import com.facebook.react.ReactHost
@@ -29,6 +34,29 @@ class MainApplication : Application(), ReactApplication {
         SoLoader.init(this, false)
         if (BuildConfig.IS_NEW_ARCHITECTURE_ENABLED) {
             load()
+        }
+        createNotificationChannel()
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                "bottrade_alerts",
+                "Trading Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Bot trading decisions, trade executions, and price alerts"
+                enableVibration(true)
+                setSound(
+                    RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+            }
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            notificationManager.createNotificationChannel(channel)
         }
     }
 }

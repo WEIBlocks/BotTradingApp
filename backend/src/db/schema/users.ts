@@ -30,6 +30,7 @@ export const users = pgTable("users", {
   appleId: varchar("apple_id", { length: 255 }),
   isActive: boolean("is_active").default(true),
   onboardingComplete: boolean("onboarding_complete").default(false),
+  fcmToken: text("fcm_token"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

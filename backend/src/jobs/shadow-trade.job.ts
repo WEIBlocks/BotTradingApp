@@ -12,6 +12,9 @@ interface BotConfig {
   takeProfit?: number;
   maxPositionSize?: number;
   tradingMode?: string;
+  tradeDirection?: 'buy' | 'sell' | 'both';
+  dailyLossLimit?: number;
+  orderType?: 'market' | 'limit';
 }
 
 async function processShadowTrades() {
@@ -66,6 +69,8 @@ async function processShadowTrades() {
             stopLoss: config.stopLoss,
             takeProfit: config.takeProfit,
             maxPositionPct: config.maxPositionSize ? config.maxPositionSize / 100 : 20,
+            tradeDirection: config.tradeDirection ?? 'both',
+            dailyLossLimit: config.dailyLossLimit ?? 0,
             mode: 'paper',
             shadowSessionId: session.id,
           });

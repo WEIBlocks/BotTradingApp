@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "405016935053",
+    "project_id": "motooo-c512f",
+    "storage_bucket": "motooo-c512f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:405016935053:android:80272aca58b046074cc0c4",
+        "android_client_info": {
+          "package_name": "com.botttradeapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBESv7gnxxryTLkxdoIJndD4s9AhdVjTkU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

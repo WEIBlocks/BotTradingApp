@@ -34,6 +34,9 @@ interface CreateBotData {
   takeProfit?: number;
   maxPositionSize?: number;
   tradingMode?: string;
+  tradeDirection?: 'buy' | 'sell' | 'both';
+  dailyLossLimit?: number;
+  orderType?: 'market' | 'limit';
   creatorFeePercent?: number;
   prompt?: string;
 }
@@ -45,6 +48,9 @@ export async function createBot(userId: string, data: CreateBotData) {
     takeProfit: data.takeProfit,
     maxPositionSize: data.maxPositionSize,
     tradingMode: data.tradingMode,
+    tradeDirection: data.tradeDirection ?? 'both',
+    dailyLossLimit: data.dailyLossLimit ?? 0,
+    orderType: data.orderType ?? 'market',
   };
 
   const [bot] = await db
@@ -697,6 +703,13 @@ export async function addReview(
     throw new NotFoundError('Bot');
   }
 
+  // Check if user has an active subscription or completed shadow session (verified purchase)
+  const [hasSub] = await db.select().from(botSubscriptions)
+    .where(and(eq(botSubscriptions.userId, userId), eq(botSubscriptions.botId, botId))).limit(1);
+  const [hasShadow] = await db.select().from(shadowSessions)
+    .where(and(eq(shadowSessions.userId, userId), eq(shadowSessions.botId, botId))).limit(1);
+  const isVerified = !!(hasSub || hasShadow);
+
   // Insert review (unique constraint will prevent duplicates)
   const [review] = await db
     .insert(reviews)
@@ -705,12 +718,14 @@ export async function addReview(
       botId,
       rating,
       text,
+      isVerified,
     })
     .onConflictDoUpdate({
       target: [reviews.userId, reviews.botId],
       set: {
         rating,
         text,
+        isVerified,
         createdAt: new Date(),
       },
     })
@@ -879,4 +894,100 @@ export async function getBotDecisions(
     .offset(offset);
 
   return decisions;
+}
+
+// ─── Leaderboard ────────────────────────────────────────────────────────────
+
+export async function getLeaderboard() {
+  const rows = await db
+    .select({
+      botId: bots.id,
+      botName: bots.name,
+      strategy: bots.strategy,
+      riskLevel: bots.riskLevel,
+      avatarLetter: bots.avatarLetter,
+      avatarColor: bots.avatarColor,
+      creatorId: bots.creatorId,
+      return30d: botStatistics.return30d,
+      winRate: botStatistics.winRate,
+      maxDrawdown: botStatistics.maxDrawdown,
+      sharpeRatio: botStatistics.sharpeRatio,
+      activeUsers: botStatistics.activeUsers,
+      avgRating: botStatistics.avgRating,
+    })
+    .from(bots)
+    .leftJoin(botStatistics, eq(bots.id, botStatistics.botId))
+    .where(eq(bots.isPublished, true))
+    .orderBy(desc(botStatistics.return30d))
+    .limit(50);
+
+  return rows.map((r, i) => ({ ...r, rank: i + 1 }));
+}
+
+// ─── Compare Bots ───────────────────────────────────────────────────────────
+
+export async function compareBots(botIds: string[]) {
+  if (botIds.length === 0) return [];
+  if (botIds.length > 5) botIds = botIds.slice(0, 5);
+
+  const results = [];
+  for (const botId of botIds) {
+    const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
+    const [stats] = await db.select().from(botStatistics).where(eq(botStatistics.botId, botId));
+    const posCount = await db.select({ count: sql<number>`count(*)::int` }).from(botPositions)
+      .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'closed')));
+
+    if (bot) {
+      results.push({
+        id: bot.id, name: bot.name, strategy: bot.strategy, riskLevel: bot.riskLevel,
+        return30d: stats?.return30d ?? '0', winRate: stats?.winRate ?? '0',
+        maxDrawdown: stats?.maxDrawdown ?? '0', sharpeRatio: stats?.sharpeRatio ?? '0',
+        activeUsers: stats?.activeUsers ?? 0, avgRating: stats?.avgRating ?? '0',
+        totalTrades: posCount[0]?.count ?? 0,
+      });
+    }
+  }
+  return results;
+}
+
+// ─── Copy Trading ───────────────────────────────────────────────────────────
+
+export async function startCopyTrading(
+  userId: string, botId: string, allocationPercent = 100, isPaper = true,
+) {
+  const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
+  if (!bot) throw new NotFoundError('Bot');
+
+  const { copyTradingSessions } = await import('../../db/schema/copy-trading');
+
+  const [session] = await db.insert(copyTradingSessions).values({
+    followerId: userId,
+    leaderId: bot.creatorId,
+    botId,
+    allocationPercent: String(allocationPercent),
+    isPaper,
+    status: 'active',
+  }).onConflictDoUpdate({
+    target: [copyTradingSessions.followerId, copyTradingSessions.botId],
+    set: { status: 'active', allocationPercent: String(allocationPercent), isPaper },
+  }).returning();
+
+  await logActivity(userId, 'purchase', 'Copy Trading Started', `Copying ${bot.name}`, '0');
+  return session;
+}
+
+export async function stopCopyTrading(userId: string, botId: string) {
+  const { copyTradingSessions } = await import('../../db/schema/copy-trading');
+
+  const [session] = await db.update(copyTradingSessions).set({
+    status: 'stopped', stoppedAt: new Date(),
+  }).where(
+    and(
+      eq(copyTradingSessions.followerId, userId),
+      eq(copyTradingSessions.botId, botId),
+    ),
+  ).returning();
+
+  if (!session) throw new NotFoundError('Copy trading session');
+  return session;
 }

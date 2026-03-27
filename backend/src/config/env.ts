@@ -60,6 +60,11 @@ const envSchema = z.object({
 
   YOUTUBE_API_KEY: z.string().optional().default(''),
   AI_MODE: z.enum(['development', 'production']).optional().default('development'),
+
+  // Firebase Cloud Messaging (push notifications)
+  FIREBASE_PROJECT_ID: z.string().default(''),
+  FIREBASE_CLIENT_EMAIL: z.string().default(''),
+  FIREBASE_PRIVATE_KEY: z.string().default(''),
 });
 
 const parsed = envSchema.safeParse(process.env);

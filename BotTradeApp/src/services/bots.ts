@@ -122,6 +122,9 @@ export const botsService = {
     stopLoss?: number;
     takeProfit?: number;
     maxPosition?: number;
+    tradeDirection?: 'buy' | 'sell' | 'both';
+    dailyLossLimit?: number;
+    orderType?: 'market' | 'limit';
     creatorFeePercent?: number;
     prompt?: string;
   }) {

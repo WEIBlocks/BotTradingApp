@@ -14,6 +14,9 @@ export const createBotBodySchema = z.object({
   takeProfit: z.number().optional(),
   maxPositionSize: z.number().optional(),
   tradingMode: z.string().optional(),
+  tradeDirection: z.enum(['buy', 'sell', 'both']).optional().default('both'),
+  dailyLossLimit: z.number().min(0).max(100).optional(),
+  orderType: z.enum(['market', 'limit']).optional().default('market'),
   creatorFeePercent: z.number().min(0).max(50).optional(),
   prompt: z.string().max(2000).optional(),
 });
@@ -27,6 +30,9 @@ export const updateBotBodySchema = z.object({
   stopLoss: z.number().optional(),
   takeProfit: z.number().optional(),
   maxPositionSize: z.number().optional(),
+  tradeDirection: z.enum(['buy', 'sell', 'both']).optional(),
+  dailyLossLimit: z.number().min(0).max(100).optional(),
+  orderType: z.enum(['market', 'limit']).optional(),
   creatorFeePercent: z.number().min(0).max(50).optional(),
   prompt: z.string().max(2000).optional(),
 });

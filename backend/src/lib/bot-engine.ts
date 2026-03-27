@@ -495,12 +495,17 @@ export async function processSymbol(opts: {
   stopLoss?: number;
   takeProfit?: number;
   maxPositionPct?: number;
+  tradeDirection?: 'buy' | 'sell' | 'both';
+  dailyLossLimit?: number;
+  orderType?: 'market' | 'limit';
   mode: 'paper' | 'live';
   exchangeConnId?: string;
   subscriptionId?: string;
   shadowSessionId?: string;
 }): Promise<EngineDecision> {
   const { sessionKey, symbol, botId, userId, botPrompt, strategy, riskLevel, balance, stopLoss, takeProfit, maxPositionPct, mode } = opts;
+  const tradeDirection = opts.tradeDirection ?? 'both';
+  const dailyLossLimit = opts.dailyLossLimit ?? 0;
   const cacheKey = `${sessionKey}:${symbol}`;
 
   // Acquire lock to prevent concurrent processing
@@ -515,6 +520,19 @@ export async function processSymbol(opts: {
     const priceData = await getPrice(symbol);
     if (!priceData) {
       return { action: 'HOLD', confidence: 0, reasoning: `No price data for ${symbol}`, indicators: {}, aiCalled: false, tokensCost: 0, price: 0, symbol };
+    }
+
+    // 1b. Check daily loss limit
+    if (dailyLossLimit > 0) {
+      const today = new Date().toISOString().split('T')[0];
+      const dailyLossKey = `dailyloss:${botId}:${today}`;
+      const dailyLossStr = await redisConnection.get(dailyLossKey).catch(() => null);
+      const dailyLoss = dailyLossStr ? parseFloat(dailyLossStr) : 0;
+      if (dailyLoss >= dailyLossLimit) {
+        const pauseDecision: EngineDecision = { action: 'HOLD', confidence: 100, reasoning: `Daily loss limit reached (${dailyLoss.toFixed(2)}% / ${dailyLossLimit}%). Trading paused until tomorrow.`, indicators: {}, aiCalled: false, tokensCost: 0, price: priceData.price, symbol };
+        await logDecision(pauseDecision, opts);
+        return pauseDecision;
+      }
     }
 
     // 2. Seed price history on first run so indicators work immediately
@@ -619,14 +637,16 @@ export async function processSymbol(opts: {
 
       let finalAction = aiResult.action;
       if (finalAction === 'BUY' && existingPos) finalAction = 'HOLD';
+      if (finalAction === 'BUY' && tradeDirection === 'sell') finalAction = 'HOLD';
+      if (finalAction === 'SELL' && tradeDirection === 'buy') finalAction = 'HOLD';
       if (finalAction === 'SELL' && !existingPos) finalAction = 'HOLD';
       if (finalAction === 'BUY' && aiResult.confidence < 60) finalAction = 'HOLD';
       if (finalAction === 'SELL' && aiResult.confidence < 60) finalAction = 'HOLD';
 
       decision = { action: finalAction, confidence: aiResult.confidence, reasoning: aiResult.reasoning, indicators: formatIndicators(snap), aiCalled: true, tokensCost: aiResult.tokens, price: priceData.price, symbol, sizePercent: aiResult.sizePercent };
-    } else if (entryResult.matched && !existingPos) {
+    } else if (entryResult.matched && !existingPos && tradeDirection !== 'sell') {
       decision = { action: 'BUY', confidence: Math.round(entryResult.score * 100), reasoning: `Rule entry: ${entryResult.matchedConditions.join(', ')}`, indicators: formatIndicators(snap), aiCalled: false, tokensCost: 0, price: priceData.price, symbol, sizePercent: rules.maxPositionPercent };
-    } else if (exitResult.matched && existingPos) {
+    } else if (exitResult.matched && existingPos && tradeDirection !== 'buy') {
       decision = { action: 'SELL', confidence: Math.round(exitResult.score * 100), reasoning: `Rule exit: ${exitResult.matchedConditions.join(', ')}`, indicators: formatIndicators(snap), aiCalled: false, tokensCost: 0, price: priceData.price, symbol, sizePercent: 100 };
     } else {
       const reason = existingPos
@@ -721,26 +741,38 @@ async function logDecision(
 export async function executeLiveTrade(
   decision: EngineDecision, userId: string, botId: string,
   subscriptionId: string, exchangeConnId: string,
+  orderType: 'market' | 'limit' = 'market',
 ): Promise<{ success: boolean; orderId?: string; error?: string }> {
   try {
     const [conn] = await db.select().from(exchangeConnections)
-      .where(and(eq(exchangeConnections.id, exchangeConnId), eq(exchangeConnections.userId, userId), eq(exchangeConnections.status, 'connected')))
+      .where(and(eq(exchangeConnections.id, exchangeConnId), eq(exchangeConnections.userId, userId)))
       .limit(1);
 
     if (!conn?.apiKeyEnc || !conn?.apiSecretEnc) return { success: false, error: 'Exchange not connected' };
+    if (conn.status === 'disconnected' || conn.status === 'error') return { success: false, error: 'Exchange disconnected' };
 
     const adapter = createAdapter(conn.provider);
     await adapter.connect({ apiKey: decrypt(conn.apiKeyEnc), apiSecret: decrypt(conn.apiSecretEnc), sandbox: conn.sandbox ?? false });
 
     const balances = await adapter.getBalances();
     let amount: number;
+    let tradeValue: number;
 
     if (decision.action === 'BUY') {
       const quoteBalance = balances.find(b => b.currency === 'USDT')?.free ?? 0;
-      amount = (quoteBalance * (decision.sizePercent ?? 10) / 100) / decision.price;
+      tradeValue = quoteBalance * (decision.sizePercent ?? 10) / 100;
+      amount = tradeValue / decision.price;
     } else {
       const base = decision.symbol.split('/')[0];
       amount = balances.find(b => b.currency === base)?.free ?? 0;
+      tradeValue = amount * decision.price;
+    }
+
+    // Minimum order size validation (Binance min ~10 USDT)
+    const MIN_ORDER_USDT = 10;
+    if (tradeValue < MIN_ORDER_USDT) {
+      await adapter.disconnect();
+      return { success: false, error: `Order too small ($${tradeValue.toFixed(2)}). Min: $${MIN_ORDER_USDT}` };
     }
 
     if (amount <= 0) {
@@ -748,7 +780,18 @@ export async function executeLiveTrade(
       return { success: false, error: `Insufficient balance` };
     }
 
-    const order = await adapter.createOrder(decision.symbol, decision.action.toLowerCase() as 'buy' | 'sell', 'market', amount);
+    // Support both market and limit orders
+    const limitPrice = orderType === 'limit'
+      ? (decision.action === 'BUY' ? decision.price * 0.999 : decision.price * 1.001) // 0.1% better price
+      : undefined;
+
+    const order = await adapter.createOrder(
+      decision.symbol,
+      decision.action.toLowerCase() as 'buy' | 'sell',
+      orderType,
+      amount,
+      limitPrice,
+    );
     await adapter.disconnect();
 
     const totalValue = order.amount * order.price;
@@ -756,8 +799,17 @@ export async function executeLiveTrade(
       userId, botSubscriptionId: subscriptionId, symbol: decision.symbol,
       side: decision.action as 'BUY' | 'SELL', amount: order.amount.toFixed(8),
       price: order.price.toFixed(8), totalValue: totalValue.toFixed(2),
-      isPaper: false, exchangeOrderId: order.id, reasoning: decision.reasoning, status: 'filled',
+      isPaper: false, exchangeOrderId: order.id, orderType,
+      reasoning: decision.reasoning, status: 'filled',
     });
+
+    // Track daily loss for daily loss limit
+    if (decision.pnlPercent && decision.pnlPercent < 0) {
+      const today = new Date().toISOString().split('T')[0];
+      const dailyLossKey = `dailyloss:${botId}:${today}`;
+      await redisConnection.incrbyfloat(dailyLossKey, Math.abs(decision.pnlPercent)).catch(() => {});
+      await redisConnection.expire(dailyLossKey, 86400).catch(() => {});
+    }
 
     return { success: true, orderId: order.id };
   } catch (err) {

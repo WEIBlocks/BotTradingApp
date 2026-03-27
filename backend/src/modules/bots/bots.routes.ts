@@ -21,6 +21,10 @@ import {
   getPaperTradingStatus,
   activateLiveMode,
   getBotDecisions,
+  getLeaderboard,
+  compareBots,
+  startCopyTrading,
+  stopCopyTrading,
 } from './bots.service.js';
 import {
   botIdParamsSchema,
@@ -284,6 +288,55 @@ export async function botsRoutes(app: FastifyInstance) {
     const { id } = request.params;
     const { limit, offset } = request.query as { limit?: number; offset?: number };
     const result = await getBotDecisions(request.user.userId, id, limit, offset);
+    return { data: result };
+  });
+
+  // GET /leaderboard - Bot performance leaderboard
+  zApp.get('/leaderboard', {
+    schema: {
+      response: { 200: dataResponseSchema },
+    },
+  }, async (request, reply) => {
+    const result = await getLeaderboard();
+    return { data: result };
+  });
+
+  // GET /compare - Compare bots side by side
+  zApp.get('/compare', {
+    schema: {
+      response: { 200: dataResponseSchema },
+    },
+  }, async (request, reply) => {
+    const { ids } = request.query as { ids?: string };
+    const botIds = ids?.split(',').filter(Boolean) ?? [];
+    const result = await compareBots(botIds);
+    return { data: result };
+  });
+
+  // POST /:id/copy - Start copy trading a bot
+  zApp.post('/:id/copy', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 201: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const { allocationPercent, isPaper } = request.body as { allocationPercent?: number; isPaper?: boolean };
+    const result = await startCopyTrading(request.user.userId, id, allocationPercent, isPaper);
+    return reply.status(201).send({ data: result });
+  });
+
+  // POST /:id/copy/stop - Stop copy trading
+  zApp.post('/:id/copy/stop', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await stopCopyTrading(request.user.userId, id);
     return { data: result };
   });
 

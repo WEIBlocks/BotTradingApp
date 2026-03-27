@@ -232,6 +232,7 @@ export const reviews = pgTable(
       .references(() => bots.id),
     rating: integer("rating").notNull(),
     text: text("text"),
+    isVerified: boolean("is_verified").default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({

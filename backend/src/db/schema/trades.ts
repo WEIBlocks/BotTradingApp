@@ -47,6 +47,7 @@ export const trades = pgTable(
     pnlPercent: numeric("pnl_percent", { precision: 8, scale: 4 }),
     isPaper: boolean("is_paper").default(false),
     exchangeOrderId: varchar("exchange_order_id", { length: 255 }),
+    orderType: varchar("order_type", { length: 10 }).default("market"),
     reasoning: text("reasoning"),
     status: tradeStatusEnum("status").default("filled"),
     executedAt: timestamp("executed_at", { withTimezone: true }).defaultNow(),

@@ -109,7 +109,9 @@ export default function BotBuilderScreen() {
   const [stopLoss, setStopLoss] = useState(strategyData?.stopLoss ? String(strategyData.stopLoss) : '');
   const [takeProfit, setTakeProfit] = useState(strategyData?.takeProfit ? String(strategyData.takeProfit) : '');
   const [maxPosition, setMaxPosition] = useState('');
-  const [tradingMode, setTradingMode] = useState<'paper' | 'live'>('paper');
+  const [tradeDirection, setTradeDirection] = useState<'buy' | 'sell' | 'both'>('both');
+  const [dailyLossLimit, setDailyLossLimit] = useState('');
+  const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
   const [prompt, setPrompt] = useState(strategyData?.prompt || '');
   const [creatorFee, setCreatorFee] = useState('10');
   const [deploying, setDeploying] = useState(false);
@@ -199,6 +201,9 @@ export default function BotBuilderScreen() {
     stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
     takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
     maxPosition: maxPosition ? parseFloat(maxPosition) : undefined,
+    tradeDirection,
+    dailyLossLimit: dailyLossLimit ? parseFloat(dailyLossLimit) : undefined,
+    orderType,
     creatorFeePercent: creatorFee ? parseFloat(creatorFee) : 10,
     prompt: prompt.trim() || undefined,
   });
@@ -482,6 +487,47 @@ export default function BotBuilderScreen() {
             </Text>
           </View>
         </View>
+
+        {/* Trade Direction */}
+        <Text style={styles.label}>TRADE DIRECTION</Text>
+        <View style={styles.modeRow}>
+          {(['buy', 'sell', 'both'] as const).map(dir => (
+            <TouchableOpacity
+              key={dir}
+              style={[styles.modeBtn, tradeDirection === dir && styles.modeBtnSelected]}
+              onPress={() => setTradeDirection(dir)}>
+              <Text style={[styles.modeBtnText, tradeDirection === dir && styles.modeBtnTextSelected]}>
+                {dir === 'buy' ? 'Buy Only' : dir === 'sell' ? 'Sell Only' : 'Both'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Order Type */}
+        <Text style={styles.label}>ORDER TYPE</Text>
+        <View style={styles.modeRow}>
+          <TouchableOpacity
+            style={[styles.modeBtn, orderType === 'market' && styles.modeBtnSelected]}
+            onPress={() => setOrderType('market')}>
+            <Text style={[styles.modeBtnText, orderType === 'market' && styles.modeBtnTextSelected]}>Market</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.modeBtn, orderType === 'limit' && styles.modeBtnSelected, orderType !== 'limit' && styles.modeBtnOutline]}
+            onPress={() => setOrderType('limit')}>
+            <Text style={[styles.modeBtnText, orderType === 'limit' && styles.modeBtnTextSelected]}>Limit</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Daily Loss Limit */}
+        <Text style={styles.label}>DAILY LOSS LIMIT (%)</Text>
+        <TextInput
+          style={styles.textInput}
+          placeholder="e.g. 5 (auto-pause bot if daily loss exceeds this %)"
+          placeholderTextColor="rgba(255,255,255,0.3)"
+          value={dailyLossLimit}
+          onChangeText={setDailyLossLimit}
+          keyboardType="decimal-pad"
+        />
 
         {/* How it works info */}
         <View style={{backgroundColor: '#111827', borderRadius: 10, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: '#1F2937'}}>

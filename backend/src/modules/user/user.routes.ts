@@ -2,6 +2,9 @@ import { z } from 'zod';
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
+import { db } from '../../config/database.js';
+import { users } from '../../db/schema/users';
+import { eq } from 'drizzle-orm';
 import * as userService from './user.service.js';
 import {
   updateProfileSchema,
@@ -38,6 +41,19 @@ export async function userRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const updated = await userService.updateProfile(request.user.userId, request.body);
     return reply.status(200).send(updated);
+  });
+
+  // POST /fcm-token - Register device for push notifications
+  zApp.post('/fcm-token', {
+    schema: {
+      body: z.object({ token: z.string().min(1) }),
+      response: { 200: z.any() },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { token } = request.body as { token: string };
+    await db.update(users).set({ fcmToken: token, updatedAt: new Date() }).where(eq(users.id, request.user.userId));
+    return { success: true };
   });
 
   // GET /wallet
