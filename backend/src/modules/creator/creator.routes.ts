@@ -5,6 +5,10 @@ import * as creatorService from './creator.service.js';
 import {
   monthlyRevenueQuerySchema,
   botIdParamsSchema,
+  botIdAnalyticsParamsSchema,
+  experimentIdParamsSchema,
+  createExperimentSchema,
+  engagementQuerySchema,
   dataResponseSchema,
 } from './creator.schema.js';
 
@@ -92,5 +96,128 @@ export async function creatorRoutes(app: FastifyInstance) {
   }, async (request, _reply) => {
     const suggestions = await creatorService.getAISuggestions(request.user.userId);
     return { data: suggestions };
+  });
+
+  // ─── Analytics Endpoints ───────────────────────────────────────────────
+
+  // GET /analytics/engagement
+  zApp.get('/analytics/engagement', {
+    schema: {
+      querystring: engagementQuerySchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { days } = request.query;
+    const data = await creatorService.getEngagementMetrics(request.user.userId, days);
+    return { data };
+  });
+
+  // GET /analytics/user-profitability
+  zApp.get('/analytics/user-profitability', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const data = await creatorService.getUserProfitability(request.user.userId);
+    return { data };
+  });
+
+  // GET /analytics/churn
+  zApp.get('/analytics/churn', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const data = await creatorService.getChurnAnalysis(request.user.userId);
+    return { data };
+  });
+
+  // GET /analytics/revenue-projection
+  zApp.get('/analytics/revenue-projection', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const data = await creatorService.getEnhancedRevenueProjection(request.user.userId);
+    return { data };
+  });
+
+  // GET /analytics/marketing
+  zApp.get('/analytics/marketing', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const data = await creatorService.getMarketingMetrics(request.user.userId);
+    return { data };
+  });
+
+  // GET /bots/:botId/patterns — AI-powered pattern detection
+  zApp.get('/bots/:botId/patterns', {
+    schema: {
+      params: botIdAnalyticsParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { botId } = request.params;
+    const data = await creatorService.getBotPatternAnalysis(botId, request.user.userId);
+    return { data };
+  });
+
+  // ─── A/B Experiments ──────────────────────────────────────────────────
+
+  // POST /experiments — create A/B test
+  zApp.post('/experiments', {
+    schema: {
+      body: createExperimentSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const data = await creatorService.createExperiment(request.user.userId, request.body);
+    return { data };
+  });
+
+  // GET /experiments — list experiments
+  zApp.get('/experiments', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const data = await creatorService.getExperiments(request.user.userId);
+    return { data };
+  });
+
+  // GET /experiments/:id/results
+  zApp.get('/experiments/:id/results', {
+    schema: {
+      params: experimentIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { id } = request.params;
+    const data = await creatorService.getExperimentResults(id, request.user.userId);
+    return { data };
+  });
+
+  // PUT /experiments/:id/stop
+  zApp.put('/experiments/:id/stop', {
+    schema: {
+      params: experimentIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { id } = request.params;
+    const data = await creatorService.stopExperiment(id, request.user.userId);
+    return { data };
   });
 }

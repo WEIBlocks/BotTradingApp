@@ -5,7 +5,7 @@ import { config } from 'dotenv';
 
 // Load environment-specific .env file
 const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
-config({ path: resolve(process.cwd(), envFile) });
+config({ path: resolve(process.cwd(), envFile), override: true });
 
 const envSchema = z.object({
   PORT: z.coerce.number().default(3000),
@@ -57,6 +57,9 @@ const envSchema = z.object({
   AI_PROVIDER: z.enum(['anthropic', 'gemini', 'openai', 'auto']).default('auto'),
   // Model override per provider (leave empty to use defaults)
   AI_MODEL: z.string().default(''),
+
+  YOUTUBE_API_KEY: z.string().optional().default(''),
+  AI_MODE: z.enum(['development', 'production']).optional().default('development'),
 });
 
 const parsed = envSchema.safeParse(process.env);

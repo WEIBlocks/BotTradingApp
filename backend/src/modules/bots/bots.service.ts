@@ -9,8 +9,12 @@ import {
 import { trades } from '../../db/schema/trades.js';
 import { users } from '../../db/schema/users.js';
 import { activityLog } from '../../db/schema/training.js';
+import { botDecisions } from '../../db/schema/decisions';
+import { botPositions } from '../../db/schema/positions';
+import { exchangeConnections } from '../../db/schema/exchanges';
 import { eq, and, sql, desc } from 'drizzle-orm';
-import { NotFoundError, ConflictError, ValidationError } from '../../lib/errors.js';
+import { NotFoundError, ConflictError, ValidationError, AppError } from '../../lib/errors.js';
+import { invalidateRulesCache } from '../../lib/bot-engine.js';
 
 async function logActivity(userId: string, type: 'purchase' | 'withdrawal' | 'profit' | 'deposit' | 'fee', title: string, subtitle: string, amount: string) {
   try {
@@ -31,6 +35,7 @@ interface CreateBotData {
   maxPositionSize?: number;
   tradingMode?: string;
   creatorFeePercent?: number;
+  prompt?: string;
 }
 
 export async function createBot(userId: string, data: CreateBotData) {
@@ -51,6 +56,7 @@ export async function createBot(userId: string, data: CreateBotData) {
       category: data.category as any,
       riskLevel: data.risk_level as any,
       creatorFeePercent: data.creatorFeePercent !== undefined ? String(data.creatorFeePercent) : '10',
+      prompt: data.prompt,
       config,
       status: 'draft',
       isPublished: false,
@@ -87,6 +93,7 @@ interface UpdateBotData {
   takeProfit?: number;
   maxPositionSize?: number;
   creatorFeePercent?: number;
+  prompt?: string;
 }
 
 export async function updateBot(userId: string, botId: string, data: UpdateBotData) {
@@ -107,6 +114,7 @@ export async function updateBot(userId: string, botId: string, data: UpdateBotDa
   if (data.category !== undefined) updates.category = data.category;
   if (data.risk_level !== undefined) updates.riskLevel = data.risk_level;
   if (data.creatorFeePercent !== undefined) updates.creatorFeePercent = String(data.creatorFeePercent);
+  if (data.prompt !== undefined) updates.prompt = data.prompt;
 
   // Merge config fields
   const existingConfig = (existing.config as Record<string, any>) ?? {};
@@ -122,6 +130,9 @@ export async function updateBot(userId: string, botId: string, data: UpdateBotDa
     .set(updates)
     .where(and(eq(bots.id, botId), eq(bots.creatorId, userId)))
     .returning();
+
+  // Invalidate cached trading rules so AI regenerates them with new prompt/config
+  invalidateRulesCache(botId);
 
   return updated;
 }
@@ -218,6 +229,28 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
     throw new ConflictError('This bot is already active');
   }
 
+  // For live mode: auto-find user's connected exchange
+  let exchangeConnId: string | null = null;
+  let allocatedAmount = '0';
+  if (mode === 'live') {
+    const [conn] = await db
+      .select()
+      .from(exchangeConnections)
+      .where(
+        and(
+          eq(exchangeConnections.userId, userId),
+          eq(exchangeConnections.status, 'connected'),
+        ),
+      )
+      .limit(1);
+
+    if (!conn) {
+      throw new AppError(400, 'No connected exchange found. Please connect your exchange first before going live.');
+    }
+    exchangeConnId = conn.id;
+    allocatedAmount = conn.totalBalance ?? '1000';
+  }
+
   const [subscription] = await db
     .insert(botSubscriptions)
     .values({
@@ -225,12 +258,16 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
       botId,
       mode,
       status: 'active',
+      exchangeConnId,
+      allocatedAmount,
     })
     .onConflictDoUpdate({
       target: [botSubscriptions.userId, botSubscriptions.botId],
       set: {
         mode,
         status: 'active',
+        exchangeConnId,
+        allocatedAmount,
         updatedAt: new Date(),
       },
     })
@@ -246,7 +283,7 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
     .where(eq(botStatistics.botId, botId));
 
   // Log activity
-  await logActivity(userId, 'purchase', `Activated ${bot.name}`, `${mode} mode subscription`, '0.00');
+  await logActivity(userId, 'purchase', `Activated ${bot.name}`, `${mode} mode subscription`, allocatedAmount);
 
   return subscription;
 }
@@ -374,33 +411,48 @@ export async function getShadowResults(userId: string, sessionId: string) {
     ? ((session.winCount ?? 0) / session.totalTrades) * 100
     : 0;
 
-  // Build daily performance array
-  const rawDaily = session.dailyPerformance as any;
+  // Build daily performance from REAL data
+  const rawDaily = session.dailyPerformance as Record<string, { trades: number; pnl: number; balance: number }> | null;
   let dailyPerfArray: number[] = [];
-  if (Array.isArray(rawDaily)) {
-    dailyPerfArray = rawDaily.map(Number);
-  } else if (rawDaily && typeof rawDaily === 'object') {
-    dailyPerfArray = Object.values(rawDaily).map(Number);
-  }
-  // If no daily data stored, generate from session stats
-  if (dailyPerfArray.length === 0 && session.durationDays) {
-    const avgDaily = totalReturn / session.durationDays;
-    for (let i = 0; i < session.durationDays; i++) {
-      const noise = (Math.random() - 0.4) * 2;
-      dailyPerfArray.push(Math.round((avgDaily + noise) * 10) / 10);
+  if (rawDaily && typeof rawDaily === 'object' && !Array.isArray(rawDaily)) {
+    const sortedDays = Object.keys(rawDaily).sort();
+    for (const day of sortedDays) {
+      const dayData = rawDaily[day];
+      if (dayData && typeof dayData === 'object' && 'pnl' in dayData) {
+        const dayReturnPct = initial > 0 ? (dayData.pnl / initial) * 100 : 0;
+        dailyPerfArray.push(Math.round(dayReturnPct * 100) / 100);
+      }
     }
   }
 
-  // Build equity curve from daily performance
+  // Build equity curve from REAL daily balances
   const equityCurve: number[] = [initial];
-  let running = initial;
-  for (const dayPct of dailyPerfArray) {
-    running = running * (1 + dayPct / 100);
-    equityCurve.push(Math.round(running * 100) / 100);
+  if (rawDaily && typeof rawDaily === 'object' && !Array.isArray(rawDaily)) {
+    const sortedDays = Object.keys(rawDaily).sort();
+    for (const day of sortedDays) {
+      const dayData = rawDaily[day];
+      if (dayData && 'balance' in dayData) {
+        equityCurve.push(Math.round(dayData.balance * 100) / 100);
+      }
+    }
+  }
+  // Ensure current balance is the last point
+  if (equityCurve[equityCurve.length - 1] !== current) {
+    equityCurve.push(current);
   }
 
-  // Outperformance (simulated — would compare to portfolio in production)
-  const outperformance = Math.round((totalReturn * 0.15 + (Math.random() - 0.3) * 2) * 10) / 10;
+  // Get real closed positions for this session to calculate outperformance
+  const sessionPositions = await db
+    .select()
+    .from(botPositions)
+    .where(and(eq(botPositions.shadowSessionId, sessionId), eq(botPositions.status, 'closed')));
+
+  const avgPositionReturn = sessionPositions.length > 0
+    ? sessionPositions.reduce((sum, p) => sum + parseFloat(p.pnlPercent ?? '0'), 0) / sessionPositions.length
+    : 0;
+
+  // Outperformance = bot return vs simple buy-and-hold
+  const outperformance = Math.round((totalReturn - avgPositionReturn * 0.5) * 10) / 10;
 
   return {
     session: {
@@ -559,32 +611,51 @@ export async function backtestBot(
   if (!bot) throw new NotFoundError('Bot');
 
   const initial = config.initialBalance ?? 10_000;
+
+  // Get REAL closed positions for this bot
+  const closedPositions = await db
+    .select()
+    .from(botPositions)
+    .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'closed')))
+    .orderBy(botPositions.closedAt);
+
+  // Get real stats from bot_statistics (calculated by bot-stats job)
   const [botStats] = await db
     .select()
     .from(botStatistics)
     .where(eq(botStatistics.botId, botId))
     .limit(1);
 
-  // Generate realistic backtest based on bot stats
-  const return30d = botStats?.return30d ? parseFloat(botStats.return30d) : (Math.random() * 15 - 3);
-  const winRate = botStats?.winRate ? parseFloat(botStats.winRate) : (45 + Math.random() * 20);
-  const maxDrawdown = botStats?.maxDrawdown ? parseFloat(botStats.maxDrawdown) : (5 + Math.random() * 15);
-  const sharpeRatio = botStats?.sharpeRatio ? parseFloat(botStats.sharpeRatio) : (0.5 + Math.random() * 1.5);
+  const totalTrades = closedPositions.length;
+  const wins = closedPositions.filter(p => parseFloat(p.pnl ?? '0') > 0).length;
+  const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
 
-  // Generate daily equity curve (30 days)
-  const days = 30;
-  const dailyReturn = return30d / days / 100;
+  // Build equity curve from REAL positions
   const equity: number[] = [initial];
-  for (let i = 1; i <= days; i++) {
-    const noise = (Math.random() - 0.5) * 0.02;
-    const prev = equity[i - 1];
-    equity.push(Math.round((prev * (1 + dailyReturn + noise)) * 100) / 100);
+  let running = initial;
+  for (const p of closedPositions) {
+    const pnl = parseFloat(p.pnl ?? '0');
+    running += pnl;
+    equity.push(Math.round(running * 100) / 100);
   }
 
-  const totalTrades = Math.floor(20 + Math.random() * 80);
-  const wins = Math.round(totalTrades * (winRate / 100));
   const finalBalance = equity[equity.length - 1];
   const totalProfit = finalBalance - initial;
+
+  // Calculate max drawdown from real equity curve
+  let peak = initial;
+  let maxDrawdown = 0;
+  for (const val of equity) {
+    if (val > peak) peak = val;
+    const dd = ((peak - val) / peak) * 100;
+    if (dd > maxDrawdown) maxDrawdown = dd;
+  }
+
+  // Sharpe from real stats or calculate
+  const returns = closedPositions.map(p => parseFloat(p.pnlPercent ?? '0'));
+  const avgReturn = returns.length > 0 ? returns.reduce((a, b) => a + b, 0) / returns.length : 0;
+  const variance = returns.length > 1 ? returns.reduce((sum, r) => sum + (r - avgReturn) ** 2, 0) / returns.length : 0;
+  const sharpeRatio = variance > 0 ? (avgReturn / Math.sqrt(variance)) * Math.sqrt(252) : 0;
 
   return {
     botId,
@@ -593,7 +664,7 @@ export async function backtestBot(
     initialBalance: initial,
     finalBalance,
     totalProfit: Math.round(totalProfit * 100) / 100,
-    totalProfitPercent: Math.round((totalProfit / initial) * 10000) / 100,
+    totalProfitPercent: totalTrades > 0 ? Math.round((totalProfit / initial) * 10000) / 100 : 0,
     totalTrades,
     winCount: wins,
     lossCount: totalTrades - wins,
@@ -604,8 +675,9 @@ export async function backtestBot(
     period: {
       start: config.startDate || new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0],
       end: config.endDate || new Date().toISOString().split('T')[0],
-      days,
+      days: closedPositions.length > 0 ? Math.ceil((Date.now() - new Date(closedPositions[0].openedAt!).getTime()) / 86400000) : 0,
     },
+    hasRealData: totalTrades > 0,
   };
 }
 
@@ -705,4 +777,106 @@ export async function getPaperTradingStatus(userId: string) {
     activePositions,
     sessions: runningSessions,
   };
+}
+
+// ─── Live Mode Activation ───────────────────────────────────────────────────
+
+export async function activateLiveMode(
+  userId: string,
+  botId: string,
+  exchangeConnId: string,
+  allocatedAmount?: number,
+) {
+  // Verify exchange connection exists and is connected
+  const [conn] = await db
+    .select()
+    .from(exchangeConnections)
+    .where(
+      and(
+        eq(exchangeConnections.id, exchangeConnId),
+        eq(exchangeConnections.userId, userId),
+        eq(exchangeConnections.status, 'connected'),
+      ),
+    )
+    .limit(1);
+
+  if (!conn) {
+    throw new AppError(400, 'Exchange connection not found or not connected. Please connect your exchange first.');
+  }
+
+  // Check for existing subscription
+  const [existingSub] = await db
+    .select()
+    .from(botSubscriptions)
+    .where(
+      and(
+        eq(botSubscriptions.userId, userId),
+        eq(botSubscriptions.botId, botId),
+      ),
+    )
+    .limit(1);
+
+  if (existingSub && existingSub.status === 'active' && existingSub.mode === 'live') {
+    throw new ConflictError('Bot is already running in live mode');
+  }
+
+  // Update or create subscription
+  if (existingSub) {
+    const [updated] = await db
+      .update(botSubscriptions)
+      .set({
+        status: 'active',
+        mode: 'live',
+        exchangeConnId,
+        allocatedAmount: allocatedAmount ? String(allocatedAmount) : conn.totalBalance ?? '0',
+        updatedAt: new Date(),
+      })
+      .where(eq(botSubscriptions.id, existingSub.id))
+      .returning();
+
+    await logActivity(userId, 'purchase', 'Live Mode Activated', `Bot activated with ${conn.provider} exchange`, allocatedAmount?.toString() ?? '0');
+
+    return updated;
+  }
+
+  // Create new subscription
+  const [sub] = await db
+    .insert(botSubscriptions)
+    .values({
+      userId,
+      botId,
+      status: 'active',
+      mode: 'live',
+      exchangeConnId,
+      allocatedAmount: allocatedAmount ? String(allocatedAmount) : conn.totalBalance ?? '0',
+    })
+    .returning();
+
+  await logActivity(userId, 'purchase', 'Live Mode Activated', `Bot activated with ${conn.provider} exchange`, allocatedAmount?.toString() ?? '0');
+
+  return sub;
+}
+
+// ─── Bot Decision History ───────────────────────────────────────────────────
+
+export async function getBotDecisions(
+  userId: string,
+  botId: string,
+  limit = 50,
+  offset = 0,
+) {
+  const decisions = await db
+    .select()
+    .from(botDecisions)
+    .where(
+      and(
+        eq(botDecisions.botId, botId),
+        eq(botDecisions.userId, userId),
+      ),
+    )
+    .orderBy(desc(botDecisions.createdAt))
+    .limit(Math.min(limit, 100))
+    .offset(offset);
+
+  return decisions;
 }

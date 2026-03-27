@@ -293,11 +293,56 @@ export async function startTraining(userId: string, botId: string) {
       } else if (upload.type === 'document') {
         analysis = await analyzeDocument(upload.fileUrl, upload.name);
       } else if (upload.type === 'video') {
-        analysis = {
-          note: 'Video analysis is in beta. Key frames have been extracted for review.',
-          status: 'manual_review_required',
-          summary: 'Video uploaded. Automated video analysis is limited — review frames manually for best results.',
-        };
+        // Try to extract YouTube URL from metadata or file name
+        const youtubeUrl = (upload as any).metadata?.youtubeUrl || '';
+        if (youtubeUrl) {
+          try {
+            const { getVideoInfo, getTranscript } = await import('../../lib/youtube.js');
+            const info = await getVideoInfo(youtubeUrl);
+            const transcript = await getTranscript(youtubeUrl);
+            if (info && transcript) {
+              const aiResult = await llmChat(
+                [{
+                  role: 'user',
+                  content: `Analyze this trading video transcript and extract strategies, key concepts, and actionable insights:\n\nTitle: ${info.title}\nChannel: ${info.channelTitle}\nTranscript:\n${transcript.substring(0, 5000)}`,
+                }],
+                {
+                  system: 'You are a trading education analyst. Extract trading strategies, indicators, patterns, and key lessons from video content. Return as structured JSON with: strategies[], indicators[], patterns[], keyTakeaways[], actionableInsights[]',
+                  maxTokens: 1500,
+                },
+              );
+              const rawText = aiResult.text;
+              try {
+                analysis = JSON.parse(rawText);
+              } catch {
+                const jsonMatch = rawText.match(/```(?:json)?\s*([\s\S]*?)```/);
+                if (jsonMatch) {
+                  try { analysis = JSON.parse(jsonMatch[1].trim()); } catch { analysis = { summary: rawText, parseError: true }; }
+                } else {
+                  analysis = { summary: rawText, parseError: true };
+                }
+              }
+            } else {
+              analysis = {
+                summary: `Video: ${info?.title || 'Unknown'}. Transcript not available — analysis limited.`,
+                title: info?.title,
+                channel: info?.channelTitle,
+                type: 'video_partial',
+              };
+            }
+          } catch (videoErr) {
+            analysis = {
+              summary: 'Video uploaded. YouTube analysis failed — for best results, upload chart screenshots or documents.',
+              type: 'video_error',
+            };
+          }
+        } else {
+          // Fallback for non-YouTube videos
+          analysis = {
+            summary: 'Video uploaded. For best results, upload chart screenshots or documents for detailed analysis, or provide a YouTube URL for transcript-based analysis.',
+            type: 'video_uploaded',
+          };
+        }
       }
     } catch (err) {
       status = 'error';
@@ -315,6 +360,32 @@ export async function startTraining(userId: string, botId: string) {
         errorMessage,
       })
       .where(eq(trainingUploads.id, upload.id!));
+
+    // Validate and store analysis in RAG for retrieval during chat
+    if (status === 'complete' && analysis) {
+      try {
+        const { validateTrainingContent } = await import('../ai/ai.service.js');
+        const { storeTrainingChunks } = await import('../../lib/rag.js');
+        const analysisText = typeof analysis === 'string' ? analysis : JSON.stringify(analysis);
+
+        // Validate content before storing in knowledge base
+        const validation = validateTrainingContent(analysisText);
+        if (validation.valid) {
+          await storeTrainingChunks({
+            userId,
+            botId,
+            sourceType: upload.type ?? 'document',
+            sourceId: upload.id!,
+            text: analysisText,
+            metadata: { fileName: upload.name, uploadId: upload.id },
+          });
+        } else {
+          console.warn(`[Training] Content rejected for RAG: ${validation.reason}`);
+        }
+      } catch (ragErr) {
+        console.error('[Training] RAG storage failed:', ragErr);
+      }
+    }
 
     results.push({
       id: upload.id,

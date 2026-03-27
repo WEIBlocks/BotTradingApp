@@ -1,8 +1,10 @@
 import { startPriceSyncJob } from './price-sync.job.js';
 import { startShadowTradeJob } from './shadow-trade.job.js';
+import { startLiveTradeJob } from './live-trade.job.js';
 import { startArenaTickJob } from './arena-tick.job.js';
 import { startPortfolioUpdateJob } from './portfolio-update.job.js';
 import { startNotificationJob } from './notification.job.js';
+import { startBotStatsJob } from './bot-stats.job.js';
 
 export async function startAllJobs() {
   console.log('[Jobs] Starting all background jobs...');
@@ -11,13 +13,15 @@ export async function startAllJobs() {
     // Price sync must start first since other jobs depend on it
     await startPriceSyncJob();
 
-    // Start simulation engines
+    // Start trading engines (shadow + live)
     await startShadowTradeJob();
+    await startLiveTradeJob();
     await startArenaTickJob();
 
     // Start auxiliary jobs
     await startPortfolioUpdateJob();
     await startNotificationJob();
+    await startBotStatsJob();
 
     console.log('[Jobs] All background jobs started successfully');
   } catch (err: any) {

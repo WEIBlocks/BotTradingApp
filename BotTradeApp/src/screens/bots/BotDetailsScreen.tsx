@@ -56,7 +56,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
   const fetchData = useCallback(async () => {
     try {
-      const [botData, activeBots, shadowSessions] = await Promise.all([
+      const [botData, activeBots, shadowSessions, decisionsData] = await Promise.all([
         marketplaceApi.getBotDetails(route.params.botId).catch(() => null),
         botsService.getActive().then((res: any) => {
           const items = Array.isArray(res?.data) ? res.data : Array.isArray(res?.subscriptions) ? res.subscriptions : [];
@@ -65,7 +65,28 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         botsService.getShadowSessions().then((res: any) => {
           return Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
         }).catch(() => []),
+        botsService.getDecisions(route.params.botId, 100).then((res: any) => {
+          return Array.isArray(res?.data) ? res.data : [];
+        }).catch(() => []),
       ]);
+
+      // Build real equity data from decisions if available
+      if (botData && decisionsData.length > 0) {
+        const equityPoints = decisionsData
+          .filter((d: any) => d.price)
+          .reverse()
+          .map((d: any, i: number) => ({
+            time: new Date(d.createdAt).getTime(),
+            open: parseFloat(d.price),
+            high: parseFloat(d.price) * 1.002,
+            low: parseFloat(d.price) * 0.998,
+            close: parseFloat(d.price),
+            volume: d.action !== 'HOLD' ? 1000 : 100,
+          }));
+        if (equityPoints.length > 2) {
+          botData.equityData = equityPoints;
+        }
+      }
 
       if (botData) setBot(botData);
 
@@ -579,11 +600,11 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               <View style={styles.statusDot} />
               <View style={styles.statusTextCol}>
                 <Text style={styles.statusTitle}>Shadow Mode Running</Text>
-                <Text style={styles.statusSub}>Virtual trades in progress</Text>
+                <Text style={styles.statusSub}>AI engine analyzing markets</Text>
               </View>
             </View>
-            <TouchableOpacity style={styles.viewShadowBtn} onPress={handleViewShadow} activeOpacity={0.8}>
-              <Text style={styles.viewShadowText}>View</Text>
+            <TouchableOpacity style={styles.viewShadowBtn} onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: 'paper'})} activeOpacity={0.8}>
+              <Text style={styles.viewShadowText}>Live Feed</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.goLiveSmallBtn} onPress={handleActivate} activeOpacity={0.85}>
               <Text style={styles.goLiveSmallText}>Go Live</Text>
@@ -625,15 +646,22 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             </View>
           </View>
         ) : userBotState.status === 'active' ? (
-          /* Bot is live — show status + pause/stop */
+          /* Bot is live — show status + live feed + pause/stop */
           <>
             <View style={styles.statusCard}>
               <View style={[styles.statusDot, {backgroundColor: '#10B981'}]} />
               <View style={styles.statusTextCol}>
                 <Text style={styles.statusTitle}>Bot is Live</Text>
-                <Text style={styles.statusSub}>Trading with real funds</Text>
+                <Text style={styles.statusSub}>AI trading with real funds</Text>
               </View>
             </View>
+            <TouchableOpacity
+              style={[styles.viewShadowBtn, {backgroundColor: '#10B98115', borderColor: '#10B981'}]}
+              onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: 'live'})}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.viewShadowText, {color: '#10B981'}]}>Live Feed</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.pauseBtn} onPress={handlePause} activeOpacity={0.8}>
               <Text style={styles.pauseBtnText}>Pause</Text>
             </TouchableOpacity>

@@ -68,6 +68,7 @@ export const bots = pgTable("bots", {
   name: varchar("name", { length: 100 }).notNull(),
   subtitle: varchar("subtitle", { length: 200 }),
   description: text("description"),
+  prompt: text("prompt"), // AI instruction prompt that defines bot behavior
   strategy: varchar("strategy", { length: 50 }).notNull(),
   category: botCategoryEnum("category"),
   riskLevel: botRiskLevelEnum("risk_level"),

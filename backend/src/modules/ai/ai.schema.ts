@@ -3,7 +3,8 @@ import { z } from 'zod';
 export const chatMessageSchema = z.object({
   message: z.string().min(1, 'Message is required').max(4000),
   conversationId: z.string().uuid().optional(),
-  attachmentUrl: z.string().url().optional(),
+  attachmentUrl: z.string().optional(),
+  botId: z.string().uuid().optional(),
 });
 
 export const voiceCommandSchema = z.object({

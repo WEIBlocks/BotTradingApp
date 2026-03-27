@@ -123,6 +123,7 @@ export const botsService = {
     takeProfit?: number;
     maxPosition?: number;
     creatorFeePercent?: number;
+    prompt?: string;
   }) {
     return api.post<{data: any}>('/bots/create', data as Record<string, unknown>);
   },
@@ -138,6 +139,7 @@ export const botsService = {
     takeProfit?: number;
     maxPositionSize?: number;
     creatorFeePercent?: number;
+    prompt?: string;
   }) {
     return api.put<{data: any}>(`/bots/${botId}`, data as Record<string, unknown>);
   },
@@ -145,5 +147,15 @@ export const botsService = {
   /** Get bot data for editing (creator only) */
   getBotForEdit(botId: string) {
     return api.get<{data: any}>(`/bots/${botId}/edit`);
+  },
+
+  /** Activate live trading mode with exchange connection */
+  activateLiveMode(botId: string, exchangeConnId: string, allocatedAmount?: number) {
+    return api.post<{data: any}>(`/bots/${botId}/activate-live`, {exchangeConnId, allocatedAmount} as Record<string, unknown>);
+  },
+
+  /** Get bot decision history (live feed data) */
+  getDecisions(botId: string, limit = 50, offset = 0) {
+    return api.get<{data: any[]}>(`/bots/${botId}/decisions?limit=${limit}&offset=${offset}`);
   },
 };

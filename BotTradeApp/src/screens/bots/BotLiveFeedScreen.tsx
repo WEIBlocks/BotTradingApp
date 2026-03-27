@@ -1,0 +1,465 @@
+import React, {useState, useCallback, useRef, useEffect} from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  AppState,
+  Animated,
+} from 'react-native';
+import {NativeStackScreenProps} from '@react-navigation/native-stack';
+import {useFocusEffect} from '@react-navigation/native';
+import {RootStackParamList} from '../../types';
+import {botsService} from '../../services/bots';
+import {API_BASE_URL} from '../../config/api';
+import {storage} from '../../services/storage';
+import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
+
+type Props = NativeStackScreenProps<RootStackParamList, 'BotLiveFeed'>;
+
+interface BotDecision {
+  id: string;
+  botId: string;
+  symbol: string;
+  action: 'BUY' | 'SELL' | 'HOLD';
+  confidence: number;
+  reasoning: string;
+  indicators: Record<string, number | string | null>;
+  price: string;
+  aiCalled: boolean;
+  tokensCost: number;
+  mode: 'paper' | 'live';
+  createdAt: string;
+  timestamp?: string;
+}
+
+const POLL_INTERVAL = 15000; // 15 seconds
+
+export default function BotLiveFeedScreen({navigation, route}: Props) {
+  const {botId, botName, mode} = route.params as {botId: string; botName: string; mode: string};
+
+  const [decisions, setDecisions] = useState<BotDecision[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [connected, setConnected] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const lastFetchRef = useRef<string>('');
+
+  // Pulse animation for live indicator
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {toValue: 0.3, duration: 1000, useNativeDriver: true}),
+        Animated.timing(pulseAnim, {toValue: 1, duration: 1000, useNativeDriver: true}),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, []);
+
+  // Fetch decisions via REST (primary data source)
+  const fetchDecisions = useCallback(async () => {
+    try {
+      const res: any = await botsService.getDecisions(botId, 50);
+      const items: BotDecision[] = Array.isArray(res?.data) ? res.data : [];
+      // Only update if data changed
+      const key = items.map(d => d.id || d.createdAt).join(',');
+      if (key !== lastFetchRef.current) {
+        lastFetchRef.current = key;
+        setDecisions(items);
+      }
+      // REST works = we're connected to the backend
+      setConnected(true);
+    } catch (err) {
+      console.warn('Failed to fetch decisions:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [botId]);
+
+  // Connect WebSocket for real-time push updates (enhancement, not required)
+  const connectWs = useCallback(async () => {
+    try {
+      const token = await storage.getItem('accessToken');
+      if (!token) return;
+
+      const wsUrl = API_BASE_URL.replace('http', 'ws');
+      const ws = new WebSocket(`${wsUrl}/ws/bot/${botId}/decisions?token=${token}`);
+
+      ws.onopen = () => {
+        setWsConnected(true);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(typeof event.data === 'string' ? event.data : '');
+
+          if (msg.type === 'initial_decisions' && Array.isArray(msg.data) && msg.data.length > 0) {
+            setDecisions(msg.data);
+            setLoading(false);
+            setConnected(true);
+          } else if (msg.type === 'bot_decision' && msg.data) {
+            // Add new real-time decision to the top
+            setDecisions(prev => {
+              const newItem = msg.data;
+              // Deduplicate by id or timestamp
+              const exists = prev.some(d => d.id === newItem.id || (d.timestamp && d.timestamp === newItem.timestamp));
+              if (exists) return prev;
+              return [newItem, ...prev].slice(0, 100);
+            });
+          } else if (msg.type === 'connected') {
+            setWsConnected(true);
+          }
+        } catch {}
+      };
+
+      ws.onclose = () => setWsConnected(false);
+      ws.onerror = () => setWsConnected(false);
+
+      wsRef.current = ws;
+    } catch {
+      // WS failed — REST polling will handle it
+    }
+  }, [botId]);
+
+  // Setup: fetch data + try WS + start polling
+  useFocusEffect(
+    useCallback(() => {
+      fetchDecisions();
+      connectWs();
+      pollRef.current = setInterval(fetchDecisions, POLL_INTERVAL);
+
+      return () => {
+        if (wsRef.current) {
+          wsRef.current.close();
+          wsRef.current = null;
+        }
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      };
+    }, [fetchDecisions, connectWs]),
+  );
+
+  // Handle app state changes
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'background') {
+        if (pollRef.current) clearInterval(pollRef.current);
+        if (wsRef.current) wsRef.current.close();
+      } else if (state === 'active') {
+        fetchDecisions();
+        connectWs();
+        pollRef.current = setInterval(fetchDecisions, POLL_INTERVAL);
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
+  const getActionIcon = (action: string) => {
+    switch (action) {
+      case 'BUY': return '🟢';
+      case 'SELL': return '🔴';
+      default: return '⏸';
+    }
+  };
+
+  const getActionColor = (action: string) => {
+    switch (action) {
+      case 'BUY': return '#00C851';
+      case 'SELL': return '#FF4444';
+      default: return '#6B7280';
+    }
+  };
+
+  const formatTime = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false});
+    } catch {
+      return '--:--:--';
+    }
+  };
+
+  const formatPrice = (price: string | number) => {
+    const p = typeof price === 'string' ? parseFloat(price) : price;
+    if (isNaN(p)) return '$0.00';
+    if (p >= 1000) return '$' + p.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    return '$' + p.toFixed(4);
+  };
+
+  // Stats
+  const totalBuys = decisions.filter(d => d.action === 'BUY').length;
+  const totalSells = decisions.filter(d => d.action === 'SELL').length;
+  const totalHolds = decisions.filter(d => d.action === 'HOLD').length;
+  const aiCalls = decisions.filter(d => d.aiCalled).length;
+  const totalTokens = decisions.reduce((sum, d) => sum + (d.tokensCost || 0), 0);
+
+  const renderDecision = ({item}: {item: BotDecision}) => (
+    <View style={styles.decisionCard}>
+      <View style={styles.decisionHeader}>
+        <View style={styles.decisionAction}>
+          <Text style={styles.actionIcon}>{getActionIcon(item.action)}</Text>
+          <Text style={[styles.actionText, {color: getActionColor(item.action)}]}>
+            {item.action}
+          </Text>
+          {item.action !== 'HOLD' && item.confidence > 0 && (
+            <View style={styles.confidenceContainer}>
+              <Text style={styles.confidenceBadge}>{item.confidence}%</Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.decisionMeta}>
+          <Text style={styles.decisionTime}>{formatTime(item.createdAt || item.timestamp || '')}</Text>
+          {item.aiCalled && (
+            <View style={styles.aiBadge}>
+              <Text style={styles.aiBadgeText}>AI</Text>
+            </View>
+          )}
+        </View>
+      </View>
+
+      <Text style={styles.decisionSymbol}>{item.symbol} @ {formatPrice(item.price)}</Text>
+      <Text style={styles.decisionReasoning}>{item.reasoning}</Text>
+
+      {/* Indicators row */}
+      {item.indicators && (
+        <View style={styles.indicatorsRow}>
+          {item.indicators.rsi != null && (
+            <View style={styles.indicatorChip}>
+              <Text style={styles.indicatorLabel}>RSI</Text>
+              <Text style={[
+                styles.indicatorValue,
+                {color: Number(item.indicators.rsi) < 30 ? '#00C851' : Number(item.indicators.rsi) > 70 ? '#FF4444' : '#9CA3AF'},
+              ]}>{Number(item.indicators.rsi).toFixed(1)}</Text>
+            </View>
+          )}
+          {item.indicators.macd != null && (
+            <View style={styles.indicatorChip}>
+              <Text style={styles.indicatorLabel}>MACD</Text>
+              <Text style={[
+                styles.indicatorValue,
+                {color: Number(item.indicators.macd) > 0 ? '#00C851' : '#FF4444'},
+              ]}>{Number(item.indicators.macd) > 0 ? '+' : ''}{Number(item.indicators.macd).toFixed(4)}</Text>
+            </View>
+          )}
+          {item.indicators.price_change != null && (
+            <View style={styles.indicatorChip}>
+              <Text style={styles.indicatorLabel}>Chg</Text>
+              <Text style={[
+                styles.indicatorValue,
+                {color: Number(item.indicators.price_change) > 0 ? '#00C851' : '#FF4444'},
+              ]}>{Number(item.indicators.price_change) > 0 ? '+' : ''}{Number(item.indicators.price_change).toFixed(2)}%</Text>
+            </View>
+          )}
+          {item.indicators.ema20 != null && (
+            <View style={styles.indicatorChip}>
+              <Text style={styles.indicatorLabel}>EMA20</Text>
+              <Text style={styles.indicatorValue}>{formatPrice(item.indicators.ema20)}</Text>
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  );
+
+  // Status text
+  const statusText = wsConnected ? 'LIVE' : connected ? 'ACTIVE' : 'CONNECTING';
+  const statusColor = wsConnected ? '#00C851' : connected ? '#3B82F6' : '#FF4444';
+
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <ChevronLeftIcon size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle}>{botName || 'Bot'}</Text>
+          <View style={styles.liveIndicator}>
+            <Animated.View style={[styles.liveDot, {opacity: pulseAnim, backgroundColor: statusColor}]} />
+            <Text style={[styles.liveText, {color: statusColor}]}>{statusText}</Text>
+            <View style={[styles.modeBadge, {backgroundColor: mode === 'live' ? '#FF6B0020' : '#00C85120'}]}>
+              <Text style={[styles.modeBadgeText, {color: mode === 'live' ? '#FF6B00' : '#00C851'}]}>
+                {mode === 'live' ? 'LIVE TRADING' : 'PAPER'}
+              </Text>
+            </View>
+          </View>
+        </View>
+        <View style={{width: 40}} />
+      </View>
+
+      {/* Stats Bar */}
+      <View style={styles.statsBar}>
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>{totalBuys}</Text>
+          <Text style={[styles.statLabel, {color: '#00C851'}]}>Buys</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>{totalSells}</Text>
+          <Text style={[styles.statLabel, {color: '#FF4444'}]}>Sells</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>{totalHolds}</Text>
+          <Text style={[styles.statLabel, {color: '#6B7280'}]}>Holds</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>{aiCalls}</Text>
+          <Text style={[styles.statLabel, {color: '#8B5CF6'}]}>AI Calls</Text>
+        </View>
+        <View style={styles.statDivider} />
+        <View style={styles.statItem}>
+          <Text style={styles.statValue}>{totalTokens}</Text>
+          <Text style={[styles.statLabel, {color: '#F59E0B'}]}>Tokens</Text>
+        </View>
+      </View>
+
+      {/* Decision Feed */}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#00C851" />
+          <Text style={styles.loadingText}>Connecting to bot engine...</Text>
+        </View>
+      ) : decisions.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyIcon}>🤖</Text>
+          <Text style={styles.emptyTitle}>Waiting for First Decision</Text>
+          <Text style={styles.emptySubtitle}>
+            The bot engine analyzes markets every 2 minutes.{'\n'}
+            Make sure you have an active shadow session{'\n'}
+            running for this bot.
+          </Text>
+          <TouchableOpacity
+            style={styles.refreshBtn}
+            onPress={fetchDecisions}
+            activeOpacity={0.7}>
+            <Text style={styles.refreshBtnText}>Refresh</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={decisions}
+          renderItem={renderDecision}
+          keyExtractor={(item, index) => item.id || `${item.createdAt}-${index}`}
+          contentContainerStyle={styles.feedContainer}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {flex: 1, backgroundColor: '#0A0E14'},
+
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 50,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1A1F2E',
+  },
+  backBtn: {width: 40, height: 40, justifyContent: 'center'},
+  headerCenter: {flex: 1, alignItems: 'center'},
+  headerTitle: {color: '#FFFFFF', fontSize: 17, fontFamily: 'Inter-SemiBold'},
+  liveIndicator: {flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 6},
+  liveDot: {width: 8, height: 8, borderRadius: 4},
+  liveText: {fontSize: 11, fontFamily: 'Inter-Bold', letterSpacing: 1},
+  modeBadge: {paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4},
+  modeBadgeText: {fontSize: 9, fontFamily: 'Inter-Bold', letterSpacing: 0.5},
+
+  statsBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#111827',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1A1F2E',
+  },
+  statItem: {flex: 1, alignItems: 'center'},
+  statValue: {color: '#FFFFFF', fontSize: 16, fontFamily: 'Inter-Bold'},
+  statLabel: {fontSize: 10, fontFamily: 'Inter-Medium', marginTop: 2},
+  statDivider: {width: 1, height: 24, backgroundColor: '#1F2937'},
+
+  loadingContainer: {flex: 1, justifyContent: 'center', alignItems: 'center'},
+  loadingText: {color: '#6B7280', fontSize: 14, fontFamily: 'Inter-Regular', marginTop: 12},
+
+  emptyContainer: {flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 40},
+  emptyIcon: {fontSize: 48, marginBottom: 16},
+  emptyTitle: {color: '#FFFFFF', fontSize: 18, fontFamily: 'Inter-SemiBold', marginBottom: 8},
+  emptySubtitle: {color: '#6B7280', fontSize: 14, fontFamily: 'Inter-Regular', textAlign: 'center', lineHeight: 20},
+  refreshBtn: {
+    marginTop: 20,
+    backgroundColor: '#1F2937',
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  refreshBtnText: {color: '#FFFFFF', fontSize: 14, fontFamily: 'Inter-SemiBold'},
+
+  feedContainer: {padding: 16, gap: 10},
+
+  decisionCard: {
+    backgroundColor: '#111827',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#1F2937',
+  },
+  decisionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  decisionAction: {flexDirection: 'row', alignItems: 'center', gap: 6},
+  actionIcon: {fontSize: 14},
+  actionText: {fontSize: 14, fontFamily: 'Inter-Bold', letterSpacing: 0.5},
+  confidenceContainer: {
+    backgroundColor: '#1F2937',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  confidenceBadge: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    fontFamily: 'Inter-Medium',
+  },
+  decisionMeta: {flexDirection: 'row', alignItems: 'center', gap: 6},
+  decisionTime: {color: '#6B7280', fontSize: 12, fontFamily: 'Inter-Regular'},
+  aiBadge: {
+    backgroundColor: '#8B5CF620',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 3,
+  },
+  aiBadgeText: {color: '#8B5CF6', fontSize: 9, fontFamily: 'Inter-Bold'},
+
+  decisionSymbol: {color: '#D1D5DB', fontSize: 13, fontFamily: 'Inter-Medium', marginBottom: 4},
+  decisionReasoning: {color: '#9CA3AF', fontSize: 13, fontFamily: 'Inter-Regular', lineHeight: 18, marginBottom: 8},
+
+  indicatorsRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 6},
+  indicatorChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0D1117',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 4,
+  },
+  indicatorLabel: {color: '#6B7280', fontSize: 10, fontFamily: 'Inter-Medium'},
+  indicatorValue: {fontSize: 11, fontFamily: 'Inter-SemiBold'},
+});

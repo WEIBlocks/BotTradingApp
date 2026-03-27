@@ -21,7 +21,8 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Route = RouteProp<RootStackParamList, 'BotBuilder'>;
 
 const DEFAULT_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'MATIC/USDT'];
-const DEFAULT_STRATEGIES = ['Trend Following', 'Scalping', 'Grid', 'Arbitrage', 'DCA'];
+const DEFAULT_STRATEGIES = ['Trend Following', 'Scalping', 'Grid', 'DCA', 'Momentum', 'Custom'];
+const RULE_ONLY_STRATEGIES = ['Grid', 'DCA']; // These don't need AI prompt
 const DEFAULT_RISK_LEVELS = ['Very Low', 'Low', 'Med', 'High', 'Very High'];
 
 // ─── Icons ──────────────────────────────────────────────────────────────────
@@ -86,22 +87,30 @@ export default function BotBuilderScreen() {
 
   const strategyName = route.params?.strategyName;
   const editBotId = route.params?.editBotId;
+  const strategyData = route.params?.strategyData;
   const isEditMode = !!editBotId;
 
   const [tradingPairs, setTradingPairs] = useState<string[]>(DEFAULT_PAIRS);
   const [strategies, setStrategies] = useState<string[]>(DEFAULT_STRATEGIES);
   const [riskLevels, setRiskLevels] = useState<string[]>(DEFAULT_RISK_LEVELS);
 
-  const [botName, setBotName] = useState(strategyName || '');
-  const [selectedPairs, setSelectedPairs] = useState<string[]>(['BTC/USDT']);
-  const [selectedStrategy, setSelectedStrategy] = useState(
-    strategyName && DEFAULT_STRATEGIES.includes(strategyName) ? strategyName : '',
+  const [botName, setBotName] = useState(strategyData?.name || strategyName || '');
+  const [selectedPairs, setSelectedPairs] = useState<string[]>(
+    strategyData?.pairs?.length ? strategyData.pairs : ['BTC/USDT'],
   );
-  const [riskLevel, setRiskLevel] = useState<string>('Med');
-  const [stopLoss, setStopLoss] = useState('');
-  const [takeProfit, setTakeProfit] = useState('');
+  const [selectedStrategy, setSelectedStrategy] = useState(
+    strategyData?.strategy && DEFAULT_STRATEGIES.includes(strategyData.strategy)
+      ? strategyData.strategy
+      : strategyName && DEFAULT_STRATEGIES.includes(strategyName)
+        ? strategyName
+        : '',
+  );
+  const [riskLevel, setRiskLevel] = useState<string>(strategyData?.riskLevel || 'Med');
+  const [stopLoss, setStopLoss] = useState(strategyData?.stopLoss ? String(strategyData.stopLoss) : '');
+  const [takeProfit, setTakeProfit] = useState(strategyData?.takeProfit ? String(strategyData.takeProfit) : '');
   const [maxPosition, setMaxPosition] = useState('');
   const [tradingMode, setTradingMode] = useState<'paper' | 'live'>('paper');
+  const [prompt, setPrompt] = useState(strategyData?.prompt || '');
   const [creatorFee, setCreatorFee] = useState('10');
   const [deploying, setDeploying] = useState(false);
   const [loadingBot, setLoadingBot] = useState(false);
@@ -134,6 +143,7 @@ export default function BotBuilderScreen() {
           if (config?.maxPositionSize) setMaxPosition(String(config.maxPositionSize));
           if (config?.tradingMode) setTradingMode(config.tradingMode);
           if (bot.creatorFeePercent) setCreatorFee(String(bot.creatorFeePercent));
+          if (bot.prompt) setPrompt(bot.prompt);
         }
       })
       .catch(() => showAlert('Error', 'Could not load bot data.'))
@@ -190,6 +200,7 @@ export default function BotBuilderScreen() {
     takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
     maxPosition: maxPosition ? parseFloat(maxPosition) : undefined,
     creatorFeePercent: creatorFee ? parseFloat(creatorFee) : 10,
+    prompt: prompt.trim() || undefined,
   });
 
   const handleDeploy = async () => {
@@ -215,6 +226,7 @@ export default function BotBuilderScreen() {
           takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
           maxPositionSize: maxPosition ? parseFloat(maxPosition) : undefined,
           creatorFeePercent: creatorFee ? parseFloat(creatorFee) : 10,
+          prompt: prompt.trim() || undefined,
         });
         showAlert('Bot Updated!', `${botName} has been updated.`);
         navigation.goBack();
@@ -292,6 +304,41 @@ export default function BotBuilderScreen() {
           value={botName}
           onChangeText={setBotName}
         />
+
+        {/* Bot Instructions / Prompt — only for AI-based strategies */}
+        {!RULE_ONLY_STRATEGIES.includes(selectedStrategy) && (
+          <>
+            <Text style={styles.label}>
+              {selectedStrategy === 'Custom' ? 'CUSTOM STRATEGY INSTRUCTIONS' : 'BOT INSTRUCTIONS (OPTIONAL)'}
+            </Text>
+            <TextInput
+              style={[styles.textInput, {height: 100, textAlignVertical: 'top', paddingTop: 12}]}
+              placeholder={selectedStrategy === 'Custom'
+                ? "Describe your trading strategy in detail... (e.g., Buy when RSI drops below 30 and price is near support, sell when RSI > 70 or MACD crosses bearish)"
+                : "Add custom instructions to fine-tune the strategy... (optional — sensible defaults will be used)"}
+              placeholderTextColor="rgba(255,255,255,0.3)"
+              value={prompt}
+              onChangeText={setPrompt}
+              multiline
+              numberOfLines={4}
+              maxLength={2000}
+            />
+            {prompt.length > 0 && (
+              <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.25)', textAlign: 'right', marginTop: 4}}>
+                {prompt.length}/2000
+              </Text>
+            )}
+          </>
+        )}
+        {RULE_ONLY_STRATEGIES.includes(selectedStrategy) && (
+          <View style={{backgroundColor: '#111827', borderRadius: 10, padding: 14, marginBottom: 12}}>
+            <Text style={{fontFamily: 'Inter-Medium', fontSize: 13, color: '#9CA3AF', lineHeight: 18}}>
+              {selectedStrategy === 'DCA'
+                ? 'DCA bots buy automatically at regular intervals regardless of price. Configure the amount and frequency with the parameters below.'
+                : 'Grid bots place buy orders below the current price and sell orders above it, profiting from price oscillations within a range.'}
+            </Text>
+          </View>
+        )}
 
         {/* Trading Pairs */}
         <Text style={styles.label}>TRADING PAIRS</Text>
@@ -436,41 +483,18 @@ export default function BotBuilderScreen() {
           </View>
         </View>
 
-        {/* Trading Mode */}
-        <Text style={styles.label}>TRADING MODE</Text>
-        <View style={styles.modeRow}>
-          <TouchableOpacity
-            style={[
-              styles.modeBtn,
-              tradingMode === 'paper' && styles.modeBtnSelected,
-            ]}
-            onPress={() => setTradingMode('paper')}>
-            <Text
-              style={[
-                styles.modeBtnText,
-                tradingMode === 'paper' && styles.modeBtnTextSelected,
-              ]}>
-              Paper Trading
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.modeBtn,
-              tradingMode === 'live' && styles.modeBtnSelected,
-              tradingMode !== 'live' && styles.modeBtnOutline,
-            ]}
-            onPress={() => setTradingMode('live')}>
-            <Text
-              style={[
-                styles.modeBtnText,
-                tradingMode === 'live' && styles.modeBtnTextSelected,
-              ]}>
-              Live Trading
-            </Text>
-          </TouchableOpacity>
+        {/* How it works info */}
+        <View style={{backgroundColor: '#111827', borderRadius: 10, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: '#1F2937'}}>
+          <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF', marginBottom: 6}}>How it works</Text>
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: '#9CA3AF', lineHeight: 18}}>
+            1. Deploy your bot with a strategy and parameters{'\n'}
+            2. Test with Shadow Mode (virtual money, no risk){'\n'}
+            3. When ready, Go Live with your exchange connection
+          </Text>
         </View>
 
-        {/* Train with Data */}
+        {/* Train with Data — only for AI strategies */}
+        {!RULE_ONLY_STRATEGIES.includes(selectedStrategy) && (
         <TouchableOpacity
           style={styles.trainBtn}
           activeOpacity={0.7}
@@ -484,6 +508,7 @@ export default function BotBuilderScreen() {
             <Path d="M9 5l7 7-7 7" stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
         </TouchableOpacity>
+        )}
 
         {/* Deploy Button */}
         <TouchableOpacity

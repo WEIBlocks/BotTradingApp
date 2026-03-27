@@ -12,6 +12,7 @@ import ShadowModeResultsScreen from '../screens/bots/ShadowModeResultsScreen';
 import ShadowModeScreen from '../screens/bots/ShadowModeScreen';
 import BotPurchaseScreen from '../screens/bots/BotPurchaseScreen';
 import BotBuilderScreen from '../screens/bots/BotBuilderScreen';
+import BotLiveFeedScreen from '../screens/bots/BotLiveFeedScreen';
 import ArenaSetupScreen from '../screens/arena/ArenaSetupScreen';
 import ArenaLiveScreen from '../screens/arena/ArenaLiveScreen';
 import ArenaFinalResultsScreen from '../screens/arena/ArenaFinalResultsScreen';
@@ -85,6 +86,7 @@ export default function AppNavigator() {
           <Stack.Screen name="AllBots" component={AllBotsScreen} />
           <Stack.Screen name="BotDetails" component={BotDetailsScreen} />
           <Stack.Screen name="BotPurchase" component={BotPurchaseScreen} />
+          <Stack.Screen name="BotLiveFeed" component={BotLiveFeedScreen} />
           <Stack.Screen name="ShadowMode" component={ShadowModeScreen} />
           <Stack.Screen name="ShadowModeResults" component={ShadowModeResultsScreen} />
           <Stack.Screen name="ArenaSetup" component={ArenaSetupScreen} />

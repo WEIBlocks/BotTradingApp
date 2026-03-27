@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { handleTradesWs, handleArenaWs, handleNotificationsWs } from './ws.handler.js';
+import { handleTradesWs, handleArenaWs, handleBotDecisionsWs, handleNotificationsWs } from './ws.handler.js';
 
 export async function wsRoutes(app: FastifyInstance) {
   // Live trades feed
@@ -12,6 +12,12 @@ export async function wsRoutes(app: FastifyInstance) {
   app.get('/arena/:sessionId', { websocket: true }, (socket: any, request: any) => {
     const ws = socket.socket ?? socket;
     handleArenaWs(ws, request);
+  });
+
+  // Bot live decision feed
+  app.get('/bot/:botId/decisions', { websocket: true }, (socket: any, request: any) => {
+    const ws = socket.socket ?? socket;
+    handleBotDecisionsWs(ws, request);
   });
 
   // Notifications feed

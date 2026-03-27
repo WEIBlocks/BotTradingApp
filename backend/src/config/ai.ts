@@ -1,8 +1,31 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
+import fs from 'fs';
+import path from 'path';
 import { env } from './env.js';
 import { AppError } from '../lib/errors.js';
+
+// Convert local /uploads/... path to base64 data URI
+function resolveImageToBase64(imageUrl: string): { base64: string; mimeType: string } | null {
+  try {
+    let filePath = imageUrl;
+    if (filePath.startsWith('/uploads/')) {
+      filePath = path.join(process.cwd(), filePath);
+    }
+    if (!fs.existsSync(filePath)) return null;
+    const buffer = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeMap: Record<string, string> = {
+      '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png',
+      '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+    };
+    const mimeType = mimeMap[ext] || 'image/jpeg';
+    return { base64: buffer.toString('base64'), mimeType };
+  } catch {
+    return null;
+  }
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -107,13 +130,17 @@ async function callAnthropic(
     .filter((m) => m.role !== 'system')
     .map((m) => {
       if (m.role === 'user' && opts.imageUrl) {
-        return {
-          role: 'user' as const,
-          content: [
-            { type: 'text' as const, text: m.content },
-            { type: 'image' as const, source: { type: 'url' as const, url: opts.imageUrl } },
-          ],
-        };
+        const imgData = resolveImageToBase64(opts.imageUrl);
+        if (imgData) {
+          return {
+            role: 'user' as const,
+            content: [
+              { type: 'text' as const, text: m.content },
+              { type: 'image' as const, source: { type: 'base64' as const, media_type: imgData.mimeType as any, data: imgData.base64 } },
+            ],
+          };
+        }
+        return { role: 'user' as const, content: m.content };
       }
       return { role: m.role as 'user' | 'assistant', content: m.content };
     });
@@ -147,13 +174,25 @@ async function callGemini(
 
   // Build contents for Gemini
   const systemInstruction = opts.system;
-  const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
+  const contents: Array<{ role: string; parts: Array<any> }> = [];
 
   for (const m of messages) {
     if (m.role === 'system') continue;
+    const parts: any[] = [{ text: m.content }];
+
+    // Add image for user messages
+    if (m.role === 'user' && opts.imageUrl) {
+      const imgData = resolveImageToBase64(opts.imageUrl);
+      if (imgData) {
+        parts.push({
+          inlineData: { mimeType: imgData.mimeType, data: imgData.base64 },
+        });
+      }
+    }
+
     contents.push({
       role: m.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: m.content }],
+      parts,
     });
   }
 
@@ -193,11 +232,13 @@ async function callOpenAI(
   for (const m of messages) {
     if (m.role === 'system') continue;
     if (m.role === 'user' && opts.imageUrl) {
+      const imgB64 = resolveImageToBase64(opts.imageUrl);
+      const imgUrl = imgB64 ? `data:${imgB64.mimeType};base64,${imgB64.base64}` : opts.imageUrl;
       apiMessages.push({
         role: 'user',
         content: [
           { type: 'text', text: m.content },
-          { type: 'image_url', image_url: { url: opts.imageUrl } },
+          { type: 'image_url', image_url: { url: imgUrl } },
         ],
       });
     } else {

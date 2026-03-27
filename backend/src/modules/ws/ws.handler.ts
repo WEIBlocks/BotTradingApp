@@ -181,6 +181,85 @@ export async function handleArenaWs(socket: WebSocket, request: FastifyRequest):
 }
 
 /**
+ * Bot Live Decision Feed: /ws/bot/:botId/decisions
+ * Real-time stream of bot trading decisions (BUY/SELL/HOLD with reasoning)
+ */
+export async function handleBotDecisionsWs(socket: WebSocket, request: FastifyRequest): Promise<void> {
+  const user = authenticateWs(request);
+  if (!user) {
+    sendJson(socket, { type: 'error', message: 'Unauthorized' });
+    socket.close(4001, 'Unauthorized');
+    return;
+  }
+
+  const { botId } = request.params as { botId: string };
+  if (!botId) {
+    sendJson(socket, { type: 'error', message: 'Missing botId' });
+    socket.close(4002, 'Missing botId');
+    return;
+  }
+
+  // Send recent decisions on connection
+  try {
+    const { botDecisions } = await import('../../db/schema/decisions.js');
+    const { and, eq, desc } = await import('drizzle-orm');
+
+    const recentDecisions = await db
+      .select()
+      .from(botDecisions)
+      .where(
+        and(
+          eq(botDecisions.botId, botId),
+          eq(botDecisions.userId, user.userId),
+        ),
+      )
+      .orderBy(desc(botDecisions.createdAt))
+      .limit(30);
+
+    sendJson(socket, { type: 'initial_decisions', data: recentDecisions.reverse() });
+  } catch (err) {
+    console.warn('Failed to fetch recent decisions:', (err as Error).message);
+  }
+
+  // Subscribe to Redis pub/sub for live decision updates
+  // Use user-specific channel so each user only sees their own decisions
+  const channel = `bot:decisions:${botId}:${user.userId}`;
+  const fallbackChannel = `bot:decisions:${botId}`;
+  const listener = (message: string) => {
+    try {
+      const parsed = JSON.parse(message);
+      // Only forward if this decision belongs to the current user
+      const data = parsed.data || parsed;
+      if (!data.userId || data.userId === user.userId) {
+        sendJson(socket, parsed);
+      }
+    } catch { /* ignore */ }
+  };
+  await subscribeChannel(channel, listener);
+  await subscribeChannel(fallbackChannel, listener);
+
+  sendJson(socket, { type: 'connected', botId });
+
+  const cleanup = async () => {
+    await unsubscribeChannel(channel, listener);
+    await unsubscribeChannel(fallbackChannel, listener);
+  };
+
+  socket.on('close', cleanup);
+  socket.on('error', cleanup);
+
+  const pingInterval = setInterval(() => {
+    if (socket.readyState === WebSocket.OPEN) {
+      socket.ping();
+    } else {
+      clearInterval(pingInterval);
+    }
+  }, 30000);
+
+  socket.on('close', () => clearInterval(pingInterval));
+}
+
+/**
  * Notifications Feed: /ws/notifications
  */
 export async function handleNotificationsWs(socket: WebSocket, request: FastifyRequest): Promise<void> {

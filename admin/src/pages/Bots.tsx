@@ -179,6 +179,16 @@ function BotDetailModal({ botId, onClose, onRefreshList: _onRefreshList }: { bot
               </div>
             </div>
 
+            {/* Bot Prompt Section */}
+            {bot.prompt && (
+              <div className="py-5 border-b border-white/[0.06]">
+                <h4 className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-3">Bot Prompt / Instructions</h4>
+                <pre className="bg-[#0D1117] border border-white/[0.06] rounded-lg px-4 py-3 text-white/70 text-sm whitespace-pre-wrap font-sans leading-relaxed max-h-60 overflow-y-auto">
+                  {bot.prompt}
+                </pre>
+              </div>
+            )}
+
             {/* Statistics Section */}
             {stats && (
               <div className="py-5 border-b border-white/[0.06]">

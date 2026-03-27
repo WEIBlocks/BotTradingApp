@@ -330,6 +330,12 @@ export default function ShadowModeScreen({navigation}: Props) {
                   ) : isRunning ? (
                     <>
                       <TouchableOpacity
+                        style={[styles.actionBtnPause, {backgroundColor: '#10B98115', borderColor: '#10B981'}]}
+                        onPress={(e) => { e.stopPropagation?.(); navigation.navigate('BotLiveFeed', {botId: session.botId, botName: session.botName || 'Bot', mode: 'paper'}); }}
+                        activeOpacity={0.7}>
+                        <Text style={[styles.actionBtnPauseText, {color: '#10B981'}]}>Live Feed</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
                         style={styles.actionBtnPause}
                         onPress={(e) => { e.stopPropagation?.(); handlePauseShadow(session.id); }}
                         activeOpacity={0.7}>

@@ -14,7 +14,7 @@ export type AuthStackParamList = {
 export type MainTabParamList = {
   Dashboard: undefined;
   Market: undefined;
-  AIChat: undefined;
+  AIChat: {botId?: string} | undefined;
   Portfolio: undefined;
   Profile: undefined;
 };
@@ -45,7 +45,21 @@ export type RootStackParamList = {
   PaymentMethod: undefined;
   Checkout: {type: 'bot' | 'subscription'; itemId: string; amount: number};
   CreatorStudio: undefined;
-  BotBuilder: {fromChat?: boolean; strategyName?: string; editBotId?: string};
+  BotBuilder: {
+    fromChat?: boolean;
+    strategyName?: string;
+    editBotId?: string;
+    strategyData?: {
+      name?: string;
+      strategy?: string;
+      pairs?: string[];
+      riskLevel?: string;
+      stopLoss?: number;
+      takeProfit?: number;
+      prompt?: string;
+    };
+  };
+  BotLiveFeed: {botId: string; botName: string; mode: string};
   LiveTrades: undefined;
   TrainingUpload: {botId?: string} | undefined;
   TradingRoom: undefined;

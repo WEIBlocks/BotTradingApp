@@ -163,4 +163,38 @@ export async function trainingRoutes(app: FastifyInstance) {
     const result = await trainingService.startTraining(request.user.userId, botId);
     return { data: result };
   });
+
+  // POST /upload-image — simple image pre-upload (no botId needed, returns URL)
+  app.post('/upload-image', {
+    preHandler: [authenticate],
+  }, async (request, reply) => {
+    const data = await (request as any).file();
+    if (!data) {
+      return reply.status(400).send({ error: 'No file provided' });
+    }
+
+    const mime = data.mimetype || '';
+    if (!mime.startsWith('image/')) {
+      return reply.status(400).send({ error: 'Only image files are allowed' });
+    }
+
+    const safeName = path.basename(data.filename || 'image.jpg');
+    const ext = path.extname(safeName || '.jpg');
+    const uniqueName = `${randomUUID()}${ext}`;
+    const filePath = path.join(UPLOADS_DIR, uniqueName);
+
+    if (!fs.existsSync(UPLOADS_DIR)) {
+      fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+    }
+
+    const writeStream = fs.createWriteStream(filePath);
+    await new Promise<void>((resolve, reject) => {
+      data.file.pipe(writeStream);
+      data.file.on('error', reject);
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
+    });
+
+    return { data: { url: `/uploads/${uniqueName}`, size: writeStream.bytesWritten } };
+  });
 }

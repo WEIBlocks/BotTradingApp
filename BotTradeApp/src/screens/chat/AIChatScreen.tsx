@@ -1,12 +1,15 @@
 import React, {useState, useRef, useCallback, useEffect} from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  TextInput, Keyboard, Animated, Platform, Dimensions, ScrollView,
+  TextInput, Keyboard, Animated, Platform, Dimensions, ScrollView, Image, ActivityIndicator, Modal,
 } from 'react-native';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
-import {useNavigation} from '@react-navigation/native';
+import {useNavigation, useRoute, RouteProp} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import {RootStackParamList} from '../../types';
+import DocumentPicker from 'react-native-document-picker';
+import {RootStackParamList, MainTabParamList} from '../../types';
+import {API_BASE_URL} from '../../config/api';
+import {storage} from '../../services/storage';
 import {aiApi} from '../../services/ai';
 import MarkdownText from '../../components/MarkdownText';
 
@@ -26,6 +29,7 @@ interface Message {
     indicators: string[];
     backtestReturn?: number;
   };
+  imageUri?: string;
 }
 
 const INITIAL_MESSAGES: Message[] = [
@@ -38,15 +42,27 @@ const INITIAL_MESSAGES: Message[] = [
 
 const SUGGESTIONS = ['Analyze my chart', 'Create a momentum bot', 'RSI strategy', 'What is MACD?'];
 
-// ─── Icons ─────────────────────────────────────────────────────────────────────
-
-function BackArrow() {
-  return (
-    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
-      <Path d="M15 19l-7-7 7-7" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
+function formatConvDate(dateStr: string): string {
+  try {
+    // Handle PostgreSQL timestamp format: "2026-03-25 13:08:48.100126+00"
+    const d = new Date(dateStr.replace(' ', 'T').replace(/\+00$/, 'Z'));
+    if (isNaN(d.getTime())) return 'Unknown';
+    const now = new Date();
+    const diff = now.getTime() - d.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 7) return `${days}d ago`;
+    return d.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+  } catch {
+    return 'Unknown';
+  }
 }
+
+// ─── Icons ─────────────────────────────────────────────────────────────────────
 
 function DotsMenu() {
   return (
@@ -72,6 +88,16 @@ function SendArrow() {
   return (
     <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
       <Path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+function HistoryIcon() {
+  return (
+    <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+      <Path d="M3 3v5h5" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M3.05 13A9 9 0 1 0 4.64 5.64L3 8" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M12 7v5l4 2" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
   );
 }
@@ -131,11 +157,21 @@ function StrategyBarChart({chartWidth, backtestReturn}: {chartWidth: number; bac
 
 export default function AIChatScreen() {
   const navigation = useNavigation<NavProp>();
+  const route = useRoute<RouteProp<MainTabParamList, 'AIChat'>>();
+  const botId = (route.params as any)?.botId as string | undefined;
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState('');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [isTyping, setIsTyping] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [attachedImage, setAttachedImage] = useState<string | null>(null);
+  const [attachedImageName, setAttachedImageName] = useState<string>('');
+  const [uploadProgress, setUploadProgress] = useState(0); // 0 = not uploading
+  const [showConversations, setShowConversations] = useState(false);
+  const [conversations, setConversations] = useState<any[]>([]);
+  const [convsLoading, setConvsLoading] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const shouldScrollToEnd = useRef(true);
   const keyboardHeight = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -166,30 +202,145 @@ export default function AIChatScreen() {
   // Load previous conversation on mount
   useEffect(() => {
     (async () => {
+      setHistoryLoading(true);
       try {
         const history = await aiApi.getChatHistory();
         if (history.conversationId && history.messages.length > 0) {
           setConversationId(history.conversationId);
-          const loaded: Message[] = history.messages.map(m => ({
+          const loaded: Message[] = history.messages.map((m: any) => ({
             id: m.id,
-            role: m.role === 'user' ? 'user' : 'ai',
-            text: m.content.replace(/```strategy-json[\s\S]*?```/g, '').trim(),
+            role: m.role === 'user' ? 'user' as const : 'ai' as const,
+            text: (m.content || '').replace(/```strategy-json[\s\S]*?```/g, '').replace(/\[Image: [^\]]+\]\s*/g, '').trim(),
+            imageUri: m.metadata?.attachmentUrl ? `${API_BASE_URL}${m.metadata.attachmentUrl}` : undefined,
           }));
           setMessages([INITIAL_MESSAGES[0], ...loaded]);
         }
       } catch {}
+      setHistoryLoading(false);
     })();
   }, []);
 
+  const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
+
+  const handleImageAttach = useCallback(async () => {
+    try {
+      const result = await DocumentPicker.pick({
+        type: [DocumentPicker.types.images],
+      });
+      const file = result[0];
+      if (file && file.uri) {
+        setAttachedImage(file.uri);
+        setAttachedImageName(file.name || 'chart.jpg');
+        setUploadedUrl(null);
+
+        // Pre-upload immediately
+        setUploadProgress(5);
+        try {
+          const token = await storage.getAccessToken();
+          const formData = new FormData();
+          const fname = file.name || 'chart.jpg';
+          const ext = /\.(\w+)$/.exec(fname);
+          const mimeType = ext ? `image/${ext[1] === 'jpg' ? 'jpeg' : ext[1]}` : 'image/jpeg';
+          formData.append('image', { uri: file.uri, name: fname, type: mimeType } as any);
+
+          setUploadProgress(30);
+          const res = await fetch(`${API_BASE_URL}/training/upload-image`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+          });
+          setUploadProgress(80);
+
+          if (res.ok) {
+            const json = await res.json();
+            setUploadedUrl(json.data?.url || json.url || null);
+            setUploadProgress(100);
+            setTimeout(() => setUploadProgress(0), 500);
+          } else {
+            setUploadProgress(0);
+          }
+        } catch {
+          // Upload failed — will try again on send
+          setUploadProgress(0);
+        }
+      }
+    } catch (err: any) {
+      if (!DocumentPicker.isCancel(err)) {
+        console.warn('Image pick error:', err);
+      }
+    }
+  }, []);
+
+  const isUploading = uploadProgress > 0 && uploadProgress < 100;
+
+  const loadConversations = useCallback(async () => {
+    setConvsLoading(true);
+    try {
+      const convs = await aiApi.listConversations();
+      setConversations(convs);
+    } catch {}
+    setConvsLoading(false);
+  }, []);
+
+  const handleNewConversation = useCallback(() => {
+    setShowConversations(false);
+    setConversationId(undefined);
+    setMessages(INITIAL_MESSAGES);
+  }, []);
+
+  const handleSelectConversation = useCallback(async (convId: string) => {
+    setShowConversations(false);
+    setHistoryLoading(true);
+    try {
+      const conv = await aiApi.getConversation(convId);
+      setConversationId(conv.conversationId);
+      const loaded = (conv.messages || []).map((m: any) => ({
+        id: m.id,
+        role: m.role === 'user' ? 'user' as const : 'ai' as const,
+        text: (m.content || '').replace(/```strategy-json[\s\S]*?```/g, '').replace(/\[Image: [^\]]+\]\s*/g, '').trim(),
+        imageUri: m.metadata?.attachmentUrl ? `${API_BASE_URL}${m.metadata.attachmentUrl}` : undefined,
+      }));
+      setMessages([INITIAL_MESSAGES[0], ...loaded]);
+    } catch {}
+    setHistoryLoading(false);
+  }, []);
+
+  const handleDeleteConversation = useCallback(async (convId: string) => {
+    try {
+      await aiApi.deleteConversation(convId);
+      setConversations(prev => prev.filter(c => c.id !== convId));
+      if (conversationId === convId) handleNewConversation();
+    } catch {}
+  }, [conversationId, handleNewConversation]);
+
   const sendMessage = useCallback(async () => {
-    if (!inputText.trim()) return;
-    const userMsg: Message = {id: Date.now().toString(), role: 'user', text: inputText.trim()};
+    if (!inputText.trim() || isUploading) return;
+    const text = inputText.trim();
+    const imgUri = attachedImage;
+    const userMsg: Message = {id: Date.now().toString(), role: 'user', text, imageUri: imgUri || undefined};
     setMessages(prev => [...prev, userMsg]);
     setInputText('');
     setIsTyping(true);
 
+    // Clear attachment immediately
+    const preUploadedUrl = uploadedUrl;
+    setAttachedImage(null);
+    setAttachedImageName('');
+    setUploadedUrl(null);
+
     try {
-      const response = await aiApi.chat(inputText.trim(), conversationId);
+      let response;
+      if (imgUri) {
+        if (preUploadedUrl) {
+          // Use pre-uploaded URL — send as regular chat with attachmentUrl
+          response = await aiApi.chat(text, conversationId, preUploadedUrl, botId);
+        } else {
+          // Fallback: upload and chat in one request
+          response = await aiApi.chatWithImage(text, imgUri, conversationId, () => {});
+        }
+      } else {
+        response = await aiApi.chat(text, conversationId, undefined, botId);
+      }
       setConversationId(response.conversationId);
 
       // Strip strategy-json fence from display text
@@ -206,6 +357,7 @@ export default function AIChatScreen() {
       };
       setMessages(prev => [...prev, aiMsg]);
     } catch (e: any) {
+      setUploadProgress(0);
       const msg = e?.message || 'Sorry, I encountered an error. Please try again.';
       const errorMsg: Message = {
         id: (Date.now() + 1).toString(),
@@ -215,9 +367,9 @@ export default function AIChatScreen() {
       setMessages(prev => [...prev, errorMsg]);
     } finally {
       setIsTyping(false);
-      setTimeout(() => flatListRef.current?.scrollToEnd({animated: true}), 100);
+      // Inverted list auto-shows new messages at bottom
     }
-  }, [inputText, conversationId]);
+  }, [inputText, conversationId, attachedImage, isUploading, botId]);
 
   // Strategy card width = bubble max width - padding
   const strategyCardWidth = width * 0.72 - 32;
@@ -234,7 +386,15 @@ export default function AIChatScreen() {
               <Text style={styles.userAvatarText}>Y</Text>
             </View>
           </View>
-          <View style={styles.userBubble}>
+          <View style={[styles.userBubble, item.imageUri && {paddingTop: 8}]}>
+            {item.imageUri && (
+              <Image
+                source={{uri: item.imageUri.startsWith('/') ? `${API_BASE_URL}${item.imageUri}` : item.imageUri}}
+                style={styles.chatImage}
+                resizeMode="cover"
+                defaultSource={undefined}
+              />
+            )}
             <Text style={styles.userText}>{item.text}</Text>
           </View>
         </View>
@@ -263,7 +423,19 @@ export default function AIChatScreen() {
                 <StrategyBarChart chartWidth={strategyCardWidth} backtestReturn={item.strategyData?.backtestReturn} />
                 <TouchableOpacity
                   style={styles.deployBtn}
-                  onPress={() => navigation.navigate('BotBuilder', {fromChat: true, strategyName: item.strategyData?.name || 'Custom Strategy'})}
+                  onPress={() => navigation.navigate('BotBuilder', {
+                    fromChat: true,
+                    strategyName: item.strategyData?.name || 'Custom Strategy',
+                    strategyData: {
+                      name: item.strategyData?.name,
+                      strategy: (item.strategyData as any)?.strategy,
+                      pairs: item.strategyData?.pairs,
+                      riskLevel: item.strategyData?.riskLevel,
+                      stopLoss: (item.strategyData as any)?.stopLoss,
+                      takeProfit: (item.strategyData as any)?.takeProfit,
+                      prompt: item.text,
+                    },
+                  })}
                   activeOpacity={0.8}>
                   <Text style={styles.deployBtnText}>Deploy as Bot</Text>
                 </TouchableOpacity>
@@ -280,8 +452,8 @@ export default function AIChatScreen() {
 
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.headerBtn}>
-          <BackArrow />
+        <TouchableOpacity style={styles.headerBtn} onPress={() => { loadConversations(); setShowConversations(true); }}>
+          <HistoryIcon />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerTitle}>AI Bot Builder</Text>
@@ -296,16 +468,23 @@ export default function AIChatScreen() {
       </View>
 
       {/* Messages — flex:1 pushes bottom bar down */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={item => item.id}
-        contentContainerStyle={styles.messagesList}
-        showsVerticalScrollIndicator={false}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd({animated: true})}
-        renderItem={renderMessage}
-        style={styles.messageList}
-      />
+      {historyLoading ? (
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
+          <ActivityIndicator size="large" color="#10B981" />
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 10}}>Loading conversation...</Text>
+        </View>
+      ) : (
+        <FlatList
+          ref={flatListRef}
+          data={[...messages].reverse()}
+          keyExtractor={item => item.id}
+          contentContainerStyle={styles.messagesList}
+          showsVerticalScrollIndicator={false}
+          renderItem={renderMessage}
+          style={styles.messageList}
+          inverted
+        />
+      )}
 
       {isTyping && (
         <View style={{flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 8}}>
@@ -333,9 +512,32 @@ export default function AIChatScreen() {
           ))}
         </ScrollView>
 
+        {/* Attachment preview + upload progress */}
+        {attachedImage && (
+          <View style={styles.attachmentPreview}>
+            <Image source={{uri: attachedImage}} style={styles.attachmentThumb} />
+            <View style={{flex: 1}}>
+              <Text style={styles.attachmentName} numberOfLines={1}>{attachedImageName}</Text>
+              {isUploading && (
+                <View style={styles.progressBarBg}>
+                  <View style={[styles.progressBarFill, {width: `${uploadProgress}%`}]} />
+                </View>
+              )}
+            </View>
+            {!isUploading && (
+              <TouchableOpacity onPress={() => { setAttachedImage(null); setAttachedImageName(''); }}>
+                <Text style={{color: '#EF4444', fontSize: 16, fontWeight: 'bold'}}>✕</Text>
+              </TouchableOpacity>
+            )}
+            {isUploading && (
+              <Text style={{color: '#10B981', fontFamily: 'Inter-Medium', fontSize: 11}}>{uploadProgress}%</Text>
+            )}
+          </View>
+        )}
+
         {/* Input bar */}
         <View style={styles.inputBar}>
-          <TouchableOpacity style={styles.attachBtn}>
+          <TouchableOpacity style={styles.attachBtn} onPress={handleImageAttach}>
             <ImageAttachIcon />
           </TouchableOpacity>
           <TextInput
@@ -349,14 +551,76 @@ export default function AIChatScreen() {
             returnKeyType="send"
             onSubmitEditing={sendMessage}
           />
-          <TouchableOpacity style={styles.sendBtn} onPress={sendMessage} activeOpacity={0.85}>
-            <SendArrow />
+          <TouchableOpacity
+            style={[styles.sendBtn, isUploading && {opacity: 0.3}]}
+            onPress={sendMessage}
+            activeOpacity={0.85}
+            disabled={isUploading}>
+            {isUploading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <SendArrow />
+            )}
           </TouchableOpacity>
         </View>
       </View>
+      {/* Conversations Modal */}
+      <Modal visible={showConversations} animationType="slide" transparent onRequestClose={() => setShowConversations(false)}>
+        <View style={convStyles.overlay}>
+          <View style={convStyles.sheet}>
+            <View style={convStyles.sheetHandle} />
+            <View style={convStyles.sheetHeader}>
+              <Text style={convStyles.sheetTitle}>Conversations</Text>
+              <TouchableOpacity onPress={() => setShowConversations(false)}>
+                <Text style={{color: 'rgba(255,255,255,0.5)', fontSize: 20}}>✕</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={convStyles.newChatBtn} onPress={handleNewConversation}>
+              <Text style={convStyles.newChatText}>+ New Chat</Text>
+            </TouchableOpacity>
+            {convsLoading ? (
+              <ActivityIndicator color="#10B981" style={{marginTop: 30}} />
+            ) : (
+              <FlatList
+                data={conversations}
+                keyExtractor={item => item.id}
+                contentContainerStyle={{paddingBottom: 30}}
+                renderItem={({item}) => (
+                  <TouchableOpacity
+                    style={[convStyles.convItem, item.id === conversationId && convStyles.convItemActive]}
+                    onPress={() => handleSelectConversation(item.id)}
+                    onLongPress={() => handleDeleteConversation(item.id)}>
+                    <Text style={convStyles.convTitle} numberOfLines={2}>{item.title}</Text>
+                    <Text style={convStyles.convMeta}>{item.messageCount} messages · {formatConvDate(item.lastMessageAt)}</Text>
+                  </TouchableOpacity>
+                )}
+                ListEmptyComponent={
+                  <Text style={{color: 'rgba(255,255,255,0.3)', textAlign: 'center', marginTop: 40, fontSize: 14}}>No conversations yet</Text>
+                }
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
     </Animated.View>
   );
 }
+
+// ─── Conversation Styles ────────────────────────────────────────────────────────
+
+const convStyles = StyleSheet.create({
+  overlay: {flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end'},
+  sheet: {backgroundColor: '#0F1117', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '75%', minHeight: '40%'},
+  sheetHandle: {width: 40, height: 4, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 2, alignSelf: 'center', marginTop: 12},
+  sheetHeader: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)'},
+  sheetTitle: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF'},
+  newChatBtn: {marginHorizontal: 16, marginVertical: 12, backgroundColor: '#10B981', borderRadius: 12, paddingVertical: 12, alignItems: 'center'},
+  newChatText: {fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'},
+  convItem: {paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)'},
+  convItemActive: {backgroundColor: 'rgba(16,185,129,0.08)', borderLeftWidth: 3, borderLeftColor: '#10B981'},
+  convTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', marginBottom: 4},
+  convMeta: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)'},
+});
 
 // ─── Styles ────────────────────────────────────────────────────────────────────
 
@@ -406,9 +670,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
     borderRadius: 16, borderBottomRightRadius: 4,
     paddingHorizontal: 16, paddingVertical: 12,
-    maxWidth: '80%', alignSelf: 'flex-end',
+    maxWidth: '80%', alignSelf: 'flex-end', overflow: 'hidden',
   },
   userText: {fontFamily: 'Inter-Regular', fontSize: 14, color: '#FFFFFF', lineHeight: 21},
+  chatImage: {
+    width: 200, height: 150, borderRadius: 10, marginBottom: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+  },
 
   // Strategy card
   strategyCard: {
@@ -448,6 +716,26 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
   },
   chipText: {fontFamily: 'Inter-Medium', fontSize: 13, color: 'rgba(255,255,255,0.75)'},
+
+  // Attachment preview
+  attachmentPreview: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 16, paddingVertical: 8,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)',
+  },
+  attachmentThumb: {
+    width: 40, height: 40, borderRadius: 8,
+  },
+  attachmentName: {
+    fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.5)',
+  },
+  progressBarBg: {
+    height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.08)', marginTop: 6, overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: 3, borderRadius: 2, backgroundColor: '#10B981',
+  },
 
   // Input bar
   inputBar: {

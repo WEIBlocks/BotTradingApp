@@ -15,6 +15,7 @@ export const createBotBodySchema = z.object({
   maxPositionSize: z.number().optional(),
   tradingMode: z.string().optional(),
   creatorFeePercent: z.number().min(0).max(50).optional(),
+  prompt: z.string().max(2000).optional(),
 });
 
 export const updateBotBodySchema = z.object({
@@ -27,10 +28,11 @@ export const updateBotBodySchema = z.object({
   takeProfit: z.number().optional(),
   maxPositionSize: z.number().optional(),
   creatorFeePercent: z.number().min(0).max(50).optional(),
+  prompt: z.string().max(2000).optional(),
 });
 
 export const purchaseBotBodySchema = z.object({
-  mode: z.enum(['live', 'paper']),
+  mode: z.enum(['live', 'paper']).default('live'),
 });
 
 export const shadowModeBodySchema = z.object({

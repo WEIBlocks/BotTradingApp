@@ -1,8 +1,20 @@
-import { eq, and, desc, sql, count } from 'drizzle-orm';
+import { eq, and, desc, asc, sql, count, gte, lte, between, inArray, type Column } from 'drizzle-orm';
+
+/** Safe inArray that handles empty arrays and Neon UUID serialization */
+function safeInArray(column: Column, ids: string[]) {
+  if (ids.length === 0) return sql`false`;
+  if (ids.length === 1) return eq(column, ids[0]);
+  return inArray(column, ids);
+}
 import { db } from '../../config/database.js';
-import { bots, botStatistics, botSubscriptions, reviews, creatorEarnings } from '../../db/schema/bots.js';
+import { bots, botStatistics, botSubscriptions, botVersions, shadowSessions, reviews, creatorEarnings } from '../../db/schema/bots.js';
+import { trades } from '../../db/schema/trades.js';
 import { payments } from '../../db/schema/payments.js';
-import { NotFoundError } from '../../lib/errors.js';
+import { users } from '../../db/schema/users.js';
+import { arenaSessions, arenaGladiators } from '../../db/schema/arena.js';
+import { creatorAnalytics, botExperiments, userBotProfitability, botPatternAnalysis } from '../../db/schema/analytics.js';
+import { NotFoundError, ConflictError } from '../../lib/errors.js';
+import { llmChat } from '../../config/ai.js';
 
 export async function getStats(userId: string) {
   // Count creator's bots
@@ -300,4 +312,669 @@ export async function getAISuggestions(userId: string) {
       },
     ];
   }
+}
+
+// ─── Engagement Analytics ──────────────────────────────────────────────────
+
+export async function getEngagementMetrics(creatorId: string, days: number = 30) {
+  const creatorBotIds = await db
+    .select({ id: bots.id })
+    .from(bots)
+    .where(eq(bots.creatorId, creatorId));
+  const botIds = creatorBotIds.map(b => b.id);
+
+  if (botIds.length === 0) {
+    return {
+      summary: { totalViews: 0, totalPurchases: 0, conversionRate: 0, subscriberGrowth: 0, churnRate: 0, avgRevenuePerUser: 0 },
+      daily: [],
+    };
+  }
+
+  // Check creatorAnalytics table first
+  const analyticsRows = await db
+    .select()
+    .from(creatorAnalytics)
+    .where(
+      and(
+        eq(creatorAnalytics.creatorId, creatorId),
+        gte(creatorAnalytics.date, sql`now() - (${days} || ' days')::interval`),
+      ),
+    )
+    .orderBy(asc(creatorAnalytics.date));
+
+  if (analyticsRows.length > 0) {
+    const totalViews = analyticsRows.reduce((s, r) => s + (r.botViews ?? 0), 0);
+    const totalPurchases = analyticsRows.reduce((s, r) => s + (r.botPurchases ?? 0), 0);
+    const totalNew = analyticsRows.reduce((s, r) => s + (r.newSubscribers ?? 0), 0);
+    const totalChurned = analyticsRows.reduce((s, r) => s + (r.churnedSubscribers ?? 0), 0);
+    const totalRevenue = analyticsRows.reduce((s, r) => s + (r.totalRevenue ?? 0), 0);
+    const lastRow = analyticsRows[analyticsRows.length - 1];
+    const activeSubs = lastRow?.activeSubscribers ?? 0;
+
+    return {
+      summary: {
+        totalViews,
+        totalPurchases,
+        conversionRate: totalViews > 0 ? ((totalPurchases / totalViews) * 100) : 0,
+        subscriberGrowth: totalNew - totalChurned,
+        churnRate: (totalNew + activeSubs) > 0 ? ((totalChurned / (totalNew + activeSubs)) * 100) : 0,
+        avgRevenuePerUser: activeSubs > 0 ? (totalRevenue / activeSubs) : 0,
+      },
+      daily: analyticsRows.map(r => ({
+        date: r.date,
+        subscribers: r.activeSubscribers,
+        newSubscribers: r.newSubscribers,
+        churned: r.churnedSubscribers,
+        revenue: r.totalRevenue,
+        views: r.botViews,
+        purchases: r.botPurchases,
+      })),
+    };
+  }
+
+  // Fallback: compute from live data
+  const [activeSubs] = await db
+    .select({ count: count() })
+    .from(botSubscriptions)
+    .where(and(safeInArray(botSubscriptions.botId, botIds), eq(botSubscriptions.status, 'active')));
+
+  const [recentSubs] = await db
+    .select({ count: count() })
+    .from(botSubscriptions)
+    .where(
+      and(
+        safeInArray(botSubscriptions.botId, botIds),
+        gte(botSubscriptions.createdAt, sql`now() - (${days} || ' days')::interval`),
+      ),
+    );
+
+  const [stoppedSubs] = await db
+    .select({ count: count() })
+    .from(botSubscriptions)
+    .where(
+      and(
+        safeInArray(botSubscriptions.botId, botIds),
+        eq(botSubscriptions.status, 'stopped'),
+        gte(botSubscriptions.updatedAt, sql`now() - (${days} || ' days')::interval`),
+      ),
+    );
+
+  const [revenueResult] = await db
+    .select({ total: sql<string>`coalesce(sum(creator_earning::numeric), 0)` })
+    .from(creatorEarnings)
+    .where(
+      and(
+        eq(creatorEarnings.creatorId, creatorId),
+        gte(creatorEarnings.createdAt, sql`now() - (${days} || ' days')::interval`),
+      ),
+    );
+
+  const active = activeSubs?.count ?? 0;
+  const newSubs = recentSubs?.count ?? 0;
+  const churned = stoppedSubs?.count ?? 0;
+  const revenue = parseFloat(revenueResult?.total ?? '0');
+
+  return {
+    summary: {
+      totalViews: 0,
+      totalPurchases: newSubs,
+      conversionRate: 0,
+      subscriberGrowth: newSubs - churned,
+      churnRate: (active + newSubs) > 0 ? ((churned / (active + newSubs)) * 100) : 0,
+      avgRevenuePerUser: active > 0 ? (revenue / active) : 0,
+    },
+    daily: [],
+  };
+}
+
+// ─── User Profitability ───────────────────────────────────────────────────
+
+export async function getUserProfitability(creatorId: string) {
+  const creatorBotIds = await db
+    .select({ id: bots.id })
+    .from(bots)
+    .where(eq(bots.creatorId, creatorId));
+  const botIds = creatorBotIds.map(b => b.id);
+
+  if (botIds.length === 0) {
+    return { topEarners: [], distribution: { profitable: 0, breakeven: 0, losing: 0 }, avgLTV: 0, totalUsers: 0 };
+  }
+
+  // Check profitability table first
+  const profRows = await db
+    .select()
+    .from(userBotProfitability)
+    .where(eq(userBotProfitability.creatorId, creatorId))
+    .orderBy(desc(userBotProfitability.totalProfit))
+    .limit(50);
+
+  if (profRows.length > 0) {
+    const profitable = profRows.filter(r => (r.totalProfit ?? 0) > 0).length;
+    const losing = profRows.filter(r => (r.totalProfit ?? 0) < 0).length;
+    const breakeven = profRows.length - profitable - losing;
+    const avgLTV = profRows.reduce((s, r) => s + (r.totalProfit ?? 0), 0) / profRows.length;
+
+    // Get usernames for top earners
+    const topUserIds = profRows.slice(0, 10).map(r => r.userId);
+    const userNames = topUserIds.length > 0 ? await db
+      .select({ id: users.id, name: users.name, email: users.email })
+      .from(users)
+      .where(safeInArray(users.id, topUserIds)) : [];
+    const nameMap = new Map(userNames.map(u => [u.id, u.name || u.email]));
+
+    return {
+      topEarners: profRows.slice(0, 10).map(r => ({
+        userId: r.userId,
+        userName: nameMap.get(r.userId) ?? 'User',
+        botId: r.botId,
+        totalProfit: r.totalProfit,
+        totalTrades: r.totalTrades,
+        winRate: r.winRate,
+        subscriptionDays: r.subscriptionDays,
+        isActive: r.isActive,
+      })),
+      distribution: { profitable, breakeven, losing },
+      avgLTV,
+      totalUsers: profRows.length,
+    };
+  }
+
+  // Fallback: compute from subscriptions
+  const subs = await db
+    .select({
+      userId: botSubscriptions.userId,
+      botId: botSubscriptions.botId,
+      status: botSubscriptions.status,
+      createdAt: botSubscriptions.createdAt,
+    })
+    .from(botSubscriptions)
+    .where(safeInArray(botSubscriptions.botId, botIds));
+
+  return {
+    topEarners: [],
+    distribution: { profitable: 0, breakeven: 0, losing: subs.length },
+    avgLTV: 0,
+    totalUsers: subs.length,
+  };
+}
+
+// ─── A/B Test Experiments ──────────────────────────────────────────────────
+
+export async function createExperiment(creatorId: string, data: {
+  botId: string;
+  name: string;
+  description?: string;
+  variantAConfig?: Record<string, unknown>;
+  variantBConfig?: Record<string, unknown>;
+}) {
+  // Verify bot belongs to creator
+  const [bot] = await db
+    .select({ id: bots.id })
+    .from(bots)
+    .where(and(eq(bots.id, data.botId), eq(bots.creatorId, creatorId)));
+  if (!bot) throw new NotFoundError('Bot');
+
+  // Check no running experiment for this bot
+  const [existing] = await db
+    .select({ id: botExperiments.id })
+    .from(botExperiments)
+    .where(
+      and(
+        eq(botExperiments.botId, data.botId),
+        eq(botExperiments.status, 'running'),
+      ),
+    )
+    .limit(1);
+  if (existing) throw new ConflictError('An experiment is already running for this bot');
+
+  const [experiment] = await db
+    .insert(botExperiments)
+    .values({
+      creatorId,
+      botId: data.botId,
+      name: data.name,
+      description: data.description,
+      variantAConfig: data.variantAConfig ?? {},
+      variantBConfig: data.variantBConfig ?? {},
+      status: 'running',
+      startDate: new Date(),
+    })
+    .returning();
+
+  return experiment;
+}
+
+export async function getExperiments(creatorId: string) {
+  return db
+    .select({
+      id: botExperiments.id,
+      botId: botExperiments.botId,
+      botName: bots.name,
+      name: botExperiments.name,
+      description: botExperiments.description,
+      status: botExperiments.status,
+      variantASubscribers: botExperiments.variantASubscribers,
+      variantBSubscribers: botExperiments.variantBSubscribers,
+      variantARevenue: botExperiments.variantARevenue,
+      variantBRevenue: botExperiments.variantBRevenue,
+      variantAReturn: botExperiments.variantAReturn,
+      variantBReturn: botExperiments.variantBReturn,
+      variantAChurn: botExperiments.variantAChurn,
+      variantBChurn: botExperiments.variantBChurn,
+      winnerVariant: botExperiments.winnerVariant,
+      confidence: botExperiments.confidence,
+      startDate: botExperiments.startDate,
+      endDate: botExperiments.endDate,
+      createdAt: botExperiments.createdAt,
+    })
+    .from(botExperiments)
+    .innerJoin(bots, eq(botExperiments.botId, bots.id))
+    .where(eq(botExperiments.creatorId, creatorId))
+    .orderBy(desc(botExperiments.createdAt));
+}
+
+export async function getExperimentResults(experimentId: string, creatorId: string) {
+  const [exp] = await db
+    .select()
+    .from(botExperiments)
+    .where(and(eq(botExperiments.id, experimentId), eq(botExperiments.creatorId, creatorId)));
+  if (!exp) throw new NotFoundError('Experiment');
+
+  // Calculate statistical significance (z-test for proportions)
+  const nA = exp.variantASubscribers ?? 1;
+  const nB = exp.variantBSubscribers ?? 1;
+  const revA = exp.variantARevenue ?? 0;
+  const revB = exp.variantBRevenue ?? 0;
+  const retA = exp.variantAReturn ?? 0;
+  const retB = exp.variantBReturn ?? 0;
+
+  const avgRevA = nA > 0 ? revA / nA : 0;
+  const avgRevB = nB > 0 ? revB / nB : 0;
+  const diff = avgRevB - avgRevA;
+  const pooled = (nA + nB) > 0 ? (revA + revB) / (nA + nB) : 0;
+  const se = pooled > 0 ? Math.sqrt(pooled * (1 - pooled / 100) * (1/nA + 1/nB)) : 1;
+  const zScore = se > 0 ? Math.abs(diff) / se : 0;
+  const confidence = Math.min(99.9, zScore > 0 ? (1 - Math.exp(-0.5 * zScore * zScore)) * 100 : 0);
+
+  let winner: string | null = null;
+  if (confidence > 95) {
+    winner = avgRevB > avgRevA ? 'B' : 'A';
+  }
+
+  return {
+    experiment: exp,
+    analysis: {
+      avgRevenuePerUserA: avgRevA,
+      avgRevenuePerUserB: avgRevB,
+      returnA: retA,
+      returnB: retB,
+      churnA: exp.variantAChurn ?? 0,
+      churnB: exp.variantBChurn ?? 0,
+      zScore,
+      confidence,
+      winner,
+      recommendation: winner
+        ? `Variant ${winner} outperforms with ${confidence.toFixed(1)}% confidence. Consider applying Variant ${winner}'s configuration.`
+        : `Not enough data yet (${confidence.toFixed(1)}% confidence). Need 95%+ to declare a winner.`,
+    },
+  };
+}
+
+export async function stopExperiment(experimentId: string, creatorId: string) {
+  const [exp] = await db
+    .update(botExperiments)
+    .set({ status: 'completed', endDate: new Date() })
+    .where(and(eq(botExperiments.id, experimentId), eq(botExperiments.creatorId, creatorId)))
+    .returning();
+  if (!exp) throw new NotFoundError('Experiment');
+  return exp;
+}
+
+// ─── Bot Pattern Analysis ──────────────────────────────────────────────────
+
+export async function getBotPatternAnalysis(botId: string, creatorId: string) {
+  // Verify ownership
+  const [bot] = await db
+    .select({ id: bots.id, name: bots.name, strategy: bots.strategy, riskLevel: bots.riskLevel, tags: bots.tags, prompt: bots.prompt })
+    .from(bots)
+    .where(and(eq(bots.id, botId), eq(bots.creatorId, creatorId)));
+  if (!bot) throw new NotFoundError('Bot');
+
+  // Check for existing recent analysis (< 24h old)
+  const [existing] = await db
+    .select()
+    .from(botPatternAnalysis)
+    .where(
+      and(
+        eq(botPatternAnalysis.botId, botId),
+        gte(botPatternAnalysis.analysisDate, sql`now() - interval '24 hours'`),
+      ),
+    )
+    .orderBy(desc(botPatternAnalysis.analysisDate))
+    .limit(1);
+
+  if (existing) return existing;
+
+  // Generate new analysis via AI
+  const [stats] = await db
+    .select()
+    .from(botStatistics)
+    .where(eq(botStatistics.botId, botId));
+
+  // Calculate shadow returns from balance changes
+  const shadowResults = await db
+    .select({ virtualBalance: shadowSessions.virtualBalance, currentBalance: shadowSessions.currentBalance, status: shadowSessions.status })
+    .from(shadowSessions)
+    .where(and(eq(shadowSessions.botId, botId), eq(shadowSessions.status, 'completed')))
+    .limit(10);
+
+  const arenaResults = await db
+    .select({ finalReturn: arenaGladiators.finalReturn, rank: arenaGladiators.rank, isWinner: arenaGladiators.isWinner })
+    .from(arenaGladiators)
+    .where(eq(arenaGladiators.botId, botId))
+    .limit(10);
+
+  const shadowReturns = shadowResults.map(s => {
+    const vb = parseFloat(s.virtualBalance ?? '0');
+    const cb = parseFloat(s.currentBalance ?? '0');
+    return vb > 0 ? (((cb - vb) / vb) * 100).toFixed(2) + '%' : 'N/A';
+  });
+
+  const analysisPrompt = `Analyze this trading bot and detect patterns:
+
+Bot: ${bot.name}
+Strategy: ${bot.strategy || 'Not specified'}
+Risk Level: ${bot.riskLevel || 'Unknown'}
+Tags: ${(bot.tags || []).join(', ')}
+Prompt: ${bot.prompt || 'None'}
+
+Performance Stats:
+- 30d Return: ${stats?.return30d ?? 'N/A'}%
+- Win Rate: ${stats?.winRate ?? 'N/A'}%
+- Max Drawdown: ${stats?.maxDrawdown ?? 'N/A'}%
+- Active Users: ${stats?.activeUsers ?? 0}
+- Rating: ${stats?.avgRating ?? 'N/A'}
+
+Shadow Mode Results: ${shadowReturns.join(', ') || 'None'}
+Arena Results: ${arenaResults.map(a => `Rank ${a.rank}: ${a.finalReturn ?? 0}% ${a.isWinner ? '(WINNER)' : ''}`).join(', ') || 'None'}
+
+Respond in JSON only:
+{
+  "detectedPatterns": [{"pattern": "momentum|mean_reversion|breakout|scalping|swing", "confidence": 0.0-1.0, "description": "..."}],
+  "marketCorrelation": {"btc": 0.0-1.0, "eth": 0.0-1.0, "overall_market": 0.0-1.0},
+  "bestConditions": "description of ideal market conditions",
+  "worstConditions": "description of worst market conditions",
+  "riskScore": 0.0-10.0,
+  "consistencyScore": 0.0-10.0,
+  "sharpeRatio": number,
+  "maxDrawdown": number,
+  "suggestedImprovements": [{"title": "...", "description": "...", "impact": "high|medium|low"}]
+}`;
+
+  try {
+    const aiResponse = await llmChat(
+      [{ role: 'user', content: analysisPrompt }],
+      { system: 'You are a quantitative trading analyst. Respond only with valid JSON.' },
+    );
+    const jsonMatch = aiResponse.text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('No JSON in response');
+    const analysis = JSON.parse(jsonMatch[0]);
+
+    const [saved] = await db
+      .insert(botPatternAnalysis)
+      .values({
+        botId,
+        detectedPatterns: analysis.detectedPatterns,
+        marketCorrelation: analysis.marketCorrelation,
+        bestConditions: analysis.bestConditions,
+        worstConditions: analysis.worstConditions,
+        riskScore: analysis.riskScore,
+        consistencyScore: analysis.consistencyScore,
+        sharpeRatio: analysis.sharpeRatio,
+        maxDrawdown: analysis.maxDrawdown,
+        suggestedImprovements: analysis.suggestedImprovements,
+      })
+      .returning();
+
+    return saved;
+  } catch {
+    // Return placeholder if AI fails
+    return {
+      botId,
+      analysisDate: new Date(),
+      detectedPatterns: [{ pattern: bot.strategy || 'unknown', confidence: 0.5, description: 'Based on bot configuration' }],
+      marketCorrelation: { btc: 0.5, eth: 0.4, overall_market: 0.3 },
+      bestConditions: 'Trending markets with clear direction',
+      worstConditions: 'Low-volume sideways markets',
+      riskScore: 5,
+      consistencyScore: 5,
+      sharpeRatio: 0,
+      maxDrawdown: 0,
+      suggestedImprovements: [
+        { title: 'Add more shadow test data', description: 'Run more shadow mode sessions to get accurate pattern detection', impact: 'high' },
+      ],
+    };
+  }
+}
+
+// ─── Churn Analysis ────────────────────────────────────────────────────────
+
+export async function getChurnAnalysis(creatorId: string) {
+  const creatorBotIds = await db
+    .select({ id: bots.id, name: bots.name })
+    .from(bots)
+    .where(eq(bots.creatorId, creatorId));
+  const botIds = creatorBotIds.map(b => b.id);
+  const botNameMap = new Map(creatorBotIds.map(b => [b.id, b.name]));
+
+  if (botIds.length === 0) {
+    return { overallChurnRate: 0, monthlyChurn: [], botChurn: [], atRiskUsers: 0, retentionCurve: [] };
+  }
+
+  // Active vs stopped subscriptions
+  const [active] = await db
+    .select({ count: count() })
+    .from(botSubscriptions)
+    .where(and(safeInArray(botSubscriptions.botId, botIds), eq(botSubscriptions.status, 'active')));
+
+  const [stopped] = await db
+    .select({ count: count() })
+    .from(botSubscriptions)
+    .where(and(safeInArray(botSubscriptions.botId, botIds), eq(botSubscriptions.status, 'stopped')));
+
+  const [total] = await db
+    .select({ count: count() })
+    .from(botSubscriptions)
+    .where(safeInArray(botSubscriptions.botId, botIds));
+
+  const totalCount = total?.count ?? 0;
+  const stoppedCount = stopped?.count ?? 0;
+  const activeCount = active?.count ?? 0;
+  const overallChurnRate = totalCount > 0 ? (stoppedCount / totalCount) * 100 : 0;
+
+  // Per-bot churn
+  const botChurnData = await db
+    .select({
+      botId: botSubscriptions.botId,
+      status: botSubscriptions.status,
+      count: count(),
+    })
+    .from(botSubscriptions)
+    .where(safeInArray(botSubscriptions.botId, botIds))
+    .groupBy(botSubscriptions.botId, botSubscriptions.status);
+
+  const botChurnMap = new Map<string, { active: number; stopped: number; total: number }>();
+  for (const row of botChurnData) {
+    const existing = botChurnMap.get(row.botId) ?? { active: 0, stopped: 0, total: 0 };
+    if (row.status === 'active') existing.active = row.count;
+    else if (row.status === 'stopped') existing.stopped = row.count;
+    existing.total += row.count;
+    botChurnMap.set(row.botId, existing);
+  }
+
+  const botChurn = Array.from(botChurnMap.entries()).map(([botId, data]) => ({
+    botId,
+    botName: botNameMap.get(botId) ?? 'Unknown',
+    activeUsers: data.active,
+    churnedUsers: data.stopped,
+    churnRate: data.total > 0 ? ((data.stopped / data.total) * 100) : 0,
+  }));
+
+  // Monthly churn over last 6 months
+  const monthlyChurnResult = await db.execute(sql`
+    SELECT
+      to_char(date_trunc('month', updated_at), 'YYYY-MM') as month,
+      count(*) filter (where status = 'stopped') as churned,
+      count(*) as total
+    FROM bot_subscriptions
+    WHERE bot_id::text = ANY(${sql.raw(`ARRAY[${botIds.map(id => `'${id}'`).join(',')}]`)})
+      AND updated_at >= now() - interval '6 months'
+    GROUP BY date_trunc('month', updated_at)
+    ORDER BY month
+  `);
+
+  // Estimate at-risk users (active but no recent activity)
+  const [atRisk] = await db
+    .select({ count: count() })
+    .from(botSubscriptions)
+    .where(
+      and(
+        safeInArray(botSubscriptions.botId, botIds),
+        eq(botSubscriptions.status, 'active'),
+        lte(botSubscriptions.updatedAt, sql`now() - interval '14 days'`),
+      ),
+    );
+
+  return {
+    overallChurnRate: Number(overallChurnRate.toFixed(1)),
+    activeUsers: activeCount,
+    totalUsers: totalCount,
+    churnedUsers: stoppedCount,
+    monthlyChurn: monthlyChurnResult as unknown as Record<string, unknown>[],
+    botChurn: botChurn.sort((a, b) => b.churnRate - a.churnRate),
+    atRiskUsers: atRisk?.count ?? 0,
+  };
+}
+
+// ─── Enhanced Revenue Projection ───────────────────────────────────────────
+
+export async function getEnhancedRevenueProjection(creatorId: string) {
+  const stats = await getStats(creatorId);
+  const churn = await getChurnAnalysis(creatorId);
+
+  const currentRevenue = parseFloat(stats.totalRevenue);
+  const activeSubs = stats.activeSubscribers as number;
+  const churnRate = churn.overallChurnRate / 100; // monthly
+  const growthRate = activeSubs > 0 ? 0.05 : 0; // assume 5% monthly growth base
+
+  const project = (months: number, scenario: 'optimistic' | 'realistic' | 'pessimistic') => {
+    const multipliers = { optimistic: 1.3, realistic: 1.0, pessimistic: 0.7 };
+    const m = multipliers[scenario];
+    const churnAdj = scenario === 'optimistic' ? churnRate * 0.5 : scenario === 'pessimistic' ? churnRate * 1.5 : churnRate;
+    const growthAdj = growthRate * m;
+
+    let subs = activeSubs;
+    let totalRev = 0;
+    const monthly: { month: number; revenue: number; subscribers: number }[] = [];
+
+    const revenuePerSub = activeSubs > 0 ? currentRevenue / Math.max(activeSubs, 1) / 6 : 5; // avg monthly per subscriber
+
+    for (let i = 1; i <= months; i++) {
+      subs = Math.max(0, Math.round(subs * (1 + growthAdj - churnAdj)));
+      const monthRev = subs * revenuePerSub;
+      totalRev += monthRev;
+      monthly.push({ month: i, revenue: Number(monthRev.toFixed(2)), subscribers: subs });
+    }
+
+    return { totalRevenue: Number(totalRev.toFixed(2)), finalSubscribers: subs, monthly };
+  };
+
+  return {
+    currentMetrics: {
+      activeSubscribers: activeSubs,
+      monthlyChurnRate: churn.overallChurnRate,
+      totalRevenue: currentRevenue,
+    },
+    projections: {
+      threeMonth: { optimistic: project(3, 'optimistic'), realistic: project(3, 'realistic'), pessimistic: project(3, 'pessimistic') },
+      sixMonth: { optimistic: project(6, 'optimistic'), realistic: project(6, 'realistic'), pessimistic: project(6, 'pessimistic') },
+      twelveMonth: { optimistic: project(12, 'optimistic'), realistic: project(12, 'realistic'), pessimistic: project(12, 'pessimistic') },
+    },
+  };
+}
+
+// ─── Marketing Funnel ──────────────────────────────────────────────────────
+
+export async function getMarketingMetrics(creatorId: string) {
+  const creatorBotIds = await db
+    .select({ id: bots.id, name: bots.name, isPublished: bots.isPublished, createdAt: bots.createdAt })
+    .from(bots)
+    .where(eq(bots.creatorId, creatorId));
+  const botIds = creatorBotIds.map(b => b.id);
+
+  if (botIds.length === 0) {
+    return { funnel: { published: 0, purchased: 0, active: 0, retained: 0 }, conversionRates: {}, botPerformance: [] };
+  }
+
+  const publishedCount = creatorBotIds.filter(b => b.isPublished).length;
+
+  const [purchased] = await db
+    .select({ count: sql<number>`count(distinct ${botSubscriptions.userId})` })
+    .from(botSubscriptions)
+    .where(safeInArray(botSubscriptions.botId, botIds));
+
+  const [activeUsers] = await db
+    .select({ count: sql<number>`count(distinct ${botSubscriptions.userId})` })
+    .from(botSubscriptions)
+    .where(and(safeInArray(botSubscriptions.botId, botIds), eq(botSubscriptions.status, 'active')));
+
+  const [reviewers] = await db
+    .select({ count: sql<number>`count(distinct ${reviews.userId})` })
+    .from(reviews)
+    .where(safeInArray(reviews.botId, botIds));
+
+  const purchasedCount = purchased?.count ?? 0;
+  const activeCount = activeUsers?.count ?? 0;
+  const reviewCount = reviewers?.count ?? 0;
+
+  // Per-bot performance
+  const botPerformance = await Promise.all(creatorBotIds.map(async (bot) => {
+    const [subs] = await db
+      .select({ total: count() })
+      .from(botSubscriptions)
+      .where(eq(botSubscriptions.botId, bot.id));
+    const [activeSub] = await db
+      .select({ total: count() })
+      .from(botSubscriptions)
+      .where(and(eq(botSubscriptions.botId, bot.id), eq(botSubscriptions.status, 'active')));
+    const [rev] = await db
+      .select({ total: sql<string>`coalesce(sum(creator_earning::numeric), 0)` })
+      .from(creatorEarnings)
+      .where(and(eq(creatorEarnings.botId, bot.id), eq(creatorEarnings.creatorId, creatorId)));
+
+    return {
+      botId: bot.id,
+      botName: bot.name,
+      isPublished: bot.isPublished,
+      totalPurchases: subs?.total ?? 0,
+      activeUsers: activeSub?.total ?? 0,
+      revenue: parseFloat(rev?.total ?? '0'),
+      retentionRate: (subs?.total ?? 0) > 0 ? (((activeSub?.total ?? 0) / (subs?.total ?? 1)) * 100) : 0,
+    };
+  }));
+
+  return {
+    funnel: {
+      published: publishedCount,
+      totalPurchases: purchasedCount,
+      activeUsers: activeCount,
+      reviewers: reviewCount,
+    },
+    conversionRates: {
+      purchaseRate: publishedCount > 0 ? ((purchasedCount / publishedCount) * 100) : 0,
+      retentionRate: purchasedCount > 0 ? ((activeCount / purchasedCount) * 100) : 0,
+      reviewRate: purchasedCount > 0 ? ((reviewCount / purchasedCount) * 100) : 0,
+    },
+    botPerformance: botPerformance.sort((a, b) => b.revenue - a.revenue),
+  };
 }

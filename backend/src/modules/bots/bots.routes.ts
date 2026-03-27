@@ -19,6 +19,8 @@ import {
   addReview,
   backtestBot,
   getPaperTradingStatus,
+  activateLiveMode,
+  getBotDecisions,
 } from './bots.service.js';
 import {
   botIdParamsSchema,
@@ -254,6 +256,34 @@ export async function botsRoutes(app: FastifyInstance) {
     },
   }, async (request, reply) => {
     const result = await getPaperTradingStatus(request.user.userId);
+    return { data: result };
+  });
+
+  // POST /:id/activate-live - Activate live trading with exchange connection
+  zApp.post('/:id/activate-live', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const { exchangeConnId, allocatedAmount } = request.body as { exchangeConnId: string; allocatedAmount?: number };
+    const result = await activateLiveMode(request.user.userId, id, exchangeConnId, allocatedAmount);
+    return { data: result };
+  });
+
+  // GET /:id/decisions - Get bot decision history (live feed data)
+  zApp.get('/:id/decisions', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const { limit, offset } = request.query as { limit?: number; offset?: number };
+    const result = await getBotDecisions(request.user.userId, id, limit, offset);
     return { data: result };
   });
 

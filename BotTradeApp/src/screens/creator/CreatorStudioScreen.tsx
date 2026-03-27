@@ -8,6 +8,7 @@ import {
   Dimensions,
   ActivityIndicator,
   RefreshControl,
+  TextInput,
 } from 'react-native';
 import Svg, {Path, Circle} from 'react-native-svg';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
@@ -22,7 +23,16 @@ import {
   AiSuggestion,
   EarningsSummary,
   EarningsProjection,
+  EngagementMetrics,
+  UserProfitability,
+  RevenueProjection,
+  MarketingFunnel,
+  Experiment,
+  ExperimentResults,
+  PatternAnalysis,
 } from '../../services/creator';
+
+type TabKey = 'overview' | 'earnings' | 'analytics' | 'abtests' | 'patterns';
 
 function EditIcon() {
   return (
@@ -449,7 +459,29 @@ export default function CreatorStudioScreen() {
   const [projections, setProjections] = useState<EarningsProjection[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeSection, setActiveSection] = useState<'overview' | 'earnings'>('overview');
+  const [activeSection, setActiveSection] = useState<TabKey>('overview');
+
+  // Analytics state
+  const [engagement, setEngagement] = useState<EngagementMetrics | null>(null);
+  const [profitability, setProfitability] = useState<UserProfitability | null>(null);
+  const [revProjections, setRevProjections] = useState<RevenueProjection[]>([]);
+  const [funnel, setFunnel] = useState<MarketingFunnel | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+  // A/B Tests state
+  const [experiments, setExperiments] = useState<Experiment[]>([]);
+  const [experimentResults, setExperimentResults] = useState<ExperimentResults | null>(null);
+  const [selectedExperiment, setSelectedExperiment] = useState<Experiment | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newExpName, setNewExpName] = useState('');
+  const [newExpDesc, setNewExpDesc] = useState('');
+  const [newExpBotId, setNewExpBotId] = useState('');
+  const [experimentsLoading, setExperimentsLoading] = useState(false);
+
+  // Patterns state
+  const [selectedPatternBot, setSelectedPatternBot] = useState<string | null>(null);
+  const [patternAnalysis, setPatternAnalysis] = useState<PatternAnalysis | null>(null);
+  const [patternsLoading, setPatternsLoading] = useState(false);
 
   const fetchData = useCallback(() => {
     Promise.all([
@@ -471,6 +503,41 @@ export default function CreatorStudioScreen() {
       })
       .catch(() => showAlert('Error', 'Failed to load creator data. Pull down to retry.'))
       .finally(() => { setLoading(false); setRefreshing(false); });
+  }, []);
+
+  const fetchAnalytics = useCallback(() => {
+    setAnalyticsLoading(true);
+    Promise.all([
+      creatorApi.getEngagement(),
+      creatorApi.getUserProfitability(),
+      creatorApi.getRevenueProjection(),
+      creatorApi.getMarketingFunnel(),
+    ])
+      .then(([eng, prof, rev, fun]) => {
+        setEngagement(eng);
+        setProfitability(prof);
+        setRevProjections(rev);
+        setFunnel(fun);
+      })
+      .catch(() => showAlert('Error', 'Failed to load analytics.'))
+      .finally(() => setAnalyticsLoading(false));
+  }, []);
+
+  const fetchExperiments = useCallback(() => {
+    setExperimentsLoading(true);
+    creatorApi.getExperiments()
+      .then(setExperiments)
+      .catch(() => showAlert('Error', 'Failed to load experiments.'))
+      .finally(() => setExperimentsLoading(false));
+  }, []);
+
+  const fetchPatterns = useCallback((botId: string) => {
+    setPatternsLoading(true);
+    setPatternAnalysis(null);
+    creatorApi.getBotPatterns(botId)
+      .then(setPatternAnalysis)
+      .catch(() => showAlert('Error', 'Failed to load pattern analysis.'))
+      .finally(() => setPatternsLoading(false));
   }, []);
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
@@ -505,17 +572,31 @@ export default function CreatorStudioScreen() {
       </View>
 
       {/* Section Tabs */}
-      <View style={styles.sectionTabs}>
-        <TouchableOpacity
-          style={[styles.sectionTab, activeSection === 'overview' && styles.sectionTabActive]}
-          onPress={() => setActiveSection('overview')}>
-          <Text style={[styles.sectionTabText, activeSection === 'overview' && styles.sectionTabTextActive]}>Overview</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.sectionTab, activeSection === 'earnings' && styles.sectionTabActive]}
-          onPress={() => setActiveSection('earnings')}>
-          <Text style={[styles.sectionTabText, activeSection === 'earnings' && styles.sectionTabTextActive]}>Earnings</Text>
-        </TouchableOpacity>
+      <View style={styles.tabBarContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.sectionTabs}>
+          {([
+            {key: 'overview' as TabKey, label: 'Overview'},
+            {key: 'earnings' as TabKey, label: 'Earnings'},
+            {key: 'analytics' as TabKey, label: 'Analytics'},
+            {key: 'abtests' as TabKey, label: 'A/B Tests'},
+            {key: 'patterns' as TabKey, label: 'Patterns'},
+          ]).map(tab => (
+            <TouchableOpacity
+              key={tab.key}
+              style={[styles.sectionTab, activeSection === tab.key && styles.sectionTabActive]}
+              activeOpacity={0.7}
+              onPress={() => {
+                setActiveSection(tab.key);
+                if (tab.key === 'analytics' && !engagement) fetchAnalytics();
+                if (tab.key === 'abtests' && (!experiments || experiments.length === 0)) fetchExperiments();
+              }}>
+              <Text style={[styles.sectionTabText, activeSection === tab.key && styles.sectionTabTextActive]}>{tab.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
       <ScrollView
@@ -531,7 +612,7 @@ export default function CreatorStudioScreen() {
           />
         }>
 
-        {activeSection === 'overview' ? (
+        {activeSection === 'overview' && (
           <>
             {/* Revenue Metric Cards */}
             <View style={styles.metricsRow}>
@@ -690,7 +771,9 @@ export default function CreatorStudioScreen() {
               </View>
             </View>
           </>
-        ) : (
+        )}
+
+        {activeSection === 'earnings' && (
           <>
             {/* ─── EARNINGS TAB ─────────────────────────────────── */}
 
@@ -843,6 +926,538 @@ export default function CreatorStudioScreen() {
           </>
         )}
 
+        {/* ─── ANALYTICS TAB ─────────────────────────────────── */}
+        {activeSection === 'analytics' && (
+          <>
+            {analyticsLoading ? (
+              <View style={{alignItems: 'center', paddingVertical: 40}}>
+                <ActivityIndicator size="large" color="#10B981" />
+                <Text style={{fontFamily: 'Inter-Medium', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginTop: 12}}>Loading analytics...</Text>
+              </View>
+            ) : (
+              <>
+                {/* Engagement Summary */}
+                <Text style={[styles.sectionTitle, {marginBottom: 10}]}>Engagement</Text>
+                <View style={styles.metricsRow}>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricLabel}>Total Views</Text>
+                    <Text style={styles.metricValue}>{(engagement?.totalViews ?? 0).toLocaleString()}</Text>
+                  </View>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricLabel}>Purchases</Text>
+                    <Text style={styles.metricValue}>{engagement?.totalPurchases ?? 0}</Text>
+                  </View>
+                </View>
+                <View style={styles.metricsRow}>
+                  <View style={[styles.metricCard, {borderColor: 'rgba(16,185,129,0.2)'}]}>
+                    <Text style={styles.metricLabel}>Growth Rate</Text>
+                    <Text style={[styles.metricValue, {color: '#10B981'}]}>
+                      {(engagement?.subscriberGrowthRate ?? 0).toFixed(1)}%
+                    </Text>
+                  </View>
+                  <View style={[styles.metricCard, {borderColor: 'rgba(239,68,68,0.2)'}]}>
+                    <Text style={styles.metricLabel}>Churn Rate</Text>
+                    <Text style={[styles.metricValue, {color: '#EF4444'}]}>
+                      {(engagement?.churnRate ?? 0).toFixed(1)}%
+                    </Text>
+                  </View>
+                </View>
+
+                {/* User Profitability */}
+                <Text style={[styles.sectionTitle, {marginBottom: 10, marginTop: 4}]}>User Profitability</Text>
+                <View style={styles.card}>
+                  {/* Profit Distribution Bar */}
+                  <Text style={[styles.sectionLabel, {marginBottom: 10}]}>PROFIT DISTRIBUTION</Text>
+                  {profitability && (() => {
+                    const total = (profitability.profitDistribution.profitable + profitability.profitDistribution.breakeven + profitability.profitDistribution.losing) || 1;
+                    const profPct = (profitability.profitDistribution.profitable / total) * 100;
+                    const bePct = (profitability.profitDistribution.breakeven / total) * 100;
+                    const lossPct = (profitability.profitDistribution.losing / total) * 100;
+                    return (
+                      <>
+                        <View style={analyticsStyles.distBar}>
+                          {profPct > 0 && <View style={[analyticsStyles.distSegment, {flex: profPct, backgroundColor: '#10B981'}]} />}
+                          {bePct > 0 && <View style={[analyticsStyles.distSegment, {flex: bePct, backgroundColor: '#F59E0B'}]} />}
+                          {lossPct > 0 && <View style={[analyticsStyles.distSegment, {flex: lossPct, backgroundColor: '#EF4444'}]} />}
+                        </View>
+                        <View style={analyticsStyles.distLegend}>
+                          <View style={analyticsStyles.distLegendItem}>
+                            <View style={[analyticsStyles.distDot, {backgroundColor: '#10B981'}]} />
+                            <Text style={analyticsStyles.distLegendText}>Profitable ({profitability.profitDistribution.profitable})</Text>
+                          </View>
+                          <View style={analyticsStyles.distLegendItem}>
+                            <View style={[analyticsStyles.distDot, {backgroundColor: '#F59E0B'}]} />
+                            <Text style={analyticsStyles.distLegendText}>Breakeven ({profitability.profitDistribution.breakeven})</Text>
+                          </View>
+                          <View style={analyticsStyles.distLegendItem}>
+                            <View style={[analyticsStyles.distDot, {backgroundColor: '#EF4444'}]} />
+                            <Text style={analyticsStyles.distLegendText}>Losing ({profitability.profitDistribution.losing})</Text>
+                          </View>
+                        </View>
+                      </>
+                    );
+                  })()}
+
+                  {/* Top Earners */}
+                  {profitability && profitability.topEarners.length > 0 && (
+                    <>
+                      <Text style={[styles.sectionLabel, {marginTop: 16, marginBottom: 8}]}>TOP EARNERS</Text>
+                      {profitability.topEarners.slice(0, 5).map((earner, i) => (
+                        <View key={earner.userId} style={analyticsStyles.earnerRow}>
+                          <View style={analyticsStyles.earnerRank}>
+                            <Text style={analyticsStyles.earnerRankText}>#{i + 1}</Text>
+                          </View>
+                          <View style={{flex: 1}}>
+                            <Text style={analyticsStyles.earnerName}>{earner.username}</Text>
+                            <Text style={analyticsStyles.earnerBot}>{earner.botName}</Text>
+                          </View>
+                          <Text style={analyticsStyles.earnerProfit}>
+                            +${earner.totalProfit.toLocaleString('en-US', {minimumFractionDigits: 2})}
+                          </Text>
+                        </View>
+                      ))}
+                    </>
+                  )}
+                </View>
+
+                {/* Revenue Projections */}
+                <Text style={[styles.sectionTitle, {marginBottom: 10, marginTop: 4}]}>Revenue Projection (6 Months)</Text>
+                {(() => {
+                  const sixMonth = revProjections.find(p => p.months === 6);
+                  if (!sixMonth) return (
+                    <View style={styles.card}>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', textAlign: 'center'}}>No projection data available</Text>
+                    </View>
+                  );
+                  return (
+                    <View style={{gap: 8, marginBottom: 16}}>
+                      <View style={[analyticsStyles.projCard, {borderColor: 'rgba(16,185,129,0.3)'}]}>
+                        <Text style={analyticsStyles.projLabel}>Optimistic</Text>
+                        <Text style={[analyticsStyles.projValue, {color: '#10B981'}]}>
+                          ${sixMonth.optimistic.toLocaleString('en-US', {minimumFractionDigits: 0})}
+                        </Text>
+                      </View>
+                      <View style={[analyticsStyles.projCard, {borderColor: 'rgba(96,165,250,0.3)'}]}>
+                        <Text style={analyticsStyles.projLabel}>Realistic</Text>
+                        <Text style={[analyticsStyles.projValue, {color: '#60A5FA'}]}>
+                          ${sixMonth.realistic.toLocaleString('en-US', {minimumFractionDigits: 0})}
+                        </Text>
+                      </View>
+                      <View style={[analyticsStyles.projCard, {borderColor: 'rgba(239,68,68,0.3)'}]}>
+                        <Text style={analyticsStyles.projLabel}>Pessimistic</Text>
+                        <Text style={[analyticsStyles.projValue, {color: '#EF4444'}]}>
+                          ${sixMonth.pessimistic.toLocaleString('en-US', {minimumFractionDigits: 0})}
+                        </Text>
+                      </View>
+                    </View>
+                  );
+                })()}
+
+                {/* Marketing Funnel */}
+                <Text style={[styles.sectionTitle, {marginBottom: 10, marginTop: 4}]}>Marketing Funnel</Text>
+                {funnel && (
+                  <View style={styles.card}>
+                    <View style={analyticsStyles.funnelStep}>
+                      <View style={[analyticsStyles.funnelBox, {backgroundColor: 'rgba(96,165,250,0.15)'}]}>
+                        <Text style={[analyticsStyles.funnelBoxLabel, {color: '#60A5FA'}]}>Published</Text>
+                        <Text style={[analyticsStyles.funnelBoxValue, {color: '#60A5FA'}]}>{funnel.published}</Text>
+                      </View>
+                      <Text style={analyticsStyles.funnelArrow}>{funnel.publishedToPurchased.toFixed(1)}%</Text>
+                    </View>
+                    <View style={analyticsStyles.funnelStep}>
+                      <View style={[analyticsStyles.funnelBox, {backgroundColor: 'rgba(245,158,11,0.15)'}]}>
+                        <Text style={[analyticsStyles.funnelBoxLabel, {color: '#F59E0B'}]}>Purchased</Text>
+                        <Text style={[analyticsStyles.funnelBoxValue, {color: '#F59E0B'}]}>{funnel.purchased}</Text>
+                      </View>
+                      <Text style={analyticsStyles.funnelArrow}>{funnel.purchasedToActive.toFixed(1)}%</Text>
+                    </View>
+                    <View style={analyticsStyles.funnelStep}>
+                      <View style={[analyticsStyles.funnelBox, {backgroundColor: 'rgba(16,185,129,0.15)'}]}>
+                        <Text style={[analyticsStyles.funnelBoxLabel, {color: '#10B981'}]}>Active</Text>
+                        <Text style={[analyticsStyles.funnelBoxValue, {color: '#10B981'}]}>{funnel.active}</Text>
+                      </View>
+                      <Text style={analyticsStyles.funnelArrow}>{funnel.activeToRetained.toFixed(1)}%</Text>
+                    </View>
+                    <View style={analyticsStyles.funnelStep}>
+                      <View style={[analyticsStyles.funnelBox, {backgroundColor: 'rgba(139,92,246,0.15)'}]}>
+                        <Text style={[analyticsStyles.funnelBoxLabel, {color: '#8B5CF6'}]}>Retained</Text>
+                        <Text style={[analyticsStyles.funnelBoxValue, {color: '#8B5CF6'}]}>{funnel.retained}</Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {/* ─── A/B TESTS TAB ─────────────────────────────────── */}
+        {activeSection === 'abtests' && (
+          <>
+            {experimentsLoading ? (
+              <View style={{alignItems: 'center', paddingVertical: 40}}>
+                <ActivityIndicator size="large" color="#10B981" />
+              </View>
+            ) : selectedExperiment ? (
+              <>
+                {/* Experiment Results Detail */}
+                <TouchableOpacity
+                  onPress={() => { setSelectedExperiment(null); setExperimentResults(null); }}
+                  style={{flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14}}>
+                  <BackArrow />
+                  <Text style={{fontFamily: 'Inter-Medium', fontSize: 14, color: 'rgba(255,255,255,0.7)'}}>Back to experiments</Text>
+                </TouchableOpacity>
+                <Text style={[styles.sectionTitle, {marginBottom: 6}]}>{selectedExperiment.name}</Text>
+                <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 16}}>
+                  {selectedExperiment.description}
+                </Text>
+                {!experimentResults ? (
+                  <View style={{alignItems: 'center', paddingVertical: 30}}>
+                    <ActivityIndicator size="small" color="#10B981" />
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginTop: 10}}>Loading results...</Text>
+                  </View>
+                ) : (
+                  <>
+                    {/* Confidence Meter */}
+                    <View style={[styles.card, {alignItems: 'center'}]}>
+                      <Text style={styles.sectionLabel}>STATISTICAL CONFIDENCE</Text>
+                      <View style={abStyles.confidenceBar}>
+                        <View style={[abStyles.confidenceFill, {width: `${Math.min(experimentResults.confidence, 100)}%`}]} />
+                      </View>
+                      <Text style={abStyles.confidenceText}>{experimentResults.confidence.toFixed(1)}%</Text>
+                      {experimentResults.winner !== 'none' && (
+                        <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#10B981', marginTop: 8}}>
+                          Variant {experimentResults.winner} is winning
+                        </Text>
+                      )}
+                    </View>
+
+                    {/* Variant Comparison */}
+                    <View style={{flexDirection: 'row', gap: 10, marginBottom: 16}}>
+                      <View style={[abStyles.variantCard, experimentResults.winner === 'A' && abStyles.variantWinner]}>
+                        <Text style={abStyles.variantLabel}>Variant A</Text>
+                        <Text style={abStyles.variantStat}>{experimentResults.variantA.users} users</Text>
+                        <Text style={[abStyles.variantReturn, {color: '#10B981'}]}>
+                          {experimentResults.variantA.avgReturn.toFixed(2)}% avg return
+                        </Text>
+                        <Text style={abStyles.variantProfit}>
+                          ${experimentResults.variantA.avgProfit.toLocaleString('en-US', {minimumFractionDigits: 2})}
+                        </Text>
+                      </View>
+                      <View style={[abStyles.variantCard, experimentResults.winner === 'B' && abStyles.variantWinner]}>
+                        <Text style={abStyles.variantLabel}>Variant B</Text>
+                        <Text style={abStyles.variantStat}>{experimentResults.variantB.users} users</Text>
+                        <Text style={[abStyles.variantReturn, {color: '#60A5FA'}]}>
+                          {experimentResults.variantB.avgReturn.toFixed(2)}% avg return
+                        </Text>
+                        <Text style={abStyles.variantProfit}>
+                          ${experimentResults.variantB.avgProfit.toLocaleString('en-US', {minimumFractionDigits: 2})}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {/* Stop button for running experiments */}
+                    {selectedExperiment.status === 'running' && (
+                      <TouchableOpacity
+                        style={abStyles.stopBtn}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          showConfirm({
+                            title: 'Stop Experiment',
+                            message: `Stop "${selectedExperiment.name}"? This cannot be undone.`,
+                            confirmText: 'Stop',
+                            onConfirm: async () => {
+                              try {
+                                await creatorApi.stopExperiment(selectedExperiment.id);
+                                showAlert('Stopped', 'Experiment has been stopped.');
+                                setSelectedExperiment(null);
+                                setExperimentResults(null);
+                                fetchExperiments();
+                              } catch (e: any) {
+                                showAlert('Error', e?.message || 'Failed to stop experiment.');
+                              }
+                            },
+                          });
+                        }}>
+                        <Text style={abStyles.stopBtnText}>Stop Experiment</Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Experiments List */}
+                <View style={styles.botsSectionHeader}>
+                  <Text style={styles.sectionTitle}>Experiments</Text>
+                  <TouchableOpacity
+                    style={styles.newBotBtn}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setShowCreateForm(true);
+                      if (bots.length > 0 && !newExpBotId) setNewExpBotId(bots[0].id);
+                    }}>
+                    <Text style={styles.newBotBtnText}>+ New Test</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Create Form */}
+                {showCreateForm && (
+                  <View style={[styles.card, {borderColor: 'rgba(16,185,129,0.3)'}]}>
+                    <Text style={[styles.sectionLabel, {marginBottom: 12}]}>CREATE EXPERIMENT</Text>
+
+                    {/* Bot Selector */}
+                    <Text style={abStyles.formLabel}>Select Bot</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 12}}>
+                      <View style={{flexDirection: 'row', gap: 8}}>
+                        {bots.map(b => (
+                          <TouchableOpacity
+                            key={b.id}
+                            style={[abStyles.botChip, newExpBotId === b.id && abStyles.botChipActive]}
+                            onPress={() => setNewExpBotId(b.id)}>
+                            <Text style={[abStyles.botChipText, newExpBotId === b.id && abStyles.botChipTextActive]}>{b.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </ScrollView>
+
+                    <Text style={abStyles.formLabel}>Name</Text>
+                    <TextInput
+                      style={abStyles.input}
+                      value={newExpName}
+                      onChangeText={setNewExpName}
+                      placeholder="e.g. Aggressive vs Conservative"
+                      placeholderTextColor="rgba(255,255,255,0.25)"
+                    />
+
+                    <Text style={abStyles.formLabel}>Description</Text>
+                    <TextInput
+                      style={[abStyles.input, {height: 60, textAlignVertical: 'top'}]}
+                      value={newExpDesc}
+                      onChangeText={setNewExpDesc}
+                      placeholder="What are you testing?"
+                      placeholderTextColor="rgba(255,255,255,0.25)"
+                      multiline
+                    />
+
+                    <View style={{flexDirection: 'row', gap: 10, marginTop: 4}}>
+                      <TouchableOpacity
+                        style={[abStyles.formBtn, {backgroundColor: 'rgba(255,255,255,0.08)'}]}
+                        onPress={() => { setShowCreateForm(false); setNewExpName(''); setNewExpDesc(''); }}>
+                        <Text style={{fontFamily: 'Inter-Medium', fontSize: 13, color: 'rgba(255,255,255,0.6)'}}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[abStyles.formBtn, {backgroundColor: '#10B981', flex: 2}]}
+                        onPress={async () => {
+                          if (!newExpName.trim() || !newExpBotId) {
+                            showAlert('Required', 'Please select a bot and enter a name.');
+                            return;
+                          }
+                          try {
+                            await creatorApi.createExperiment({
+                              botId: newExpBotId,
+                              name: newExpName.trim(),
+                              description: newExpDesc.trim(),
+                              variantAConfig: {},
+                              variantBConfig: {},
+                            });
+                            showAlert('Created', 'Experiment created successfully.');
+                            setShowCreateForm(false);
+                            setNewExpName('');
+                            setNewExpDesc('');
+                            fetchExperiments();
+                          } catch (e: any) {
+                            showAlert('Error', e?.message || 'Failed to create experiment.');
+                          }
+                        }}>
+                        <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'}}>Create</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {experiments.length === 0 && !showCreateForm ? (
+                  <View style={styles.emptyEarnings}>
+                    <SparkleIcon />
+                    <Text style={styles.emptyEarningsTitle}>No experiments yet</Text>
+                    <Text style={styles.emptyEarningsText}>
+                      Create an A/B test to compare different bot configurations and find what works best.
+                    </Text>
+                  </View>
+                ) : (
+                  experiments.map(exp => (
+                    <TouchableOpacity
+                      key={exp.id}
+                      style={abStyles.expCard}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        setSelectedExperiment(exp);
+                        creatorApi.getExperimentResults(exp.id)
+                          .then(setExperimentResults)
+                          .catch(() => showAlert('Error', 'Failed to load results.'));
+                      }}>
+                      <View style={{flex: 1}}>
+                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4}}>
+                          <Text style={abStyles.expName}>{exp.name}</Text>
+                          <View style={[
+                            abStyles.expStatusBadge,
+                            {backgroundColor: exp.status === 'running' ? 'rgba(16,185,129,0.15)' :
+                              exp.status === 'completed' ? 'rgba(96,165,250,0.15)' : 'rgba(245,158,11,0.15)'},
+                          ]}>
+                            <Text style={[
+                              abStyles.expStatusText,
+                              {color: exp.status === 'running' ? '#10B981' :
+                                exp.status === 'completed' ? '#60A5FA' : '#F59E0B'},
+                            ]}>
+                              {exp.status.toUpperCase()}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={abStyles.expDesc}>{exp.description}</Text>
+                      </View>
+                      <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                        <Path d="M9 5l7 7-7 7" stroke="rgba(255,255,255,0.3)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                      </Svg>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {/* ─── PATTERNS TAB ─────────────────────────────────── */}
+        {activeSection === 'patterns' && (
+          <>
+            {selectedPatternBot && patternAnalysis ? (
+              <>
+                <TouchableOpacity
+                  onPress={() => { setSelectedPatternBot(null); setPatternAnalysis(null); }}
+                  style={{flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14}}>
+                  <BackArrow />
+                  <Text style={{fontFamily: 'Inter-Medium', fontSize: 14, color: 'rgba(255,255,255,0.7)'}}>Back to bots</Text>
+                </TouchableOpacity>
+
+                <Text style={[styles.sectionTitle, {marginBottom: 14}]}>{patternAnalysis.botName}</Text>
+
+                {/* Score Cards */}
+                <View style={styles.metricsRow}>
+                  <View style={[styles.metricCard, {borderColor: 'rgba(16,185,129,0.2)'}]}>
+                    <Text style={styles.metricLabel}>Risk Score</Text>
+                    <Text style={[styles.metricValue, {color: patternAnalysis.riskScore > 70 ? '#EF4444' : patternAnalysis.riskScore > 40 ? '#F59E0B' : '#10B981'}]}>
+                      {patternAnalysis.riskScore}/100
+                    </Text>
+                  </View>
+                  <View style={[styles.metricCard, {borderColor: 'rgba(96,165,250,0.2)'}]}>
+                    <Text style={styles.metricLabel}>Consistency</Text>
+                    <Text style={[styles.metricValue, {color: '#60A5FA'}]}>
+                      {patternAnalysis.consistencyScore}/100
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Detected Patterns */}
+                <View style={styles.card}>
+                  <Text style={[styles.sectionLabel, {marginBottom: 10}]}>DETECTED PATTERNS</Text>
+                  {patternAnalysis.patterns.length === 0 ? (
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)'}}>No patterns detected yet.</Text>
+                  ) : (
+                    patternAnalysis.patterns.map((p, i) => (
+                      <View key={i} style={patternStyles.patternRow}>
+                        <View style={patternStyles.patternDot} />
+                        <View style={{flex: 1}}>
+                          <Text style={patternStyles.patternName}>{p.name}</Text>
+                          <Text style={patternStyles.patternDesc}>{p.description}</Text>
+                          <Text style={patternStyles.patternFreq}>{p.frequency}</Text>
+                        </View>
+                      </View>
+                    ))
+                  )}
+                </View>
+
+                {/* Market Correlations */}
+                {patternAnalysis.marketCorrelations.length > 0 && (
+                  <View style={styles.card}>
+                    <Text style={[styles.sectionLabel, {marginBottom: 10}]}>MARKET CORRELATIONS</Text>
+                    {patternAnalysis.marketCorrelations.map((mc, i) => (
+                      <View key={i} style={patternStyles.corrRow}>
+                        <Text style={patternStyles.corrMarket}>{mc.market}</Text>
+                        <View style={patternStyles.corrBarBg}>
+                          <View style={[patternStyles.corrBarFill, {
+                            width: `${Math.abs(mc.correlation) * 100}%`,
+                            backgroundColor: mc.correlation >= 0 ? '#10B981' : '#EF4444',
+                          }]} />
+                        </View>
+                        <Text style={[patternStyles.corrValue, {color: mc.correlation >= 0 ? '#10B981' : '#EF4444'}]}>
+                          {mc.correlation > 0 ? '+' : ''}{mc.correlation.toFixed(2)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Suggested Improvements */}
+                {patternAnalysis.suggestedImprovements.length > 0 && (
+                  <View style={[styles.aiCard]}>
+                    <View style={styles.aiHeader}>
+                      <SparkleIcon />
+                      <Text style={styles.aiTitle}>Suggested Improvements</Text>
+                    </View>
+                    {patternAnalysis.suggestedImprovements.map((s, i) => (
+                      <View key={i} style={styles.suggestionRow}>
+                        <View style={styles.bulletDot} />
+                        <Text style={styles.suggestionText}>{s}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </>
+            ) : patternsLoading ? (
+              <View style={{alignItems: 'center', paddingVertical: 40}}>
+                <ActivityIndicator size="large" color="#10B981" />
+                <Text style={{fontFamily: 'Inter-Medium', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginTop: 12}}>
+                  AI is analyzing patterns...
+                </Text>
+              </View>
+            ) : (
+              <>
+                <Text style={[styles.sectionTitle, {marginBottom: 10}]}>Select a Bot</Text>
+                <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.5)', marginBottom: 16}}>
+                  Tap a bot to run AI pattern detection and analysis.
+                </Text>
+                {bots.length === 0 ? (
+                  <View style={styles.emptyEarnings}>
+                    <Text style={styles.emptyEarningsTitle}>No bots yet</Text>
+                    <Text style={styles.emptyEarningsText}>Create a bot first to analyze its trading patterns.</Text>
+                  </View>
+                ) : (
+                  bots.map(bot => (
+                    <TouchableOpacity
+                      key={bot.id}
+                      style={patternStyles.botSelectCard}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        setSelectedPatternBot(bot.id);
+                        fetchPatterns(bot.id);
+                      }}>
+                      <View style={{flex: 1}}>
+                        <Text style={patternStyles.botSelectName}>{bot.name}</Text>
+                        <Text style={patternStyles.botSelectMeta}>
+                          {bot.users} users · +{bot.returnPercent}% return
+                        </Text>
+                      </View>
+                      <View style={patternStyles.analyzeBtn}>
+                        <SparkleIcon />
+                        <Text style={patternStyles.analyzeBtnText}>Analyze</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </>
+            )}
+          </>
+        )}
+
         <View style={{height: 40}} />
       </ScrollView>
     </View>
@@ -869,18 +1484,21 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#FFFFFF',
   },
+  tabBarContainer: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.08)',
+  },
   sectionTabs: {
     flexDirection: 'row',
-    paddingHorizontal: 20,
-    marginBottom: 14,
-    gap: 0,
+    paddingHorizontal: 16,
   },
   sectionTab: {
-    flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center' as const,
     borderBottomWidth: 2,
-    borderBottomColor: 'rgba(255,255,255,0.06)',
+    borderBottomColor: 'transparent',
+    marginBottom: -1,
   },
   sectionTabActive: {
     borderBottomColor: '#10B981',
@@ -888,7 +1506,7 @@ const styles = StyleSheet.create({
   sectionTabText: {
     fontFamily: 'Inter-Medium',
     fontSize: 14,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.35)',
   },
   sectionTabTextActive: {
     color: '#10B981',
@@ -896,6 +1514,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
+    paddingTop: 16,
     paddingBottom: 20,
   },
   metricsRow: {
@@ -1306,5 +1925,363 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     paddingHorizontal: 30,
+  },
+});
+
+// ─── Analytics Styles ────────────────────────────────────────────────────────
+
+const analyticsStyles = StyleSheet.create({
+  distBar: {
+    flexDirection: 'row',
+    height: 12,
+    borderRadius: 6,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  distSegment: {
+    height: '100%',
+  },
+  distLegend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  distLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  distDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  distLegendText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.6)',
+  },
+  earnerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    gap: 10,
+  },
+  earnerRank: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: 'rgba(16,185,129,0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  earnerRankText: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 11,
+    color: '#10B981',
+  },
+  earnerName: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: '#FFFFFF',
+  },
+  earnerBot: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  earnerProfit: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: '#10B981',
+  },
+  projCard: {
+    backgroundColor: '#161B22',
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  projLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.7)',
+  },
+  projValue: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 20,
+  },
+  funnelStep: {
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  funnelBox: {
+    width: '100%',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  funnelBoxLabel: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+  },
+  funnelBoxValue: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 18,
+  },
+  funnelArrow: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+    paddingVertical: 6,
+  },
+});
+
+// ─── A/B Test Styles ─────────────────────────────────────────────────────────
+
+const abStyles = StyleSheet.create({
+  confidenceBar: {
+    width: '100%',
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    marginTop: 12,
+    overflow: 'hidden',
+  },
+  confidenceFill: {
+    height: '100%',
+    backgroundColor: '#10B981',
+    borderRadius: 5,
+  },
+  confidenceText: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 24,
+    color: '#FFFFFF',
+    marginTop: 8,
+  },
+  variantCard: {
+    flex: 1,
+    backgroundColor: '#161B22',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 14,
+    alignItems: 'center',
+    gap: 4,
+  },
+  variantWinner: {
+    borderColor: '#10B981',
+    backgroundColor: 'rgba(16,185,129,0.06)',
+  },
+  variantLabel: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: '#FFFFFF',
+    marginBottom: 4,
+  },
+  variantStat: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  variantReturn: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 13,
+  },
+  variantProfit: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  stopBtn: {
+    backgroundColor: 'rgba(239,68,68,0.15)',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.3)',
+  },
+  stopBtnText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: '#EF4444',
+  },
+  expCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#161B22',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 14,
+    marginBottom: 8,
+  },
+  expName: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  expStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  expStatusText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 9,
+    letterSpacing: 0.5,
+  },
+  expDesc: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  formLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+    marginBottom: 6,
+  },
+  input: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: '#FFFFFF',
+    marginBottom: 12,
+  },
+  botChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  botChipActive: {
+    backgroundColor: 'rgba(16,185,129,0.15)',
+    borderColor: '#10B981',
+  },
+  botChipText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  botChipTextActive: {
+    color: '#10B981',
+  },
+  formBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+});
+
+// ─── Pattern Styles ──────────────────────────────────────────────────────────
+
+const patternStyles = StyleSheet.create({
+  patternRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 14,
+  },
+  patternDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#60A5FA',
+    marginTop: 5,
+  },
+  patternName: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  patternDesc: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.6)',
+    lineHeight: 18,
+    marginBottom: 2,
+  },
+  patternFreq: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.35)',
+  },
+  corrRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  corrMarket: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.7)',
+    width: 60,
+  },
+  corrBarBg: {
+    flex: 1,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    overflow: 'hidden',
+  },
+  corrBarFill: {
+    height: '100%',
+    borderRadius: 4,
+  },
+  corrValue: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    width: 42,
+    textAlign: 'right',
+  },
+  botSelectCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#161B22',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 16,
+    marginBottom: 8,
+  },
+  botSelectName: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 15,
+    color: '#FFFFFF',
+    marginBottom: 2,
+  },
+  botSelectMeta: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  analyzeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(16,185,129,0.15)',
+  },
+  analyzeBtnText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    color: '#10B981',
   },
 });
