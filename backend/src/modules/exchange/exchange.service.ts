@@ -91,6 +91,9 @@ export async function connectWithApiKey(
   const apiKeyEnc = encrypt(apiKey);
   const apiSecretEnc = encrypt(apiSecret);
 
+  // Determine asset class from provider
+  const assetClass = provider.toLowerCase() === 'alpaca' ? 'stocks' : 'crypto';
+
   const [connection] = await db
     .insert(exchangeConnections)
     .values({
@@ -99,6 +102,7 @@ export async function connectWithApiKey(
       method: 'api_key',
       apiKeyEnc,
       apiSecretEnc,
+      assetClass: assetClass as any,
       sandbox,
       status: 'connected',
       lastSyncAt: new Date(),
@@ -114,7 +118,10 @@ export async function connectWithApiKey(
       for (const bal of balances) {
         let valueUsd = 0;
         try {
-          if (bal.currency === 'USDT' || bal.currency === 'USDC' || bal.currency === 'USD' || bal.currency === 'BUSD') {
+          if (['USDT', 'USDC', 'USD', 'BUSD', 'DAI'].includes(bal.currency)) {
+            valueUsd = bal.total;
+          } else if (assetClass === 'stocks') {
+            // Stock positions: Alpaca returns market_value as total
             valueUsd = bal.total;
           } else {
             const ticker = await adapter.getTicker(`${bal.currency}/USDT`);
@@ -245,11 +252,15 @@ export async function resync(connectionId: string, userId: string) {
 
     let totalUsd = 0;
 
+    const connAssetClass = conn.assetClass ?? 'crypto';
+
     for (const bal of balances) {
       let valueUsd = 0;
       try {
-        if (bal.currency === 'USDT' || bal.currency === 'USDC' || bal.currency === 'USD' || bal.currency === 'BUSD') {
+        if (['USDT', 'USDC', 'USD', 'BUSD', 'DAI'].includes(bal.currency)) {
           valueUsd = bal.total;
+        } else if (connAssetClass === 'stocks') {
+          valueUsd = bal.total; // Alpaca returns market value
         } else {
           const ticker = await adapter.getTicker(`${bal.currency}/USDT`);
           valueUsd = bal.total * ticker.last;

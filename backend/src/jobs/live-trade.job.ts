@@ -10,6 +10,7 @@ import { exchangeConnections } from '../db/schema/exchanges';
 import { processSymbol, executeLiveTrade } from '../lib/bot-engine.js';
 import { sendNotification } from '../lib/notify.js';
 import { refreshUserPortfolio } from './portfolio-update.job.js';
+import { isUSMarketOpen } from './price-sync.job.js';
 
 interface BotConfig {
   pairs?: string[];
@@ -93,8 +94,19 @@ async function processLiveTrades() {
         }
 
         const config = (bot.config ?? {}) as BotConfig;
-        const pairs = config.pairs?.length ? config.pairs : ['BTC/USDT'];
+        const isStockBot = bot.category === 'Stocks';
+        const defaultPairs = isStockBot ? ['AAPL'] : ['BTC/USDT'];
+        const pairs = config.pairs?.length ? config.pairs : defaultPairs;
         const allocatedAmount = parseFloat(subscription.allocatedAmount ?? '0');
+
+        // Skip stock bots when US market is closed
+        if (isStockBot) {
+          const marketOpen = await isUSMarketOpen();
+          if (!marketOpen) {
+            console.log(`[LiveTrade] Skipping ${bot.name} — US stock market closed`);
+            continue;
+          }
+        }
 
         for (const pair of pairs) {
           // Run the engine

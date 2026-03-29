@@ -429,6 +429,7 @@ export default function AIChatScreen() {
                     strategyData: {
                       name: item.strategyData?.name,
                       strategy: (item.strategyData as any)?.strategy,
+                      assetClass: (item.strategyData as any)?.assetClass,
                       pairs: item.strategyData?.pairs,
                       riskLevel: item.strategyData?.riskLevel,
                       stopLoss: (item.strategyData as any)?.stopLoss,

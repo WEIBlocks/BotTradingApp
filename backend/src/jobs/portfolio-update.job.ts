@@ -55,15 +55,16 @@ async function processPortfolioUpdate() {
             continue;
           }
 
-          const pair = `${asset.symbol.toUpperCase()}/USDT`;
-          const priceData = await getPrice(pair);
+          // Route price lookup by asset class
+          const isStockConn = conn.assetClass === 'stocks';
+          const priceSymbol = isStockConn ? asset.symbol.toUpperCase() : `${asset.symbol.toUpperCase()}/USDT`;
+          const priceData = await getPrice(priceSymbol);
           if (!priceData) {
-            // Keep existing value if price unavailable
             totalBalance += parseFloat(asset.valueUsd ?? '0');
             continue;
           }
 
-          const valueUsd = amount * priceData.price;
+          const valueUsd = isStockConn ? amount * priceData.price : amount * priceData.price;
           totalBalance += valueUsd;
 
           await db.update(exchangeAssets).set({
@@ -180,7 +181,8 @@ export async function refreshUserPortfolio(userId: string) {
         continue;
       }
 
-      const pair = `${asset.symbol.toUpperCase()}/USDT`;
+      const isStockConn = conn.assetClass === 'stocks';
+      const pair = isStockConn ? asset.symbol.toUpperCase() : `${asset.symbol.toUpperCase()}/USDT`;
       const priceData = await getPrice(pair);
       if (priceData) {
         const valueUsd = amount * priceData.price;

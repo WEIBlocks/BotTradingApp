@@ -25,6 +25,11 @@ export const exchangeStatusEnum = pgEnum("exchange_status", [
   "error",
 ]);
 
+export const assetClassEnum = pgEnum("asset_class", [
+  "crypto",
+  "stocks",
+]);
+
 export const exchangeConnections = pgTable(
   "exchange_connections",
   {
@@ -46,6 +51,7 @@ export const exchangeConnections = pgTable(
       "0"
     ),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    assetClass: assetClassEnum("asset_class").default("crypto"),
     sandbox: boolean("sandbox").default(false),
     errorMessage: text("error_message"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

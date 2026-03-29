@@ -20,8 +20,10 @@ import {useAuth} from '../../context/AuthContext';
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Route = RouteProp<RootStackParamList, 'BotBuilder'>;
 
-const DEFAULT_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'MATIC/USDT'];
+const DEFAULT_CRYPTO_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'MATIC/USDT'];
+const DEFAULT_STOCK_SYMBOLS = ['AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL', 'NVDA', 'META', 'SPY', 'QQQ'];
 const DEFAULT_STRATEGIES = ['Trend Following', 'Scalping', 'Grid', 'DCA', 'Momentum', 'Custom'];
+const STOCK_STRATEGIES = ['Trend Following', 'Momentum', 'Swing', 'Mean Reversion', 'Custom'];
 const RULE_ONLY_STRATEGIES = ['Grid', 'DCA']; // These don't need AI prompt
 const DEFAULT_RISK_LEVELS = ['Very Low', 'Low', 'Med', 'High', 'Very High'];
 
@@ -90,13 +92,17 @@ export default function BotBuilderScreen() {
   const strategyData = route.params?.strategyData;
   const isEditMode = !!editBotId;
 
-  const [tradingPairs, setTradingPairs] = useState<string[]>(DEFAULT_PAIRS);
-  const [strategies, setStrategies] = useState<string[]>(DEFAULT_STRATEGIES);
-  const [riskLevels, setRiskLevels] = useState<string[]>(DEFAULT_RISK_LEVELS);
+  // Detect category from strategyData (AI chat auto-fills assetClass)
+  const initialCategory = (strategyData as any)?.assetClass === 'stocks' ? 'Stocks' : 'Crypto';
+  const [category, setCategory] = useState<'Crypto' | 'Stocks'>(initialCategory);
+
+  const tradingPairs = category === 'Stocks' ? DEFAULT_STOCK_SYMBOLS : DEFAULT_CRYPTO_PAIRS;
+  const strategies = category === 'Stocks' ? STOCK_STRATEGIES : DEFAULT_STRATEGIES;
+  const riskLevels = DEFAULT_RISK_LEVELS;
 
   const [botName, setBotName] = useState(strategyData?.name || strategyName || '');
   const [selectedPairs, setSelectedPairs] = useState<string[]>(
-    strategyData?.pairs?.length ? strategyData.pairs : ['BTC/USDT'],
+    strategyData?.pairs?.length ? strategyData.pairs : (initialCategory === 'Stocks' ? ['AAPL'] : ['BTC/USDT']),
   );
   const [selectedStrategy, setSelectedStrategy] = useState(
     strategyData?.strategy && DEFAULT_STRATEGIES.includes(strategyData.strategy)
@@ -117,14 +123,9 @@ export default function BotBuilderScreen() {
   const [deploying, setDeploying] = useState(false);
   const [loadingBot, setLoadingBot] = useState(false);
 
+  // Platform config fetch (no longer overrides local lists)
   useEffect(() => {
-    configApi.getPlatformConfig()
-      .then(config => {
-        if (config.tradingPairs?.length) setTradingPairs(config.tradingPairs);
-        if (config.strategies?.length) setStrategies(config.strategies);
-        if (config.riskLevels?.length) setRiskLevels(config.riskLevels);
-      })
-      .catch(() => {});
+    configApi.getPlatformConfig().catch(() => {});
   }, []);
 
   // Load existing bot data in edit mode
@@ -143,7 +144,7 @@ export default function BotBuilderScreen() {
           if (config?.stopLoss) setStopLoss(String(config.stopLoss));
           if (config?.takeProfit) setTakeProfit(String(config.takeProfit));
           if (config?.maxPositionSize) setMaxPosition(String(config.maxPositionSize));
-          if (config?.tradingMode) setTradingMode(config.tradingMode);
+          if (bot.category === 'Stocks') setCategory('Stocks');
           if (bot.creatorFeePercent) setCreatorFee(String(bot.creatorFeePercent));
           if (bot.prompt) setPrompt(bot.prompt);
         }
@@ -195,7 +196,7 @@ export default function BotBuilderScreen() {
   const getBotPayload = () => ({
     name: botName.trim(),
     strategy: selectedStrategy || undefined,
-    category: 'Crypto',
+    category,
     riskLevel: riskLevel,
     pairs: selectedPairs,
     stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
@@ -224,7 +225,7 @@ export default function BotBuilderScreen() {
         await botsService.updateBot(editBotId!, {
           name: botName.trim(),
           strategy: selectedStrategy,
-          category: 'Crypto',
+          category,
           risk_level: riskLevel,
           pairs: selectedPairs,
           stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
@@ -238,7 +239,7 @@ export default function BotBuilderScreen() {
       } else {
         await botsService.createBot(getBotPayload());
         await refreshUser(); // role may have upgraded to 'creator'
-        showAlert('Bot Deployed!', `${botName} is now ${tradingMode === 'paper' ? 'paper' : 'live'} trading.`);
+        showAlert('Bot Deployed!', `${botName} has been created as a ${category} bot.`);
         navigation.goBack();
       }
     } catch (e: any) {
@@ -256,7 +257,7 @@ export default function BotBuilderScreen() {
         await botsService.updateBot(editBotId!, {
           name: botName.trim(),
           strategy: selectedStrategy || undefined,
-          category: 'Crypto',
+          category,
           risk_level: riskLevel,
           pairs: selectedPairs,
           stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
@@ -300,6 +301,38 @@ export default function BotBuilderScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag">
+        {/* Asset Class Toggle */}
+        <Text style={styles.label}>ASSET CLASS</Text>
+        <View style={{flexDirection: 'row', gap: 10, marginBottom: 18}}>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            style={[styles.categoryBtn, category === 'Crypto' && styles.categoryBtnActive]}
+            onPress={() => {
+              setCategory('Crypto');
+              setSelectedPairs(['BTC/USDT']);
+              setSelectedStrategy('');
+            }}>
+            <Text style={[styles.categoryBtnText, category === 'Crypto' && styles.categoryBtnTextActive]}>Crypto</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            style={[styles.categoryBtn, category === 'Stocks' && styles.categoryBtnActive]}
+            onPress={() => {
+              setCategory('Stocks');
+              setSelectedPairs(['AAPL']);
+              setSelectedStrategy('');
+            }}>
+            <Text style={[styles.categoryBtnText, category === 'Stocks' && styles.categoryBtnTextActive]}>Stocks</Text>
+          </TouchableOpacity>
+        </View>
+        {category === 'Stocks' && (
+          <View style={{backgroundColor: 'rgba(59,130,246,0.08)', borderRadius: 10, padding: 12, marginBottom: 16, borderWidth: 1, borderColor: 'rgba(59,130,246,0.2)'}}>
+            <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#3B82F6'}}>
+              Stock bots trade during US market hours (9:30 AM - 4:00 PM ET) via Alpaca.
+            </Text>
+          </View>
+        )}
+
         {/* Bot Name */}
         <Text style={styles.label}>BOT NAME</Text>
         <TextInput
@@ -616,6 +649,27 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 8,
     marginTop: 18,
+  },
+  categoryBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center' as const,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  categoryBtnActive: {
+    backgroundColor: 'rgba(16,185,129,0.12)',
+    borderColor: '#10B981',
+  },
+  categoryBtnText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  categoryBtnTextActive: {
+    color: '#10B981',
   },
   textInput: {
     backgroundColor: '#161B22',

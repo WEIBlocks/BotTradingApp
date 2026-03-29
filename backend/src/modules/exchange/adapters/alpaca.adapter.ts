@@ -5,41 +5,32 @@ import type {
   Ticker,
   Market,
   OrderResult,
+  OrderOptions,
 } from './base.adapter.js';
 
 export class AlpacaAdapter implements ExchangeAdapter {
   readonly name = 'alpaca';
-  private exchange: any = null;
+  readonly assetClass = 'stocks' as const;
+  private client: any = null;
 
   async connect(credentials: ExchangeCredentials): Promise<void> {
-    const ccxt = await import('ccxt');
-
-    const options: Record<string, any> = {
-      apiKey: credentials.apiKey,
-      secret: credentials.apiSecret,
-      enableRateLimit: true,
-    };
-
-    // Alpaca supports paper trading via sandbox mode
-    if (credentials.sandbox) {
-      options.sandbox = true;
-    }
-
-    this.exchange = new ccxt.default.alpaca(options);
-
-    if (credentials.sandbox) {
-      this.exchange.setSandboxMode(true);
-    }
+    const Alpaca = (await import('@alpacahq/alpaca-trade-api')).default;
+    this.client = new Alpaca({
+      keyId: credentials.apiKey,
+      secretKey: credentials.apiSecret,
+      paper: credentials.sandbox ?? true, // default to paper for safety
+      usePolygon: false,
+    });
   }
 
   async disconnect(): Promise<void> {
-    this.exchange = null;
+    this.client = null;
   }
 
   async testConnection(): Promise<boolean> {
-    if (!this.exchange) return false;
+    if (!this.client) return false;
     try {
-      await this.exchange.fetchBalance();
+      await this.client.getAccount();
       return true;
     } catch {
       return false;
@@ -47,44 +38,84 @@ export class AlpacaAdapter implements ExchangeAdapter {
   }
 
   async getBalances(): Promise<Balance[]> {
-    if (!this.exchange) throw new Error('Not connected');
-    const balance = await this.exchange.fetchBalance();
+    if (!this.client) throw new Error('Not connected');
     const result: Balance[] = [];
-    for (const [currency, data] of Object.entries(balance.total || {})) {
-      const total = Number(data);
-      if (total > 0) {
-        const free = Number(balance.free?.[currency] ?? 0);
-        result.push({ currency, free, total });
+
+    // Get account cash balance
+    const account = await this.client.getAccount();
+    const cash = parseFloat(account.cash ?? '0');
+    const buyingPower = parseFloat(account.buying_power ?? '0');
+    if (cash > 0) {
+      result.push({ currency: 'USD', free: buyingPower, total: cash });
+    }
+
+    // Get stock positions
+    const positions = await this.client.getPositions();
+    for (const pos of positions) {
+      const qty = parseFloat(pos.qty ?? '0');
+      const marketValue = parseFloat(pos.market_value ?? '0');
+      if (qty > 0) {
+        result.push({
+          currency: pos.symbol,
+          free: qty,
+          total: marketValue, // total as market value in USD for portfolio
+        });
       }
     }
+
     return result;
   }
 
   async getTicker(symbol: string): Promise<Ticker> {
-    if (!this.exchange) throw new Error('Not connected');
-    const ticker = await this.exchange.fetchTicker(symbol);
-    return {
-      symbol: ticker.symbol,
-      last: ticker.last ?? 0,
-      bid: ticker.bid ?? 0,
-      ask: ticker.ask ?? 0,
-      change24h: ticker.percentage ?? 0,
-    };
+    if (!this.client) throw new Error('Not connected');
+    // Strip /USD if present (normalize stock symbols)
+    const cleanSymbol = symbol.replace('/USD', '').replace('/USDT', '');
+
+    try {
+      const snapshot = await this.client.getSnapshot(cleanSymbol);
+      const lastTrade = snapshot.latestTrade;
+      const lastQuote = snapshot.latestQuote;
+      const dailyBar = snapshot.dailyBar;
+      const prevClose = snapshot.prevDailyBar?.c ?? dailyBar?.o ?? 0;
+      const currentPrice = lastTrade?.p ?? 0;
+      const change24h = prevClose > 0 ? ((currentPrice - prevClose) / prevClose) * 100 : 0;
+
+      return {
+        symbol: cleanSymbol,
+        last: currentPrice,
+        bid: lastQuote?.bp ?? currentPrice,
+        ask: lastQuote?.ap ?? currentPrice,
+        change24h,
+      };
+    } catch {
+      // Fallback: try latest trade only
+      const trade = await this.client.getLatestTrade(cleanSymbol);
+      return {
+        symbol: cleanSymbol,
+        last: trade?.p ?? 0,
+        bid: trade?.p ?? 0,
+        ask: trade?.p ?? 0,
+        change24h: 0,
+      };
+    }
   }
 
   async getMarkets(): Promise<Market[]> {
-    if (!this.exchange) throw new Error('Not connected');
-    await this.exchange.loadMarkets();
-    const markets: Market[] = [];
-    for (const market of Object.values(this.exchange.markets) as any[]) {
-      markets.push({
-        symbol: market.symbol,
-        base: market.base,
-        quote: market.quote,
-        active: market.active ?? true,
-      });
-    }
-    return markets;
+    if (!this.client) throw new Error('Not connected');
+    const assets = await this.client.getAssets({
+      status: 'active',
+      asset_class: 'us_equity',
+    });
+
+    return assets
+      .filter((a: any) => a.tradable)
+      .slice(0, 500) // limit to avoid huge response
+      .map((a: any) => ({
+        symbol: a.symbol,
+        base: a.symbol,
+        quote: 'USD',
+        active: a.tradable ?? true,
+      }));
   }
 
   async createOrder(
@@ -93,22 +124,48 @@ export class AlpacaAdapter implements ExchangeAdapter {
     type: 'market' | 'limit',
     amount: number,
     price?: number,
+    options?: OrderOptions,
   ): Promise<OrderResult> {
-    if (!this.exchange) throw new Error('Not connected');
+    if (!this.client) throw new Error('Not connected');
+    const cleanSymbol = symbol.replace('/USD', '').replace('/USDT', '');
 
-    const order = type === 'limit'
-      ? await this.exchange.createOrder(symbol, type, side, amount, price)
-      : await this.exchange.createOrder(symbol, type, side, amount);
+    const orderParams: Record<string, any> = {
+      symbol: cleanSymbol,
+      qty: amount,
+      side,
+      type,
+      time_in_force: options?.timeInForce ?? 'day',
+    };
+
+    if (type === 'limit' && price) {
+      orderParams.limit_price = price;
+    }
+
+    if (options?.extendedHours) {
+      orderParams.extended_hours = true;
+    }
+
+    const order = await this.client.createOrder(orderParams);
 
     return {
       id: order.id,
       symbol: order.symbol,
       side: order.side,
-      type: order.type,
-      amount: order.amount ?? amount,
-      price: order.price ?? order.average ?? 0,
-      status: order.status ?? 'open',
-      timestamp: order.timestamp ?? Date.now(),
+      type: order.type ?? type,
+      amount: parseFloat(order.qty ?? amount.toString()),
+      price: parseFloat(order.filled_avg_price ?? order.limit_price ?? '0'),
+      status: order.status ?? 'new',
+      timestamp: new Date(order.created_at).getTime(),
     };
+  }
+
+  async isMarketOpen(): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      const clock = await this.client.getClock();
+      return clock.is_open;
+    } catch {
+      return false;
+    }
   }
 }

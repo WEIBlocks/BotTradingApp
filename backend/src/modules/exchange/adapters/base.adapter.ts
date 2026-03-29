@@ -25,6 +25,11 @@ export interface Market {
   active: boolean;
 }
 
+export interface OrderOptions {
+  timeInForce?: 'day' | 'gtc' | 'ioc';
+  extendedHours?: boolean;
+}
+
 export interface OrderResult {
   id: string;
   symbol: string;
@@ -38,6 +43,7 @@ export interface OrderResult {
 
 export interface ExchangeAdapter {
   readonly name: string;
+  readonly assetClass?: 'crypto' | 'stocks';
   connect(credentials: ExchangeCredentials): Promise<void>;
   disconnect(): Promise<void>;
   testConnection(): Promise<boolean>;
@@ -50,5 +56,7 @@ export interface ExchangeAdapter {
     type: 'market' | 'limit',
     amount: number,
     price?: number,
+    options?: OrderOptions,
   ): Promise<OrderResult>;
+  isMarketOpen?(): Promise<boolean>;
 }

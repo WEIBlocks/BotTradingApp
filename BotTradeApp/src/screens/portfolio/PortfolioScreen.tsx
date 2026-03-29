@@ -111,6 +111,7 @@ export default function PortfolioScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [assetSearch, setAssetSearch] = useState('');
+  const [providerFilter, setProviderFilter] = useState('all'); // 'all' | 'binance' | 'alpaca' | etc.
 
   const fetchData = useCallback(async () => {
     try {
@@ -139,17 +140,53 @@ export default function PortfolioScreen() {
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
+  // Unique providers for filter chips
+  const providers = useMemo(() => {
+    const set = new Map<string, string>(); // provider -> label
+    for (const a of assets) {
+      if (a.provider && !set.has(a.provider.toLowerCase())) {
+        set.set(a.provider.toLowerCase(), a.provider.charAt(0).toUpperCase() + a.provider.slice(1));
+      }
+    }
+    return Array.from(set.entries()).map(([key, label]) => ({key, label}));
+  }, [assets]);
+
+  // Filter by provider, then by search
+  const providerFilteredAssets = useMemo(() => {
+    if (providerFilter === 'all') return assets;
+    return assets.filter(a => a.provider.toLowerCase() === providerFilter);
+  }, [assets, providerFilter]);
+
   const filteredAssets = useMemo(() => {
-    if (!assetSearch.trim()) return assets;
+    if (!assetSearch.trim()) return providerFilteredAssets;
     const q = assetSearch.toLowerCase();
-    return assets.filter(a => a.symbol.toLowerCase().includes(q) || a.name.toLowerCase().includes(q));
-  }, [assets, assetSearch]);
+    return providerFilteredAssets.filter(a => a.symbol.toLowerCase().includes(q) || a.name.toLowerCase().includes(q));
+  }, [providerFilteredAssets, assetSearch]);
 
-  const totalAssetsValue = useMemo(() => assets.reduce((sum, a) => sum + a.valueUsd, 0), [assets]);
+  const totalAssetsValue = useMemo(() => providerFilteredAssets.reduce((sum, a) => sum + a.valueUsd, 0), [providerFilteredAssets]);
 
-  const totalValue = summary?.totalValue ?? 0;
-  const totalChange24h = summary?.totalChange24h ?? 0;
-  const totalChangePercent24h = summary?.totalChangePercent24h ?? 0;
+  // Filtered allocation
+  const filteredAllocation = useMemo(() => {
+    if (providerFilter === 'all') return allocation;
+    const filteredSymbols = new Set(providerFilteredAssets.map(a => a.symbol));
+    const filtered = allocation.filter(a => filteredSymbols.has(a.label));
+    // Recalculate percentages
+    const total = filtered.reduce((s, a) => s + a.value, 0);
+    return filtered.map(a => ({...a, percent: total > 0 ? Number(((a.value / total) * 100).toFixed(2)) : 0}));
+  }, [allocation, providerFilter, providerFilteredAssets]);
+
+  // Filtered change24h
+  const filteredChange = useMemo(() => {
+    const val = providerFilteredAssets.reduce((s, a) => s + (a.valueUsd * a.change24h / 100), 0);
+    const total = totalAssetsValue;
+    const pct = total > 0 ? (val / total) * 100 : 0;
+    return {change24h: val, changePercent: pct};
+  }, [providerFilteredAssets, totalAssetsValue]);
+
+  // Use filtered values when a provider is selected, otherwise full summary
+  const totalValue = providerFilter === 'all' ? (summary?.totalValue ?? 0) : totalAssetsValue;
+  const totalChange24h = providerFilter === 'all' ? (summary?.totalChange24h ?? 0) : filteredChange.change24h;
+  const totalChangePercent24h = providerFilter === 'all' ? (summary?.totalChangePercent24h ?? 0) : filteredChange.changePercent;
 
   const isPositive = totalChangePercent24h >= 0;
   const profitColor = isPositive ? '#10B981' : '#EF4444';
@@ -197,7 +234,9 @@ export default function PortfolioScreen() {
         }>
         {/* Balance Section */}
         <View style={styles.balanceSection}>
-          <Text style={styles.balanceLabel}>Total Portfolio Value</Text>
+          <Text style={styles.balanceLabel}>
+            {providerFilter === 'all' ? 'Total Portfolio Value' : `${providers.find(p => p.key === providerFilter)?.label ?? providerFilter} Portfolio`}
+          </Text>
           <View style={styles.balanceRow}>
             <Text style={styles.balanceValue}>
               ${totalValue.toLocaleString('en-US', {minimumFractionDigits: 2})}
@@ -213,13 +252,44 @@ export default function PortfolioScreen() {
           </Text>
         </View>
 
+        {/* Provider Filter */}
+        {providers.length > 1 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              style={[styles.filterChip, providerFilter === 'all' && styles.filterChipActive]}
+              onPress={() => setProviderFilter('all')}>
+              <Text style={[styles.filterChipText, providerFilter === 'all' && styles.filterChipTextActive]}>All</Text>
+            </TouchableOpacity>
+            {providers.map(p => {
+              const isStock = p.key === 'alpaca';
+              const activeColor = isStock ? '#3B82F6' : '#F0B90B';
+              const isActive = providerFilter === p.key;
+              return (
+                <TouchableOpacity
+                  key={p.key}
+                  activeOpacity={0.7}
+                  style={[styles.filterChip, isActive && {backgroundColor: `${activeColor}18`, borderColor: activeColor}]}
+                  onPress={() => setProviderFilter(p.key)}>
+                  <View style={[styles.filterDot, {backgroundColor: isActive ? activeColor : 'rgba(255,255,255,0.2)'}]} />
+                  <Text style={[styles.filterChipText, isActive && {color: activeColor}]}>
+                    {p.label}
+                  </Text>
+                  {isStock && <Text style={[styles.filterTag, {color: activeColor}]}>Stocks</Text>}
+                  {!isStock && p.key !== 'alpaca' && <Text style={[styles.filterTag, {color: activeColor}]}>Crypto</Text>}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        )}
+
         {/* Allocation Bar */}
         <View style={styles.allocationCard}>
-          {allocation.length > 0 ? (
+          {filteredAllocation.length > 0 ? (
             <>
-              <AllocationBar data={allocation} height={10} />
+              <AllocationBar data={filteredAllocation} height={10} />
               <View style={styles.allocationLegend}>
-                {allocation.map(item => (
+                {filteredAllocation.map(item => (
                   <View key={item.label} style={styles.legendItem}>
                     <View style={[styles.legendDot, {backgroundColor: item.color}]} />
                     <Text style={styles.legendLabel}>{item.label}</Text>
@@ -440,6 +510,13 @@ const styles = StyleSheet.create({
   todayProfit: {fontFamily: 'Inter-Medium', fontSize: 13},
 
   // Allocation
+  filterRow: {flexDirection: 'row', gap: 8, marginBottom: 14, paddingRight: 8},
+  filterChip: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', gap: 6},
+  filterChipActive: {backgroundColor: 'rgba(16,185,129,0.12)', borderColor: '#10B981'},
+  filterChipText: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
+  filterChipTextActive: {color: '#10B981'},
+  filterDot: {width: 6, height: 6, borderRadius: 3},
+  filterTag: {fontFamily: 'Inter-Regular', fontSize: 10, opacity: 0.7},
   allocationCard: {
     backgroundColor: '#161B22', borderRadius: 16,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',

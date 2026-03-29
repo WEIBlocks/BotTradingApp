@@ -754,25 +754,38 @@ export async function executeLiveTrade(
     const adapter = createAdapter(conn.provider);
     await adapter.connect({ apiKey: decrypt(conn.apiKeyEnc), apiSecret: decrypt(conn.apiSecretEnc), sandbox: conn.sandbox ?? false });
 
+    // Detect asset class from symbol format
+    const isStock = !decision.symbol.includes('/');
+    const quoteCurrency = isStock ? 'USD' : 'USDT';
+
+    // Check market hours for stocks
+    if (isStock && adapter.isMarketOpen) {
+      const marketOpen = await adapter.isMarketOpen();
+      if (!marketOpen) {
+        await adapter.disconnect();
+        return { success: false, error: 'US stock market is currently closed' };
+      }
+    }
+
     const balances = await adapter.getBalances();
     let amount: number;
     let tradeValue: number;
 
     if (decision.action === 'BUY') {
-      const quoteBalance = balances.find(b => b.currency === 'USDT')?.free ?? 0;
+      const quoteBalance = balances.find(b => b.currency === quoteCurrency)?.free ?? 0;
       tradeValue = quoteBalance * (decision.sizePercent ?? 10) / 100;
       amount = tradeValue / decision.price;
     } else {
-      const base = decision.symbol.split('/')[0];
+      const base = isStock ? decision.symbol : decision.symbol.split('/')[0];
       amount = balances.find(b => b.currency === base)?.free ?? 0;
       tradeValue = amount * decision.price;
     }
 
-    // Minimum order size validation (Binance min ~10 USDT)
-    const MIN_ORDER_USDT = 10;
-    if (tradeValue < MIN_ORDER_USDT) {
+    // Minimum order size: $1 for stocks (fractional shares), $10 for crypto
+    const MIN_ORDER_VALUE = isStock ? 1 : 10;
+    if (tradeValue < MIN_ORDER_VALUE) {
       await adapter.disconnect();
-      return { success: false, error: `Order too small ($${tradeValue.toFixed(2)}). Min: $${MIN_ORDER_USDT}` };
+      return { success: false, error: `Order too small ($${tradeValue.toFixed(2)}). Min: $${MIN_ORDER_VALUE}` };
     }
 
     if (amount <= 0) {
@@ -782,8 +795,10 @@ export async function executeLiveTrade(
 
     // Support both market and limit orders
     const limitPrice = orderType === 'limit'
-      ? (decision.action === 'BUY' ? decision.price * 0.999 : decision.price * 1.001) // 0.1% better price
+      ? (decision.action === 'BUY' ? decision.price * 0.999 : decision.price * 1.001)
       : undefined;
+
+    const orderOptions = isStock ? { timeInForce: 'day' as const } : undefined;
 
     const order = await adapter.createOrder(
       decision.symbol,
@@ -791,6 +806,7 @@ export async function executeLiveTrade(
       orderType,
       amount,
       limitPrice,
+      orderOptions,
     );
     await adapter.disconnect();
 

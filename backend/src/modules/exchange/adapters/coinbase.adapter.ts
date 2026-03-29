@@ -82,6 +82,7 @@ export class CoinbaseAdapter implements ExchangeAdapter {
     type: 'market' | 'limit',
     amount: number,
     price?: number,
+    _options?: import('./base.adapter.js').OrderOptions,
   ): Promise<OrderResult> {
     if (!this.exchange) throw new Error('Not connected');
 
