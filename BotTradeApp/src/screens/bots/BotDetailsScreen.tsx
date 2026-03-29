@@ -2,7 +2,7 @@ import React, {useCallback, useState} from 'react';
 import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, RefreshControl, Modal, TextInput} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
-import Svg, {Circle as SvgCircle} from 'react-native-svg';
+import Svg, {Circle as SvgCircle, Path} from 'react-native-svg';
 import {RootStackParamList, Bot} from '../../types';
 import {marketplaceApi} from '../../services/marketplace';
 import {botsService} from '../../services/bots';
@@ -355,18 +355,50 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     {label: 'SHARPE RATIO', value: `${bot.sharpeRatio.toFixed(2)}`, color: '#10B981'},
   ];
 
+  const isRunning = userBotState.status === 'active' || userBotState.status === 'shadow_running';
+  const feedMode = userBotState.status === 'active' ? 'live' : 'paper';
+
   return (
     <View style={styles.container}>
-      {/* Header */}
+      {/* Header with Live Feed action */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
           <ChevronLeftIcon size={22} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{bot.name}</Text>
-        <TouchableOpacity style={styles.iconBtn}>
-          <ShareIcon size={20} color="rgba(255,255,255,0.7)" />
-        </TouchableOpacity>
+        <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+          {isRunning && (
+            <TouchableOpacity
+              style={styles.headerLiveFeedBtn}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: feedMode})}>
+              <View style={[styles.headerLiveDot, {backgroundColor: userBotState.status === 'active' ? '#10B981' : '#3B82F6'}]} />
+              <Text style={[styles.headerLiveFeedText, {color: userBotState.status === 'active' ? '#10B981' : '#3B82F6'}]}>
+                Live Feed
+              </Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={styles.iconBtn}>
+            <ShareIcon size={20} color="rgba(255,255,255,0.7)" />
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* Active status bar (shown when bot is live or shadow running) */}
+      {isRunning && (
+        <TouchableOpacity
+          style={[styles.activeStatusBar, {backgroundColor: userBotState.status === 'active' ? 'rgba(16,185,129,0.08)' : 'rgba(59,130,246,0.08)', borderColor: userBotState.status === 'active' ? 'rgba(16,185,129,0.2)' : 'rgba(59,130,246,0.2)'}]}
+          activeOpacity={0.7}
+          onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: feedMode})}>
+          <View style={[styles.activeStatusDot, {backgroundColor: userBotState.status === 'active' ? '#10B981' : '#3B82F6'}]} />
+          <Text style={[styles.activeStatusText, {color: userBotState.status === 'active' ? '#10B981' : '#3B82F6'}]}>
+            {userBotState.status === 'active' ? 'Bot is Live — Trading with real funds' : 'Shadow Mode — AI analyzing markets'}
+          </Text>
+          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+            <Path d="M9 18l6-6-6-6" stroke={userBotState.status === 'active' ? '#10B981' : '#3B82F6'} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        </TouchableOpacity>
+      )}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -380,31 +412,36 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             progressBackgroundColor="#161B22"
           />
         }>
-        {/* Bot hero */}
-        <View style={styles.heroSection}>
-          <View style={[styles.botAvatar, {backgroundColor: bot.avatarColor}]}>
-            <Text style={styles.botAvatarText}>{bot.avatarLetter}</Text>
+        {/* Bot hero — compact card style */}
+        <View style={styles.heroCard}>
+          <View style={styles.heroTop}>
+            <View style={[styles.botAvatar, {backgroundColor: bot.avatarColor}]}>
+              <Text style={styles.botAvatarText}>{bot.avatarLetter}</Text>
+            </View>
+            <View style={styles.heroInfo}>
+              <View style={styles.heroNameRow}>
+                <Text style={styles.botName} numberOfLines={1}>{bot.name}</Text>
+                {isCreator && <Badge label="YOURS" variant="purple" size="sm" />}
+              </View>
+              <Text style={styles.botCreator} numberOfLines={1}>{isCreator ? 'Created by you' : bot.subtitle}</Text>
+              <View style={styles.ratingRow}>
+                {[1,2,3,4,5].map(i => (
+                  <StarIcon key={i} size={12} filled={i <= Math.round(bot.rating)} color="#EAB308" />
+                ))}
+                <Text style={styles.ratingText}> {bot.rating.toFixed(1)} ({bot.reviewCount})</Text>
+                <Text style={styles.activeUsers}>  •  {bot.activeUsers.toLocaleString()} traders</Text>
+              </View>
+            </View>
           </View>
 
-          {/* Status badges row */}
-          <View style={styles.badgesRow}>
-            {isCreator && <Badge label="YOUR BOT" variant="purple" size="sm" />}
-            {userBotState.status === 'active' && <Badge label="LIVE" variant="green" size="sm" dot />}
-            {userBotState.status === 'shadow_running' && <Badge label="SHADOW RUNNING" variant="blue" size="sm" dot />}
-            {userBotState.status === 'shadow_paused' && <Badge label="SHADOW PAUSED" variant="orange" size="sm" />}
-            {userBotState.status === 'shadow_completed' && <Badge label="SHADOW COMPLETE" variant="green" size="sm" />}
-            {userBotState.status === 'paused' && <Badge label="PAUSED" variant="orange" size="sm" />}
-          </View>
-
-          <Text style={styles.botName}>{bot.name}</Text>
-          <Text style={styles.botCreator}>{isCreator ? 'Created by you' : bot.subtitle}</Text>
-          <View style={styles.ratingRow}>
-            {[1,2,3,4,5].map(i => (
-              <StarIcon key={i} size={14} filled={i <= Math.round(bot.rating)} color="#EAB308" />
-            ))}
-            <Text style={styles.ratingText}> {bot.rating.toFixed(1)} ({bot.reviewCount} reviews)</Text>
-          </View>
-          <Text style={styles.activeUsers}>{bot.activeUsers.toLocaleString()} active traders</Text>
+          {/* Status badges */}
+          {!isRunning && (userBotState.status === 'shadow_paused' || userBotState.status === 'shadow_completed' || userBotState.status === 'paused') && (
+            <View style={styles.badgesRow}>
+              {userBotState.status === 'shadow_paused' && <Badge label="SHADOW PAUSED" variant="orange" size="sm" />}
+              {userBotState.status === 'shadow_completed' && <Badge label="SHADOW COMPLETE" variant="green" size="sm" />}
+              {userBotState.status === 'paused' && <Badge label="PAUSED" variant="orange" size="sm" />}
+            </View>
+          )}
         </View>
 
         {/* Stats 2x2 grid */}
@@ -855,18 +892,8 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             </TouchableOpacity>
           </>
         ) : userBotState.status === 'shadow_running' ? (
-          /* Shadow mode running */
+          /* Shadow mode running — Live Feed accessible from header */
           <>
-            <View style={styles.statusCard}>
-              <View style={styles.statusDot} />
-              <View style={styles.statusTextCol}>
-                <Text style={styles.statusTitle}>Shadow Mode Running</Text>
-                <Text style={styles.statusSub}>AI engine analyzing markets</Text>
-              </View>
-            </View>
-            <TouchableOpacity style={styles.viewShadowBtn} onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: 'paper'})} activeOpacity={0.8}>
-              <Text style={styles.viewShadowText}>Live Feed</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={styles.goLiveSmallBtn} onPress={handleActivate} activeOpacity={0.85}>
               <Text style={styles.goLiveSmallText}>Go Live</Text>
             </TouchableOpacity>
@@ -907,28 +934,16 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             </View>
           </View>
         ) : userBotState.status === 'active' ? (
-          /* Bot is live — show status + live feed + pause/stop */
+          /* Bot is live — Live Feed accessible from header, show pause/stop */
           <>
-            <View style={styles.statusCard}>
-              <View style={[styles.statusDot, {backgroundColor: '#10B981'}]} />
-              <View style={styles.statusTextCol}>
-                <Text style={styles.statusTitle}>Bot is Live</Text>
-                <Text style={styles.statusSub}>AI trading with real funds</Text>
-              </View>
+            <View style={{flexDirection: 'row', gap: 10}}>
+              <TouchableOpacity style={[styles.pauseBtn, {flex: 1}]} onPress={handlePause} activeOpacity={0.8}>
+                <Text style={styles.pauseBtnText}>Pause</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.stopBtn, {flex: 1}]} onPress={handleStop} activeOpacity={0.8}>
+                <Text style={styles.stopBtnText}>Stop</Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity
-              style={[styles.viewShadowBtn, {backgroundColor: '#10B98115', borderColor: '#10B981'}]}
-              onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: 'live'})}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.viewShadowText, {color: '#10B981'}]}>Live Feed</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.pauseBtn} onPress={handlePause} activeOpacity={0.8}>
-              <Text style={styles.pauseBtnText}>Pause</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.stopBtn} onPress={handleStop} activeOpacity={0.8}>
-              <Text style={styles.stopBtnText}>Stop</Text>
-            </TouchableOpacity>
           </>
         ) : userBotState.status === 'paused' ? (
           /* Bot is paused — show resume + stop */
@@ -966,15 +981,25 @@ const styles = StyleSheet.create({
   },
   headerTitle: {flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 16, color: '#FFFFFF', textAlign: 'center', marginHorizontal: 8},
   scroll: {paddingHorizontal: 20},
+  headerLiveFeedBtn: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(16,185,129,0.1)', gap: 5},
+  headerLiveDot: {width: 6, height: 6, borderRadius: 3},
+  headerLiveFeedText: {fontFamily: 'Inter-SemiBold', fontSize: 12},
+  activeStatusBar: {flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginBottom: 4, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 1, gap: 8},
+  activeStatusDot: {width: 8, height: 8, borderRadius: 4},
+  activeStatusText: {fontFamily: 'Inter-Medium', fontSize: 12, flex: 1},
+  heroCard: {backgroundColor: '#161B22', borderRadius: 16, padding: 16, marginBottom: 16, marginTop:10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'},
+  heroTop: {flexDirection: 'row', alignItems: 'center', gap: 14},
+  heroInfo: {flex: 1},
+  heroNameRow: {flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2},
   heroSection: {alignItems: 'center', paddingVertical: 16},
   botAvatar: {width: 72, height: 72, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 12},
   botAvatarText: {fontFamily: 'Inter-Bold', fontSize: 28, color: '#FFFFFF'},
-  badgesRow: {flexDirection: 'row', gap: 6, marginBottom: 8},
-  botName: {fontFamily: 'Inter-Bold', fontSize: 22, color: '#FFFFFF', marginBottom: 4, letterSpacing: -0.3},
-  botCreator: {fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginBottom: 8},
-  ratingRow: {flexDirection: 'row', alignItems: 'center', marginBottom: 4},
-  ratingText: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
-  activeUsers: {fontFamily: 'Inter-Medium', fontSize: 12, color: 'rgba(255,255,255,0.35)'},
+  badgesRow: {flexDirection: 'row', gap: 6, marginTop: 10},
+  botName: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF', letterSpacing: -0.3, flexShrink: 1},
+  botCreator: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 4},
+  ratingRow: {flexDirection: 'row', alignItems: 'center'},
+  ratingText: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)'},
+  activeUsers: {fontFamily: 'Inter-Medium', fontSize: 11, color: 'rgba(255,255,255,0.35)'},
   statsGrid: {flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16},
   statCell: {
     flex: 1, minWidth: '45%',

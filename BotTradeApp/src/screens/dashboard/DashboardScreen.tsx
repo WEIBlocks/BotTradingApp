@@ -531,6 +531,14 @@ export default function DashboardScreen() {
                   {!isShadow && !isPaused && (
                     <View style={styles.botActions}>
                       <TouchableOpacity
+                        style={[styles.botActionBtn, {backgroundColor: 'rgba(16,185,129,0.1)', borderColor: 'rgba(16,185,129,0.3)'}]}
+                        onPress={(e) => { e.stopPropagation(); navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: 'live'}); }}
+                        activeOpacity={0.7}>
+                        <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                          <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill="#10B981" />
+                        </Svg>
+                      </TouchableOpacity>
+                      <TouchableOpacity
                         style={styles.botActionBtn}
                         onPress={() => handlePauseBot(bot.subscriptionId, bot.name)}
                         activeOpacity={0.7}>
@@ -543,6 +551,16 @@ export default function DashboardScreen() {
                         <StopSquareIcon size={12} />
                       </TouchableOpacity>
                     </View>
+                  )}
+                  {isShadow && (
+                    <TouchableOpacity
+                      style={[styles.botActionBtn, {backgroundColor: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.3)', borderWidth: 1, borderRadius: 8, padding: 6}]}
+                      onPress={(e) => { e.stopPropagation(); navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: 'paper'}); }}
+                      activeOpacity={0.7}>
+                      <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                        <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill="#3B82F6" />
+                      </Svg>
+                    </TouchableOpacity>
                   )}
                   {isPaused && (
                     <TouchableOpacity

@@ -365,6 +365,16 @@ export default function PortfolioScreen() {
                       </Text>
                     </Text>
                   </View>
+                  {(display.label === 'LIVE' || display.label === 'SHADOW') && (
+                    <TouchableOpacity
+                      style={{backgroundColor: display.label === 'LIVE' ? 'rgba(16,185,129,0.1)' : 'rgba(59,130,246,0.1)', borderRadius: 8, padding: 7, borderWidth: 1, borderColor: display.label === 'LIVE' ? 'rgba(16,185,129,0.3)' : 'rgba(59,130,246,0.3)'}}
+                      onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: display.label === 'LIVE' ? 'live' : 'paper'})}
+                      activeOpacity={0.7}>
+                      <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                        <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill={display.label === 'LIVE' ? '#10B981' : '#3B82F6'} />
+                      </Svg>
+                    </TouchableOpacity>
+                  )}
                 </TouchableOpacity>
               );
             })}
