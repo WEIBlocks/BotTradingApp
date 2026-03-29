@@ -42,8 +42,12 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
 
   const [decisions, setDecisions] = useState<BotDecision[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [connected, setConnected] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+  const [apiStats, setApiStats] = useState<{totalBuys: number; totalSells: number; totalHolds: number; totalAiCalls: number; totalTokens: number} | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -64,15 +68,26 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
   // Fetch decisions via REST (primary data source)
   const fetchDecisions = useCallback(async () => {
     try {
-      const res: any = await botsService.getDecisions(botId, 50);
-      const items: BotDecision[] = Array.isArray(res?.data) ? res.data : [];
-      // Only update if data changed
+      const res: any = await botsService.getDecisions(botId, 50, 0);
+      // Handle both old format (array) and new format ({decisions, pagination})
+      const items: BotDecision[] = Array.isArray(res?.data?.decisions) ? res.data.decisions
+        : Array.isArray(res?.data) ? res.data : [];
+      const pagination = res?.data?.pagination;
+
       const key = items.map(d => d.id || d.createdAt).join(',');
       if (key !== lastFetchRef.current) {
         lastFetchRef.current = key;
         setDecisions(items);
       }
-      // REST works = we're connected to the backend
+      if (pagination) {
+        setTotalCount(pagination.total);
+        setHasMore(pagination.hasMore);
+      }
+      // Use server-side stats for accurate counts across ALL decisions
+      const stats = res?.data?.stats;
+      if (stats) {
+        setApiStats(stats);
+      }
       setConnected(true);
     } catch (err) {
       console.warn('Failed to fetch decisions:', err);
@@ -80,6 +95,28 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
       setLoading(false);
     }
   }, [botId]);
+
+  // Load more decisions (pagination)
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const res: any = await botsService.getDecisions(botId, 50, decisions.length);
+      const items: BotDecision[] = Array.isArray(res?.data?.decisions) ? res.data.decisions
+        : Array.isArray(res?.data) ? res.data : [];
+      const pagination = res?.data?.pagination;
+      if (items.length > 0) {
+        setDecisions(prev => [...prev, ...items]);
+      }
+      if (pagination) {
+        setHasMore(pagination.hasMore);
+        setTotalCount(pagination.total);
+      } else {
+        setHasMore(items.length >= 50);
+      }
+    } catch {}
+    setLoadingMore(false);
+  }, [botId, decisions.length, loadingMore, hasMore]);
 
   // Connect WebSocket for real-time push updates (enhancement, not required)
   const connectWs = useCallback(async () => {
@@ -193,12 +230,12 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
     return '$' + p.toFixed(4);
   };
 
-  // Stats
-  const totalBuys = decisions.filter(d => d.action === 'BUY').length;
-  const totalSells = decisions.filter(d => d.action === 'SELL').length;
-  const totalHolds = decisions.filter(d => d.action === 'HOLD').length;
-  const aiCalls = decisions.filter(d => d.aiCalled).length;
-  const totalTokens = decisions.reduce((sum, d) => sum + (d.tokensCost || 0), 0);
+  // Stats — use server-side counts (accurate across ALL decisions, not just loaded page)
+  const totalBuys = apiStats?.totalBuys ?? decisions.filter(d => d.action === 'BUY').length;
+  const totalSells = apiStats?.totalSells ?? decisions.filter(d => d.action === 'SELL').length;
+  const totalHolds = apiStats?.totalHolds ?? decisions.filter(d => d.action === 'HOLD').length;
+  const aiCalls = apiStats?.totalAiCalls ?? decisions.filter(d => d.aiCalled).length;
+  const totalTokens = apiStats?.totalTokens ?? decisions.reduce((sum, d) => sum + (d.tokensCost || 0), 0);
 
   const renderDecision = ({item}: {item: BotDecision}) => (
     <View style={styles.decisionCard}>
@@ -351,6 +388,22 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
           keyExtractor={(item, index) => item.id || `${item.createdAt}-${index}`}
           contentContainerStyle={styles.feedContainer}
           showsVerticalScrollIndicator={false}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.3}
+          ListHeaderComponent={totalCount > 0 ? (
+            <Text style={{color: '#6B7280', fontSize: 11, fontFamily: 'Inter-Regular', textAlign: 'center', marginBottom: 8}}>
+              Showing {decisions.length} of {totalCount} decisions
+            </Text>
+          ) : null}
+          ListFooterComponent={loadingMore ? (
+            <ActivityIndicator size="small" color="#00C851" style={{marginVertical: 16}} />
+          ) : hasMore && decisions.length > 0 ? (
+            <TouchableOpacity onPress={loadMore} style={{alignItems: 'center', paddingVertical: 16}}>
+              <Text style={{color: '#3B82F6', fontSize: 13, fontFamily: 'Inter-Medium'}}>Load More</Text>
+            </TouchableOpacity>
+          ) : decisions.length > 0 ? (
+            <Text style={{color: '#4B5563', fontSize: 11, fontFamily: 'Inter-Regular', textAlign: 'center', paddingVertical: 12}}>All decisions loaded</Text>
+          ) : null}
         />
       )}
     </View>

@@ -257,9 +257,54 @@ export async function getBotById(botId: string) {
     timestamp: t.executedAt ?? new Date(),
   }));
 
+  // Aggregate real stats from ALL users' positions for this bot
+  const positionStats: any = await db.execute(sql`
+    SELECT
+      count(*)::int as total_positions,
+      count(*) FILTER (WHERE status = 'open')::int as open_positions,
+      count(*) FILTER (WHERE status = 'closed')::int as closed_positions,
+      count(*) FILTER (WHERE status = 'closed' AND pnl::numeric > 0)::int as winning_positions,
+      COALESCE(sum(pnl::numeric) FILTER (WHERE status = 'closed'), 0) as total_pnl,
+      COALESCE(avg(pnl_percent::numeric) FILTER (WHERE status = 'closed'), 0) as avg_pnl_percent,
+      count(DISTINCT user_id)::int as total_users
+    FROM bot_positions WHERE bot_id = ${botId}
+  `);
+  const ps = (positionStats as any[])?.[0] || {};
+
+  // Get total trade count across all users
+  const tradeStats: any = await db.execute(sql`
+    SELECT count(*)::int as total_trades
+    FROM bot_decisions WHERE bot_id = ${botId} AND action != 'HOLD'
+  `);
+  const ts = (tradeStats as any[])?.[0] || {};
+
+  // Get subscriber list count
+  const subscriberCount: any = await db.execute(sql`
+    SELECT
+      count(*)::int as total_subscribers,
+      count(*) FILTER (WHERE status = 'active')::int as active_subscribers,
+      count(*) FILTER (WHERE mode = 'live')::int as live_subscribers
+    FROM bot_subscriptions WHERE bot_id = ${botId}
+  `);
+  const sc = (subscriberCount as any[])?.[0] || {};
+
   return {
     ...row,
     reviews: formattedReviews,
     recentTrades: formattedTrades,
+    // Real-time aggregate stats
+    aggregateStats: {
+      totalUsers: Number(ps.total_users ?? 0),
+      totalPositions: Number(ps.total_positions ?? 0),
+      openPositions: Number(ps.open_positions ?? 0),
+      closedPositions: Number(ps.closed_positions ?? 0),
+      winningPositions: Number(ps.winning_positions ?? 0),
+      totalPnl: Number(parseFloat(ps.total_pnl ?? 0).toFixed(2)),
+      avgPnlPercent: Number(parseFloat(ps.avg_pnl_percent ?? 0).toFixed(2)),
+      totalTrades: Number(ts.total_trades ?? 0),
+      totalSubscribers: Number(sc.total_subscribers ?? 0),
+      activeSubscribers: Number(sc.active_subscribers ?? 0),
+      liveSubscribers: Number(sc.live_subscribers ?? 0),
+    },
   };
 }

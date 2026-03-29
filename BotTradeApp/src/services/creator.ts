@@ -31,11 +31,30 @@ interface CreatorBotRow {
   isPublished: boolean;
   avatarColor: string | null;
   avatarLetter: string | null;
+  config: any;
+  version: number | null;
+  createdAt: string | null;
   return30d: string | null;
   winRate: string | null;
+  maxDrawdown: string | null;
+  sharpeRatio: string | null;
   activeUsers: number | null;
   avgRating: string | null;
   reviewCount: number | null;
+  // Enriched fields from backend
+  totalUsers: number | null;
+  totalPositions: number | null;
+  openPositions: number | null;
+  closedPositions: number | null;
+  totalPnl: number | null;
+  totalDecisions: number | null;
+  totalBuys: number | null;
+  totalSells: number | null;
+  totalHolds: number | null;
+  totalTrades: number | null;
+  totalSubscribers: number | null;
+  totalEarnings: number | null;
+  userBreakdown: any[] | null;
 }
 
 interface AiSuggestionRow {
@@ -60,13 +79,52 @@ export interface CreatorStats {
 export interface CreatorBot {
   id: string;
   name: string;
+  strategy: string;
+  category: string;
+  riskLevel: string;
   users: number;
   rating: number;
+  reviewCount: number;
   returnPercent: number;
+  winRate: number;
+  maxDrawdown: number;
+  sharpeRatio: number;
   revenue: number;
   isPublished: boolean;
   creatorFeePercent: number;
   platformFeePercent: number;
+  avatarColor: string;
+  avatarLetter: string;
+  // Per-bot monitoring stats
+  totalUsers: number;
+  totalPositions: number;
+  openPositions: number;
+  closedPositions: number;
+  totalPnl: number;
+  totalDecisions: number;
+  totalBuys: number;
+  totalSells: number;
+  totalHolds: number;
+  totalTrades: number;
+  totalSubscribers: number;
+  totalEarnings: number;
+  pairs: string[];
+  userBreakdown: UserBotBreakdown[];
+}
+
+export interface UserBotBreakdown {
+  userId: string;
+  name: string;
+  email: string;
+  decisions: number;
+  buys: number;
+  sells: number;
+  holds: number;
+  trades: number;
+  positions: number;
+  pnl: number;
+  status: string;
+  mode: string;
 }
 
 export interface MonthlyRevenue {
@@ -252,13 +310,36 @@ export const creatorApi = {
     return items.map(b => ({
       id: b.id ?? '',
       name: b.name ?? 'Unknown Bot',
+      strategy: b.strategy ?? '',
+      category: b.category ?? 'Crypto',
+      riskLevel: b.riskLevel ?? 'Med',
       users: Number(b.activeUsers) || 0,
       rating: parseFloat(b.avgRating ?? '0') || 0,
+      reviewCount: Number(b.reviewCount) || 0,
       returnPercent: parseFloat(b.return30d ?? '0') || 0,
-      revenue: parseFloat(b.priceMonthly ?? '0') * (Number(b.activeUsers) || 0),
+      winRate: parseFloat(b.winRate ?? '0') || 0,
+      maxDrawdown: parseFloat(b.maxDrawdown ?? '0') || 0,
+      sharpeRatio: parseFloat(b.sharpeRatio ?? '0') || 0,
+      revenue: Number(b.totalEarnings) || parseFloat(b.priceMonthly ?? '0') * (Number(b.activeUsers) || 0),
       isPublished: b.isPublished ?? false,
       creatorFeePercent: parseFloat(b.creatorFeePercent ?? '10'),
       platformFeePercent: parseFloat(b.platformFeePercent ?? '3'),
+      avatarColor: b.avatarColor ?? '#8B5CF6',
+      avatarLetter: b.avatarLetter ?? b.name?.charAt(0) ?? 'B',
+      totalUsers: Number(b.totalUsers) || 0,
+      totalPositions: Number(b.totalPositions) || 0,
+      openPositions: Number(b.openPositions) || 0,
+      closedPositions: Number(b.closedPositions) || 0,
+      totalPnl: Number(b.totalPnl) || 0,
+      totalDecisions: Number(b.totalDecisions) || 0,
+      totalBuys: Number(b.totalBuys) || 0,
+      totalSells: Number(b.totalSells) || 0,
+      totalHolds: Number(b.totalHolds) || 0,
+      totalTrades: Number(b.totalTrades) || 0,
+      totalSubscribers: Number(b.totalSubscribers) || 0,
+      totalEarnings: Number(b.totalEarnings) || 0,
+      pairs: b.config?.pairs ?? ['BTC/USDT'],
+      userBreakdown: Array.isArray(b.userBreakdown) ? b.userBreakdown : [],
     }));
   },
 

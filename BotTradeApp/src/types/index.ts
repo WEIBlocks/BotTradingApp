@@ -114,9 +114,31 @@ export interface Bot {
   rating: number; // 0-5
   monthlyReturns: MonthlyReturn[];
   recentTrades: Trade[];
-  equityData: number[];
+  equityData: any[];
   reviews: Review[];
   category: 'Crypto' | 'Stocks' | 'Forex' | 'Multi';
+  config?: {
+    pairs?: string[];
+    stopLoss?: number;
+    takeProfit?: number;
+    maxPositionSize?: number;
+    tradeDirection?: 'buy' | 'sell' | 'both';
+    dailyLossLimit?: number;
+    orderType?: 'market' | 'limit';
+  } | null;
+  aggregateStats?: {
+    totalUsers: number;
+    totalPositions: number;
+    openPositions: number;
+    closedPositions: number;
+    winningPositions: number;
+    totalPnl: number;
+    avgPnlPercent: number;
+    totalTrades: number;
+    totalSubscribers: number;
+    activeSubscribers: number;
+    liveSubscribers: number;
+  } | null;
 }
 
 export interface Trade {

@@ -880,20 +880,50 @@ export async function getBotDecisions(
   limit = 50,
   offset = 0,
 ) {
+  const whereCondition = and(
+    eq(botDecisions.botId, botId),
+    eq(botDecisions.userId, userId),
+  );
+
+  // Get total count + action breakdown in one query
+  const [stats] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      totalBuys: sql<number>`count(*) FILTER (WHERE ${botDecisions.action} = 'BUY')::int`,
+      totalSells: sql<number>`count(*) FILTER (WHERE ${botDecisions.action} = 'SELL')::int`,
+      totalHolds: sql<number>`count(*) FILTER (WHERE ${botDecisions.action} = 'HOLD')::int`,
+      totalAiCalls: sql<number>`count(*) FILTER (WHERE ${botDecisions.aiCalled} = true)::int`,
+      totalTokens: sql<number>`COALESCE(sum(${botDecisions.tokensCost}), 0)::int`,
+    })
+    .from(botDecisions)
+    .where(whereCondition);
+
+  const total = stats?.total ?? 0;
+
   const decisions = await db
     .select()
     .from(botDecisions)
-    .where(
-      and(
-        eq(botDecisions.botId, botId),
-        eq(botDecisions.userId, userId),
-      ),
-    )
+    .where(whereCondition)
     .orderBy(desc(botDecisions.createdAt))
     .limit(Math.min(limit, 100))
     .offset(offset);
 
-  return decisions;
+  return {
+    decisions,
+    pagination: {
+      total,
+      limit: Math.min(limit, 100),
+      offset,
+      hasMore: offset + decisions.length < total,
+    },
+    stats: {
+      totalBuys: stats?.totalBuys ?? 0,
+      totalSells: stats?.totalSells ?? 0,
+      totalHolds: stats?.totalHolds ?? 0,
+      totalAiCalls: stats?.totalAiCalls ?? 0,
+      totalTokens: stats?.totalTokens ?? 0,
+    },
+  };
 }
 
 // ─── Leaderboard ────────────────────────────────────────────────────────────

@@ -157,8 +157,8 @@ export const botsService = {
     return api.post<{data: any}>(`/bots/${botId}/activate-live`, {exchangeConnId, allocatedAmount} as Record<string, unknown>);
   },
 
-  /** Get bot decision history (live feed data) */
+  /** Get bot decision history (live feed data) with pagination */
   getDecisions(botId: string, limit = 50, offset = 0) {
-    return api.get<{data: any[]}>(`/bots/${botId}/decisions?limit=${limit}&offset=${offset}`);
+    return api.get<{data: {decisions: any[]; pagination: {total: number; hasMore: boolean}}}>(`/bots/${botId}/decisions?limit=${limit}&offset=${offset}`);
   },
 };

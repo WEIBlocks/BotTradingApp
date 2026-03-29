@@ -9,6 +9,7 @@ function safeInArray(column: Column, ids: string[]) {
 import { db } from '../../config/database.js';
 import { bots, botStatistics, botSubscriptions, botVersions, shadowSessions, reviews, creatorEarnings } from '../../db/schema/bots.js';
 import { trades } from '../../db/schema/trades.js';
+import { botDecisions } from '../../db/schema/decisions';
 import { payments } from '../../db/schema/payments.js';
 import { users } from '../../db/schema/users.js';
 import { arenaSessions, arenaGladiators } from '../../db/schema/arena.js';
@@ -68,7 +69,7 @@ export async function getStats(userId: string) {
 
   const earningsTotal = parseFloat(earningsResult?.total ?? '0');
   const paymentsTotal = parseFloat(paymentResult?.total ?? '0');
-  const totalRevenue = Math.max(earningsTotal, paymentsTotal);
+  const totalRevenue = earningsTotal + paymentsTotal;
 
   return {
     totalBots: botCount?.count ?? 0,
@@ -129,10 +130,13 @@ export async function getCreatorBots(userId: string) {
       isPublished: bots.isPublished,
       avatarColor: bots.avatarColor,
       avatarLetter: bots.avatarLetter,
+      config: bots.config,
       version: bots.version,
       createdAt: bots.createdAt,
       return30d: botStatistics.return30d,
       winRate: botStatistics.winRate,
+      maxDrawdown: botStatistics.maxDrawdown,
+      sharpeRatio: botStatistics.sharpeRatio,
       activeUsers: botStatistics.activeUsers,
       avgRating: botStatistics.avgRating,
       reviewCount: botStatistics.reviewCount,
@@ -142,7 +146,107 @@ export async function getCreatorBots(userId: string) {
     .where(eq(bots.creatorId, userId))
     .orderBy(desc(bots.createdAt));
 
-  return rows;
+  // Enrich each bot with trade/position counts and earnings
+  const enriched = await Promise.all(rows.map(async (bot) => {
+    const posQuery: any = await db.execute(sql`
+      SELECT
+        count(DISTINCT user_id)::int as total_users,
+        count(id)::int as total_positions,
+        count(id) FILTER (WHERE status = 'open')::int as open_positions,
+        count(id) FILTER (WHERE status = 'closed')::int as closed_positions,
+        COALESCE(sum(pnl::numeric) FILTER (WHERE status = 'closed'), 0) as total_pnl
+      FROM bot_positions WHERE bot_id = ${bot.id}
+    `);
+    const subQuery: any = await db.execute(sql`
+      SELECT count(id)::int as total_subscribers
+      FROM bot_subscriptions WHERE bot_id = ${bot.id}
+    `);
+    const s = { ...(posQuery[0] || {}), ...(subQuery[0] || {}) };
+
+    // Get total decisions with action breakdown
+    const decStats: any = await db.execute(sql`
+      SELECT
+        count(*)::int as total,
+        count(*) FILTER (WHERE action = 'BUY')::int as buys,
+        count(*) FILTER (WHERE action = 'SELL')::int as sells,
+        count(*) FILTER (WHERE action = 'HOLD')::int as holds
+      FROM bot_decisions WHERE bot_id = ${bot.id}
+    `);
+    const ds = decStats[0] || {};
+
+    // Get total earnings for this bot
+    const [earning] = await db.select({ total: sql<string>`COALESCE(sum(creator_earning::numeric), 0)` })
+      .from(creatorEarnings).where(eq(creatorEarnings.botId, bot.id));
+
+    // Per-user breakdown: each user's decisions, trades (buys+sells), and P&L
+    const perUserStats: any = await db.execute(sql`
+      SELECT
+        u.id as user_id,
+        u.name as user_name,
+        u.email as user_email,
+        count(d.id)::int as decisions,
+        count(d.id) FILTER (WHERE d.action = 'BUY')::int as buys,
+        count(d.id) FILTER (WHERE d.action = 'SELL')::int as sells,
+        count(d.id) FILTER (WHERE d.action = 'HOLD')::int as holds,
+        COALESCE((
+          SELECT count(*)::int FROM bot_positions bp
+          WHERE bp.bot_id = ${bot.id} AND bp.user_id = u.id
+        ), 0) as positions,
+        COALESCE((
+          SELECT sum(bp.pnl::numeric) FROM bot_positions bp
+          WHERE bp.bot_id = ${bot.id} AND bp.user_id = u.id AND bp.status = 'closed'
+        ), 0) as pnl,
+        COALESCE((
+          SELECT bs.status::text FROM bot_subscriptions bs
+          WHERE bs.bot_id = ${bot.id} AND bs.user_id = u.id
+          ORDER BY bs.created_at DESC LIMIT 1
+        ), 'none') as sub_status,
+        COALESCE((
+          SELECT bs.mode::text FROM bot_subscriptions bs
+          WHERE bs.bot_id = ${bot.id} AND bs.user_id = u.id
+          ORDER BY bs.created_at DESC LIMIT 1
+        ), 'paper') as sub_mode
+      FROM bot_decisions d
+      JOIN users u ON u.id = d.user_id
+      WHERE d.bot_id = ${bot.id}
+      GROUP BY u.id, u.name, u.email
+      ORDER BY count(d.id) DESC
+    `);
+
+    const userBreakdown = (perUserStats as any[] || []).map((r: any) => ({
+      userId: r.user_id,
+      name: r.user_name || 'Unknown',
+      email: r.user_email || '',
+      decisions: Number(r.decisions),
+      buys: Number(r.buys),
+      sells: Number(r.sells),
+      holds: Number(r.holds),
+      trades: Number(r.buys) + Number(r.sells),
+      positions: Number(r.positions),
+      pnl: Number(parseFloat(r.pnl ?? '0').toFixed(2)),
+      status: r.sub_status,
+      mode: r.sub_mode,
+    }));
+
+    return {
+      ...bot,
+      totalUsers: Number(s.total_users ?? 0),
+      totalPositions: Number(s.total_positions ?? 0),
+      openPositions: Number(s.open_positions ?? 0),
+      closedPositions: Number(s.closed_positions ?? 0),
+      totalPnl: Number(parseFloat(s.total_pnl ?? '0').toFixed(2)),
+      totalDecisions: Number(ds.total ?? 0),
+      totalBuys: Number(ds.buys ?? 0),
+      totalSells: Number(ds.sells ?? 0),
+      totalHolds: Number(ds.holds ?? 0),
+      totalTrades: Number(ds.buys ?? 0) + Number(ds.sells ?? 0),
+      totalSubscribers: Number(s.total_subscribers ?? 0),
+      totalEarnings: Number(parseFloat(earning?.total ?? '0').toFixed(2)),
+      userBreakdown,
+    };
+  }));
+
+  return enriched;
 }
 
 export async function publishBot(userId: string, botId: string) {
@@ -976,5 +1080,166 @@ export async function getMarketingMetrics(creatorId: string) {
       reviewRate: purchasedCount > 0 ? ((reviewCount / purchasedCount) * 100) : 0,
     },
     botPerformance: botPerformance.sort((a, b) => b.revenue - a.revenue),
+  };
+}
+
+// ─── Per-Subscriber Details for a Bot ───────────────────────────────────────
+
+export async function getBotSubscriberDetails(botId: string, creatorId: string) {
+  // Verify creator owns this bot
+  const [bot] = await db.select().from(bots).where(and(eq(bots.id, botId), eq(bots.creatorId, creatorId)));
+  if (!bot) throw new NotFoundError('Bot');
+
+  // Get all subscribers with their stats
+  const subscribers = await db
+    .select({
+      subId: botSubscriptions.id,
+      userId: botSubscriptions.userId,
+      userName: users.name,
+      userEmail: users.email,
+      mode: botSubscriptions.mode,
+      status: botSubscriptions.status,
+      allocatedAmount: botSubscriptions.allocatedAmount,
+      startedAt: botSubscriptions.createdAt,
+    })
+    .from(botSubscriptions)
+    .leftJoin(users, eq(botSubscriptions.userId, users.id))
+    .where(eq(botSubscriptions.botId, botId))
+    .orderBy(desc(botSubscriptions.createdAt));
+
+  // For each subscriber, get their position stats
+  const { botPositions } = await import('../../db/schema/positions');
+  const results = await Promise.all(subscribers.map(async (sub) => {
+    const posStats: any = await db.execute(sql`
+      SELECT
+        count(*)::int as total_positions,
+        count(*) FILTER (WHERE status = 'closed')::int as closed,
+        count(*) FILTER (WHERE status = 'closed' AND pnl::numeric > 0)::int as wins,
+        COALESCE(sum(pnl::numeric) FILTER (WHERE status = 'closed'), 0) as total_pnl,
+        COALESCE(avg(pnl_percent::numeric) FILTER (WHERE status = 'closed'), 0) as avg_return
+      FROM bot_positions WHERE bot_id = ${botId} AND user_id = ${sub.userId}
+    `);
+    const ps = (posStats as any[])?.[0] || {};
+
+    // Get earnings from this subscriber
+    const [earning] = await db
+      .select({ total: sql<string>`COALESCE(sum(creator_earning::numeric), 0)` })
+      .from(creatorEarnings)
+      .where(and(eq(creatorEarnings.botId, botId), eq(creatorEarnings.subscriberId, sub.userId)));
+
+    return {
+      ...sub,
+      positions: Number(ps.total_positions ?? 0),
+      closedPositions: Number(ps.closed ?? 0),
+      wins: Number(ps.wins ?? 0),
+      winRate: Number(ps.closed) > 0 ? Math.round((Number(ps.wins) / Number(ps.closed)) * 100) : 0,
+      totalPnl: Number(parseFloat(ps.total_pnl ?? '0').toFixed(2)),
+      avgReturn: Number(parseFloat(ps.avg_return ?? '0').toFixed(2)),
+      creatorEarning: Number(parseFloat(earning?.total ?? '0').toFixed(2)),
+    };
+  }));
+
+  return {
+    botName: bot.name,
+    totalSubscribers: results.length,
+    activeSubscribers: results.filter(r => r.status === 'active').length,
+    subscribers: results,
+  };
+}
+
+// ─── Trade Summary for a Bot (all users aggregated) ─────────────────────────
+
+export async function getBotTradeSummary(botId: string, creatorId: string) {
+  const [bot] = await db.select().from(bots).where(and(eq(bots.id, botId), eq(bots.creatorId, creatorId)));
+  if (!bot) throw new NotFoundError('Bot');
+
+  // Get all decisions for this bot
+  const { botDecisions } = await import('../../db/schema/decisions');
+  const decisionStats: any = await db.execute(sql`
+    SELECT
+      count(*)::int as total_decisions,
+      count(*) FILTER (WHERE action = 'BUY')::int as buys,
+      count(*) FILTER (WHERE action = 'SELL')::int as sells,
+      count(*) FILTER (WHERE action = 'HOLD')::int as holds,
+      count(*) FILTER (WHERE ai_called = true)::int as ai_calls,
+      COALESCE(sum(tokens_cost), 0)::int as total_tokens,
+      count(DISTINCT user_id)::int as unique_users
+    FROM bot_decisions WHERE bot_id = ${botId}
+  `);
+  const ds = (decisionStats as any[])?.[0] || {};
+
+  // Get position summary
+  const positionStats: any = await db.execute(sql`
+    SELECT
+      count(*)::int as total,
+      count(*) FILTER (WHERE status = 'open')::int as open_count,
+      count(*) FILTER (WHERE status = 'closed')::int as closed_count,
+      count(*) FILTER (WHERE status = 'closed' AND pnl::numeric > 0)::int as wins,
+      count(*) FILTER (WHERE status = 'closed' AND pnl::numeric <= 0)::int as losses,
+      COALESCE(sum(pnl::numeric) FILTER (WHERE status = 'closed'), 0) as total_pnl,
+      COALESCE(avg(pnl_percent::numeric) FILTER (WHERE status = 'closed'), 0) as avg_pnl_pct,
+      COALESCE(max(pnl::numeric) FILTER (WHERE status = 'closed'), 0) as best_trade,
+      COALESCE(min(pnl::numeric) FILTER (WHERE status = 'closed'), 0) as worst_trade
+    FROM bot_positions WHERE bot_id = ${botId}
+  `);
+  const ps = (positionStats as any[])?.[0] || {};
+
+  // Recent trades (last 20 across all users)
+  const recentTrades = await db
+    .select({
+      id: trades.id,
+      symbol: trades.symbol,
+      side: trades.side,
+      amount: trades.amount,
+      price: trades.price,
+      pnl: trades.pnl,
+      isPaper: trades.isPaper,
+      executedAt: trades.executedAt,
+      userName: users.name,
+    })
+    .from(trades)
+    .leftJoin(users, eq(trades.userId, users.id))
+    .where(
+      sql`${trades.botSubscriptionId} IN (SELECT id FROM bot_subscriptions WHERE bot_id = ${botId})
+          OR ${trades.shadowSessionId} IN (SELECT id FROM shadow_sessions WHERE bot_id = ${botId})`
+    )
+    .orderBy(desc(trades.executedAt))
+    .limit(20);
+
+  return {
+    botName: bot.name,
+    strategy: bot.strategy,
+    decisions: {
+      total: Number(ds.total_decisions ?? 0),
+      buys: Number(ds.buys ?? 0),
+      sells: Number(ds.sells ?? 0),
+      holds: Number(ds.holds ?? 0),
+      aiCalls: Number(ds.ai_calls ?? 0),
+      totalTokensCost: Number(ds.total_tokens ?? 0),
+      uniqueUsers: Number(ds.unique_users ?? 0),
+    },
+    positions: {
+      total: Number(ps.total ?? 0),
+      open: Number(ps.open_count ?? 0),
+      closed: Number(ps.closed_count ?? 0),
+      wins: Number(ps.wins ?? 0),
+      losses: Number(ps.losses ?? 0),
+      winRate: Number(ps.closed_count) > 0 ? Math.round((Number(ps.wins) / Number(ps.closed_count)) * 100) : 0,
+      totalPnl: Number(parseFloat(ps.total_pnl ?? '0').toFixed(2)),
+      avgPnlPercent: Number(parseFloat(ps.avg_pnl_pct ?? '0').toFixed(2)),
+      bestTrade: Number(parseFloat(ps.best_trade ?? '0').toFixed(2)),
+      worstTrade: Number(parseFloat(ps.worst_trade ?? '0').toFixed(2)),
+    },
+    recentTrades: recentTrades.map(t => ({
+      id: t.id,
+      symbol: t.symbol,
+      side: t.side,
+      amount: parseFloat(t.amount),
+      price: parseFloat(t.price),
+      pnl: t.pnl ? parseFloat(t.pnl) : null,
+      isPaper: t.isPaper,
+      executedAt: t.executedAt,
+      userName: t.userName,
+    })),
   };
 }

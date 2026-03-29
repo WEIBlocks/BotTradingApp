@@ -170,6 +170,32 @@ export async function creatorRoutes(app: FastifyInstance) {
     return { data };
   });
 
+  // GET /bots/:botId/subscribers — detailed per-subscriber stats for a bot
+  zApp.get('/bots/:botId/subscribers', {
+    schema: {
+      params: botIdAnalyticsParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { botId } = request.params;
+    const data = await creatorService.getBotSubscriberDetails(botId, request.user.userId);
+    return { data };
+  });
+
+  // GET /bots/:botId/trade-summary — all trades summary for a bot across all users
+  zApp.get('/bots/:botId/trade-summary', {
+    schema: {
+      params: botIdAnalyticsParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { botId } = request.params;
+    const data = await creatorService.getBotTradeSummary(botId, request.user.userId);
+    return { data };
+  });
+
   // ─── A/B Experiments ──────────────────────────────────────────────────
 
   // POST /experiments — create A/B test

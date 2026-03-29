@@ -30,6 +30,7 @@ import {
   Experiment,
   ExperimentResults,
   PatternAnalysis,
+  UserBotBreakdown,
 } from '../../services/creator';
 
 type TabKey = 'overview' | 'earnings' | 'analytics' | 'abtests' | 'patterns';
@@ -115,33 +116,6 @@ function SparkleIcon() {
   );
 }
 
-function UsersIcon() {
-  return (
-    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"
-        stroke="rgba(255,255,255,0.5)"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Circle
-        cx={9}
-        cy={7}
-        r={4}
-        stroke="rgba(255,255,255,0.5)"
-        strokeWidth={2}
-      />
-      <Path
-        d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"
-        stroke="rgba(255,255,255,0.5)"
-        strokeWidth={2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </Svg>
-  );
-}
 
 function DollarIcon() {
   return (
@@ -642,7 +616,7 @@ export default function CreatorStudioScreen() {
               <RevenueBarChart data={monthlyRevenue} />
             </View>
 
-            {/* Your Bots */}
+            {/* Your Bots — Per-Bot Monitoring */}
             <View style={styles.botsSectionHeader}>
               <Text style={styles.sectionTitle}>Your Bots</Text>
               <TouchableOpacity
@@ -652,92 +626,207 @@ export default function CreatorStudioScreen() {
                 <Text style={styles.newBotBtnText}>+ New Bot</Text>
               </TouchableOpacity>
             </View>
-            <View style={styles.card}>
-              {bots.length === 0 ? (
-                <View style={{alignItems: 'center', paddingVertical: 24}}>
-                  <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 4}}>No bots created yet</Text>
-                  <TouchableOpacity onPress={() => navigation.navigate('BotBuilder' as any)} activeOpacity={0.7}>
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: '#10B981'}}>Build your first bot</Text>
-                  </TouchableOpacity>
+            {bots.length === 0 ? (
+              <View style={[styles.card, {alignItems: 'center', paddingVertical: 24}]}>
+                <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 4}}>No bots created yet</Text>
+                <TouchableOpacity onPress={() => navigation.navigate('BotBuilder' as any)} activeOpacity={0.7}>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: '#10B981'}}>Build your first bot</Text>
+                </TouchableOpacity>
+              </View>
+            ) : bots.map((bot) => (
+              <View key={bot.id} style={bm.card}>
+                {/* Bot Header */}
+                <View style={bm.header}>
+                  <View style={[bm.avatar, {backgroundColor: bot.avatarColor || '#8B5CF6'}]}>
+                    <Text style={bm.avatarText}>{bot.avatarLetter || bot.name.charAt(0)}</Text>
+                  </View>
+                  <View style={bm.headerInfo}>
+                    <View style={bm.nameRow}>
+                      <Text style={bm.name} numberOfLines={1}>{bot.name}</Text>
+                      <View style={[bm.statusPill, bot.isPublished ? bm.statusLive : bm.statusDraft]}>
+                        <Text style={[bm.statusText, bot.isPublished ? bm.statusLiveText : bm.statusDraftText]}>
+                          {bot.isPublished ? 'LIVE' : 'DRAFT'}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={bm.subtitle}>{bot.strategy} · {bot.category} · {bot.riskLevel} Risk</Text>
+                  </View>
                 </View>
-              ) : bots.map((bot, index) => (
-                <View key={bot.id}>
-                  <View style={styles.botRow}>
-                    <View style={styles.botInfo}>
-                      <View style={styles.botNameRow}>
-                        <Text style={styles.botName}>{bot.name}</Text>
-                        <View style={[styles.statusBadge, bot.isPublished ? styles.statusPublished : styles.statusDraft]}>
-                          <Text style={[styles.statusBadgeText, bot.isPublished ? styles.statusPublishedText : styles.statusDraftText]}>
-                            {bot.isPublished ? 'PUBLISHED' : 'DRAFT'}
+
+                {/* Key Performance Row */}
+                <View style={bm.perfRow}>
+                  <View style={bm.perfItem}>
+                    <Text style={[bm.perfValue, {color: bot.returnPercent >= 0 ? '#10B981' : '#EF4444'}]}>
+                      {bot.returnPercent >= 0 ? '+' : ''}{bot.returnPercent.toFixed(1)}%
+                    </Text>
+                    <Text style={bm.perfLabel}>30d Return</Text>
+                  </View>
+                  <View style={bm.perfDivider} />
+                  <View style={bm.perfItem}>
+                    <Text style={bm.perfValue}>{bot.winRate.toFixed(0)}%</Text>
+                    <Text style={bm.perfLabel}>Win Rate</Text>
+                  </View>
+                  <View style={bm.perfDivider} />
+                  <View style={bm.perfItem}>
+                    <Text style={[bm.perfValue, {color: '#F59E0B'}]}>
+                      ${bot.totalEarnings.toFixed(2)}
+                    </Text>
+                    <Text style={bm.perfLabel}>Earnings</Text>
+                  </View>
+                  <View style={bm.perfDivider} />
+                  <View style={bm.perfItem}>
+                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 3}}>
+                      <StarIcon filled />
+                      <Text style={bm.perfValue}>{bot.rating.toFixed(1)}</Text>
+                    </View>
+                    <Text style={bm.perfLabel}>{bot.reviewCount} reviews</Text>
+                  </View>
+                </View>
+
+                {/* Trade & Decision Stats */}
+                <View style={bm.statsGrid}>
+                  <View style={bm.statBox}>
+                    <Text style={bm.statNum}>{bot.totalSubscribers}</Text>
+                    <Text style={bm.statLabel}>Subscribers</Text>
+                  </View>
+                  <View style={bm.statBox}>
+                    <Text style={[bm.statNum, {color: '#3B82F6'}]}>{bot.totalUsers}</Text>
+                    <Text style={bm.statLabel}>Active Users</Text>
+                  </View>
+                  <View style={bm.statBox}>
+                    <Text style={bm.statNum}>{bot.totalDecisions}</Text>
+                    <Text style={bm.statLabel}>Decisions</Text>
+                  </View>
+                  <View style={bm.statBox}>
+                    <Text style={[bm.statNum, {color: '#10B981'}]}>{bot.totalBuys}</Text>
+                    <Text style={bm.statLabel}>Buys</Text>
+                  </View>
+                  <View style={bm.statBox}>
+                    <Text style={[bm.statNum, {color: '#EF4444'}]}>{bot.totalSells}</Text>
+                    <Text style={bm.statLabel}>Sells</Text>
+                  </View>
+                  <View style={bm.statBox}>
+                    <Text style={[bm.statNum, {color: '#6B7280'}]}>{bot.totalHolds}</Text>
+                    <Text style={bm.statLabel}>Holds</Text>
+                  </View>
+                </View>
+
+                {/* Positions & P&L */}
+                <View style={bm.pnlRow}>
+                  <View>
+                    <Text style={bm.pnlLabel}>Positions</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 1}}>
+                      {bot.openPositions} open · {bot.closedPositions} closed
+                    </Text>
+                  </View>
+                  <View style={{alignItems: 'flex-end'}}>
+                    <Text style={[bm.pnlValue, {color: bot.totalPnl >= 0 ? '#10B981' : '#EF4444'}]}>
+                      {bot.totalPnl >= 0 ? '+' : ''}${bot.totalPnl.toFixed(2)}
+                    </Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)'}}>
+                      Total P&L
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Per-User Trade Analysis */}
+                {bot.userBreakdown.length > 0 && (
+                  <View style={bm.userSection}>
+                    <Text style={bm.userSectionTitle}>USER ACTIVITY ({bot.userBreakdown.length})</Text>
+                    {bot.userBreakdown.map((u: UserBotBreakdown) => (
+                      <View key={u.userId} style={bm.userRow}>
+                        <View style={bm.userAvatar}>
+                          <Text style={bm.userAvatarText}>{(u.name || '?').charAt(0).toUpperCase()}</Text>
+                        </View>
+                        <View style={bm.userInfo}>
+                          <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+                            <Text style={bm.userName} numberOfLines={1}>{u.name || 'User'}</Text>
+                            <View style={[bm.userModePill, {backgroundColor: u.mode === 'live' ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)'}]}>
+                              <Text style={[bm.userModeText, {color: u.mode === 'live' ? '#EF4444' : '#10B981'}]}>
+                                {u.mode === 'live' ? 'LIVE' : 'PAPER'}
+                              </Text>
+                            </View>
+                            <View style={[bm.userModePill, {backgroundColor: u.status === 'active' ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.06)'}]}>
+                              <Text style={[bm.userModeText, {color: u.status === 'active' ? '#3B82F6' : 'rgba(255,255,255,0.3)'}]}>
+                                {u.status.toUpperCase()}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={bm.userStatsRow}>
+                            <Text style={bm.userStatText}>{u.decisions} decisions</Text>
+                            <Text style={bm.userStatDot}>·</Text>
+                            <Text style={[bm.userStatText, {color: '#10B981'}]}>{u.buys} buys</Text>
+                            <Text style={bm.userStatDot}>·</Text>
+                            <Text style={[bm.userStatText, {color: '#EF4444'}]}>{u.sells} sells</Text>
+                            <Text style={bm.userStatDot}>·</Text>
+                            <Text style={bm.userStatText}>{u.positions} pos</Text>
+                          </View>
+                        </View>
+                        <View style={bm.userPnlCol}>
+                          <Text style={[bm.userPnlText, {color: u.pnl >= 0 ? '#10B981' : '#EF4444'}]}>
+                            {u.pnl >= 0 ? '+' : ''}${u.pnl.toFixed(2)}
                           </Text>
+                          <Text style={bm.userTradesText}>{u.trades} trades</Text>
                         </View>
                       </View>
-                      <View style={styles.botMeta}>
-                        <UsersIcon />
-                        <Text style={styles.botMetaText}>{bot.users} users</Text>
-                        <Text style={styles.botFeeText}>{bot.creatorFeePercent}% fee</Text>
-                      </View>
-                    </View>
-                    <View style={styles.botStats}>
-                      <View style={styles.ratingRow}>
-                        <StarIcon filled />
-                        <Text style={styles.ratingText}>{bot.rating}</Text>
-                      </View>
-                      <Text style={styles.returnText}>
-                        +{bot.returnPercent}%
-                      </Text>
-                      <Text style={styles.revenueText}>
-                        ${bot.revenue.toLocaleString('en-US', {minimumFractionDigits: 2})}
-                      </Text>
-                    </View>
+                    ))}
                   </View>
-                  <View style={styles.botActions}>
+                )}
+
+                {/* Trading Pairs */}
+                {bot.pairs.length > 0 && (
+                  <View style={bm.pairsRow}>
+                    {bot.pairs.map((pair, pi) => (
+                      <View key={pi} style={bm.pairChip}>
+                        <Text style={bm.pairText}>{pair}</Text>
+                      </View>
+                    ))}
+                    <Text style={bm.feeChip}>{bot.creatorFeePercent}% fee</Text>
+                  </View>
+                )}
+
+                {/* Action Buttons */}
+                <View style={bm.actions}>
+                  <TouchableOpacity
+                    style={bm.actionBtn}
+                    activeOpacity={0.7}
+                    onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}>
+                    <Text style={bm.actionBtnText}>View Details</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={bm.editActionBtn}
+                    activeOpacity={0.7}
+                    onPress={() => navigation.navigate('BotBuilder', {editBotId: bot.id})}>
+                    <EditIcon />
+                    <Text style={bm.editActionText}>Edit</Text>
+                  </TouchableOpacity>
+                  {!bot.isPublished && (
                     <TouchableOpacity
-                      style={styles.editBtn}
+                      style={bm.publishActionBtn}
                       activeOpacity={0.7}
-                      onPress={() => navigation.navigate('BotBuilder', {editBotId: bot.id})}>
-                      <EditIcon />
-                      <Text style={styles.editBtnText}>Edit</Text>
+                      onPress={() => {
+                        showConfirm({
+                          title: 'Publish Bot',
+                          message: `Publish "${bot.name}" to the marketplace?`,
+                          confirmText: 'Publish',
+                          onConfirm: async () => {
+                            try {
+                              await creatorApi.publishBot(bot.id);
+                              showAlert('Published!', `${bot.name} is now live.`);
+                              fetchData();
+                            } catch (e: any) {
+                              showAlert('Error', e?.message || 'Failed to publish.');
+                            }
+                          },
+                        });
+                      }}>
+                      <PublishIcon />
+                      <Text style={bm.publishActionText}>Publish</Text>
                     </TouchableOpacity>
-                    {!bot.isPublished && (
-                      <TouchableOpacity
-                        style={styles.publishBtn}
-                        activeOpacity={0.7}
-                        onPress={() => {
-                          showConfirm({
-                            title: 'Publish Bot',
-                            message: `Are you sure you want to publish "${bot.name}" to the marketplace?`,
-                            confirmText: 'Publish',
-                            onConfirm: async () => {
-                              try {
-                                await creatorApi.publishBot(bot.id);
-                                showAlert('Published!', `${bot.name} is now live on the marketplace.`);
-                                fetchData();
-                              } catch (e: any) {
-                                showAlert('Error', e?.message || 'Failed to publish bot.');
-                              }
-                            },
-                          });
-                        }}>
-                        <PublishIcon />
-                        <Text style={styles.publishBtnText}>Publish</Text>
-                      </TouchableOpacity>
-                    )}
-                    {bot.isPublished && (
-                      <TouchableOpacity
-                        style={styles.viewBtn}
-                        activeOpacity={0.7}
-                        onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}>
-                        <Text style={styles.viewBtnText}>View</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  {index < bots.length - 1 && (
-                    <View style={styles.divider} />
                   )}
                 </View>
-              ))}
-            </View>
+              </View>
+            ))}
 
             {/* AI Suggestions */}
             <View style={styles.aiCard}>
@@ -1466,6 +1555,282 @@ export default function CreatorStudioScreen() {
 
 // ─── Styles ─────────────────────────────────────────────────────────────────
 
+// ─── Per-Bot Monitoring Card Styles ──────────────────────────────────────────
+
+const bm = StyleSheet.create({
+  card: {
+    backgroundColor: '#161B22',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 16,
+    marginBottom: 12,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 14,
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarText: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  headerInfo: {flex: 1},
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  name: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 16,
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  statusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  statusLive: {backgroundColor: 'rgba(16,185,129,0.15)'},
+  statusDraft: {backgroundColor: 'rgba(255,255,255,0.08)'},
+  statusText: {fontFamily: 'Inter-Bold', fontSize: 9, letterSpacing: 0.8},
+  statusLiveText: {color: '#10B981'},
+  statusDraftText: {color: 'rgba(255,255,255,0.4)'},
+  subtitle: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 2,
+  },
+  perfRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    marginBottom: 12,
+  },
+  perfItem: {flex: 1, alignItems: 'center'},
+  perfDivider: {width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.06)'},
+  perfValue: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  perfLabel: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 2,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  statBox: {
+    width: (width - 80) / 3,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  statNum: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 16,
+    color: '#FFFFFF',
+  },
+  statLabel: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 2,
+  },
+  pnlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  pnlLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  pnlValue: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 16,
+  },
+  pairsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 14,
+    alignItems: 'center',
+  },
+  pairChip: {
+    backgroundColor: 'rgba(59,130,246,0.12)',
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(59,130,246,0.2)',
+  },
+  pairText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 11,
+    color: '#3B82F6',
+  },
+  feeChip: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.35)',
+    marginLeft: 4,
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionBtn: {
+    flex: 1,
+    backgroundColor: 'rgba(16,185,129,0.12)',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.25)',
+  },
+  actionBtnText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 13,
+    color: '#10B981',
+  },
+  editActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+  },
+  editActionText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.6)',
+  },
+  publishActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(139,92,246,0.15)',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(139,92,246,0.3)',
+  },
+  publishActionText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: '#8B5CF6',
+  },
+  // Per-user breakdown
+  userSection: {
+    marginBottom: 14,
+  },
+  userSectionTitle: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.35)',
+    letterSpacing: 1,
+    marginBottom: 10,
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 6,
+    gap: 10,
+  },
+  userAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: 'rgba(139,92,246,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userAvatarText: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 13,
+    color: '#8B5CF6',
+  },
+  userInfo: {flex: 1, gap: 3},
+  userName: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 13,
+    color: '#FFFFFF',
+    maxWidth: 100,
+  },
+  userModePill: {
+    paddingHorizontal: 5,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  userModeText: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 8,
+    letterSpacing: 0.5,
+  },
+  userStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    flexWrap: 'wrap',
+  },
+  userStatText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.45)',
+  },
+  userStatDot: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.2)',
+  },
+  userPnlCol: {
+    alignItems: 'flex-end',
+  },
+  userPnlText: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 13,
+  },
+  userTradesText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.35)',
+  },
+});
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1580,140 +1945,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold',
     fontSize: 12,
     color: '#10B981',
-  },
-  botRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  botInfo: {
-    flex: 1,
-  },
-  botNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  botName: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  statusDraft: {
-    backgroundColor: 'rgba(245,158,11,0.15)',
-  },
-  statusPublished: {
-    backgroundColor: 'rgba(16,185,129,0.15)',
-  },
-  statusBadgeText: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 9,
-    letterSpacing: 0.5,
-  },
-  statusDraftText: {
-    color: '#F59E0B',
-  },
-  statusPublishedText: {
-    color: '#10B981',
-  },
-  botMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  botMetaText: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.5)',
-  },
-  botFeeText: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 11,
-    color: '#10B981',
-    marginLeft: 6,
-    backgroundColor: 'rgba(16,185,129,0.1)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  botStats: {
-    alignItems: 'flex-end',
-    gap: 2,
-  },
-  ratingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  ratingText: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 13,
-    color: '#F59E0B',
-  },
-  returnText: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 13,
-    color: '#10B981',
-  },
-  revenueText: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.6)',
-  },
-  botActions: {
-    flexDirection: 'row',
-    gap: 8,
-    paddingBottom: 12,
-  },
-  editBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  editBtnText: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 12,
-    color: '#FFFFFF',
-  },
-  publishBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: '#10B981',
-  },
-  publishBtnText: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 12,
-    color: '#FFFFFF',
-  },
-  viewBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: 'rgba(16,185,129,0.12)',
-  },
-  viewBtnText: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 12,
-    color: '#10B981',
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   aiCard: {
     backgroundColor: '#161B22',

@@ -75,11 +75,11 @@ function mapBot(b: BackendBot): Bot {
       percent: Number(m.percent ?? m.return) || 0,
     })),
     recentTrades: b.recentTrades ?? [],
-    equityData: (b.equityData ?? []).map((d: any) =>
-      typeof d === 'number' ? d : Number(d?.value) || 0,
-    ),
+    equityData: b.equityData ?? [],
     reviews: b.reviews ?? [],
     category: (b.category ?? 'Crypto') as Bot['category'],
+    config: b.config ?? null,
+    aggregateStats: b.aggregateStats ?? null,
   };
 }
 

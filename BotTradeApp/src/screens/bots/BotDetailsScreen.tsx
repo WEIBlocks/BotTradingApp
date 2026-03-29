@@ -134,7 +134,12 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     }
   }, [route.params.botId]);
 
-  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+  useFocusEffect(useCallback(() => {
+    fetchData();
+    // Auto-refresh every 30 seconds when bot is active/running
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]));
 
   // ─── Actions ─────────────────────────────────────────────────────────────
 
@@ -380,7 +385,88 @@ export default function BotDetailsScreen({navigation, route}: Props) {
           </View>
         </View>
 
+        {/* Trading Configuration */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>TRADING CONFIGURATION</Text>
+          <View style={styles.metricsCard}>
+            <View style={styles.metricRow}>
+              <Text style={styles.metricLabel}>Strategy</Text>
+              <Text style={[styles.metricValue, {color: '#8B5CF6'}]}>{bot.strategy || 'N/A'}</Text>
+            </View>
+            <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8}]}>
+              <Text style={styles.metricLabel}>Trading Pairs</Text>
+              <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 6}}>
+                {(bot.config?.pairs || ['BTC/USDT']).map((pair, i) => (
+                  <View key={i} style={{backgroundColor: 'rgba(59,130,246,0.12)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: 'rgba(59,130,246,0.25)'}}>
+                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#3B82F6'}} numberOfLines={1}>{pair}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+            {bot.config?.stopLoss && (
+              <View style={styles.metricRow}>
+                <Text style={styles.metricLabel}>Stop Loss</Text>
+                <Text style={[styles.metricValue, {color: '#EF4444'}]}>{bot.config.stopLoss}%</Text>
+              </View>
+            )}
+            {bot.config?.takeProfit && (
+              <View style={styles.metricRow}>
+                <Text style={styles.metricLabel}>Take Profit</Text>
+                <Text style={[styles.metricValue, {color: '#10B981'}]}>{bot.config.takeProfit}%</Text>
+              </View>
+            )}
+            {bot.config?.tradeDirection && (
+              <View style={styles.metricRow}>
+                <Text style={styles.metricLabel}>Direction</Text>
+                <Text style={styles.metricValue}>{bot.config.tradeDirection === 'buy' ? 'Buy Only' : bot.config.tradeDirection === 'sell' ? 'Sell Only' : 'Both'}</Text>
+              </View>
+            )}
+            {bot.config?.orderType && (
+              <View style={[styles.metricRow, {borderBottomWidth: 0}]}>
+                <Text style={styles.metricLabel}>Order Type</Text>
+                <Text style={styles.metricValue}>{bot.config.orderType === 'limit' ? 'Limit' : 'Market'}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Aggregate Stats (all users) */}
+        {bot.aggregateStats && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>COMMUNITY STATS</Text>
+            <View style={styles.metricsCard}>
+              <View style={styles.metricRow}>
+                <Text style={styles.metricLabel}>Total Traders</Text>
+                <Text style={styles.metricValue}>{bot.aggregateStats.totalUsers}</Text>
+              </View>
+              <View style={styles.metricRow}>
+                <Text style={styles.metricLabel}>Live Traders</Text>
+                <Text style={[styles.metricValue, {color: '#10B981'}]}>{bot.aggregateStats.liveSubscribers}</Text>
+              </View>
+              <View style={styles.metricRow}>
+                <Text style={styles.metricLabel}>Total Trades</Text>
+                <Text style={styles.metricValue}>{bot.aggregateStats.totalTrades}</Text>
+              </View>
+              <View style={styles.metricRow}>
+                <Text style={styles.metricLabel}>Open Positions</Text>
+                <Text style={[styles.metricValue, {color: '#3B82F6'}]}>{bot.aggregateStats.openPositions}</Text>
+              </View>
+              <View style={styles.metricRow}>
+                <Text style={styles.metricLabel}>Closed Positions</Text>
+                <Text style={styles.metricValue}>{bot.aggregateStats.closedPositions}</Text>
+              </View>
+              <View style={[styles.metricRow, {borderBottomWidth: 0}]}>
+                <Text style={styles.metricLabel}>Total P&L (all users)</Text>
+                <Text style={[styles.metricValue, {color: bot.aggregateStats.totalPnl >= 0 ? '#10B981' : '#EF4444'}]}>
+                  {bot.aggregateStats.totalPnl >= 0 ? '+' : ''}${bot.aggregateStats.totalPnl.toFixed(2)}
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* Bot DNA */}
+        {bot.tags && bot.tags.length > 0 && (
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>BOT DNA</Text>
           <View style={styles.tagsRow}>
@@ -389,12 +475,15 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             ))}
           </View>
         </View>
+        )}
 
-        {/* Strategy */}
+        {/* Strategy Description */}
+        {bot.description ? (
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>STRATEGY</Text>
           <Text style={styles.strategyText}>{bot.description}</Text>
         </View>
+        ) : null}
 
         {/* Key Metrics */}
         <View style={styles.section}>
