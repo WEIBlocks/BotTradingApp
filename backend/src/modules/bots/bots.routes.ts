@@ -25,6 +25,8 @@ import {
   compareBots,
   startCopyTrading,
   stopCopyTrading,
+  getBotEquityCurve,
+  getBotTradeMarkers,
 } from './bots.service.js';
 import {
   botIdParamsSchema,
@@ -337,6 +339,37 @@ export async function botsRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params;
     const result = await stopCopyTrading(request.user.userId, id);
+    return { data: result };
+  });
+
+  // GET /:id/equity-curve - Get bot equity curve
+  zApp.get('/:id/equity-curve', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const { days } = request.query as { days?: number };
+    const result = await getBotEquityCurve(id, days ?? 30);
+    return { data: result };
+  });
+
+  // GET /:id/trade-markers - Get bot trade markers for candlestick overlay
+  zApp.get('/:id/trade-markers', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const { symbol, days } = request.query as { symbol?: string; days?: number };
+    if (!symbol) {
+      return { data: [] };
+    }
+    const result = await getBotTradeMarkers(id, symbol, days ?? 30);
     return { data: result };
   });
 

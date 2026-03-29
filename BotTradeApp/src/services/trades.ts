@@ -16,9 +16,12 @@ interface TradeRow {
   reasoning: string | null;
   status: string;
   executedAt: string;
+  botId: string | null;
   botName: string | null;
   botAvatarColor: string | null;
   botAvatarLetter: string | null;
+  botCreatorId: string | null;
+  isOwned: boolean;
 }
 
 interface DataWrap<T> { data: T }
@@ -62,7 +65,7 @@ function mapTrade(t: TradeRow): Trade {
     amount: parseFloat(t.amount) || 0,
     price: parseFloat(t.price) || 0,
     timestamp: new Date(t.executedAt ?? Date.now()),
-    botId: '',
+    botId: t.botId ?? '',
     botName: t.botName ?? 'Manual Trade',
     pnl: t.pnl != null ? parseFloat(t.pnl) : undefined,
     pnlPercent: t.pnlPercent != null ? parseFloat(t.pnlPercent) : undefined,
@@ -73,6 +76,8 @@ function mapLiveTrade(t: TradeRow): LiveTrade {
   return {
     ...mapTrade(t),
     isLive: t.status === 'open' || t.status === 'pending',
+    isOwned: t.isOwned ?? true,
+    isPaper: t.isPaper ?? false,
     reasoning: t.reasoning ?? undefined,
   };
 }

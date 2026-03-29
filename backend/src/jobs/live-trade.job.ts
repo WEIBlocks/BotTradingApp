@@ -9,6 +9,7 @@ import { bots, botSubscriptions } from '../db/schema/bots';
 import { exchangeConnections } from '../db/schema/exchanges';
 import { processSymbol, executeLiveTrade } from '../lib/bot-engine.js';
 import { sendNotification } from '../lib/notify.js';
+import { refreshUserPortfolio } from './portfolio-update.job.js';
 
 interface BotConfig {
   pairs?: string[];
@@ -132,6 +133,8 @@ async function processLiveTrades() {
 
             if (result.success) {
               console.log(`[LiveTrade] Order filled: ${result.orderId}`);
+              // Refresh portfolio immediately after trade execution
+              refreshUserPortfolio(subscription.userId).catch(() => {});
               await sendNotification(subscription.userId, {
                 type: 'trade',
                 title: `${decision.action} ${pair}`,

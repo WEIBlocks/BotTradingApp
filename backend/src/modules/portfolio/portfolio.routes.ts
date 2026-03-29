@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
-import { getSummary, getAssets, getAllocation, getEquityHistory } from './portfolio.service.js';
+import { getSummary, getAssets, getAllocation, getEquityHistory, getPnlByBot } from './portfolio.service.js';
 import { dataResponseSchema } from './portfolio.schema.js';
 
 export async function portfolioRoutes(app: FastifyInstance) {
@@ -50,6 +50,17 @@ export async function portfolioRoutes(app: FastifyInstance) {
   }, async (request) => {
     const days = Number((request.query as any)?.days) || 30;
     const result = await getEquityHistory(request.user.userId, days);
+    return { data: result };
+  });
+
+  // GET /pnl — P&L breakdown by bot
+  zApp.get('/pnl', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request) => {
+    const result = await getPnlByBot(request.user.userId);
     return { data: result };
   });
 }

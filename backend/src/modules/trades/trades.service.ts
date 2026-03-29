@@ -19,9 +19,11 @@ export async function getRecentTrades(userId: string, limit = 10) {
       reasoning: trades.reasoning,
       status: trades.status,
       executedAt: trades.executedAt,
+      botId: bots.id,
       botName: bots.name,
       botAvatarColor: bots.avatarColor,
       botAvatarLetter: bots.avatarLetter,
+      botCreatorId: bots.creatorId,
     })
     .from(trades)
     .leftJoin(botSubscriptions, eq(trades.botSubscriptionId, botSubscriptions.id))
@@ -30,7 +32,11 @@ export async function getRecentTrades(userId: string, limit = 10) {
     .orderBy(desc(trades.executedAt))
     .limit(limit);
 
-  return rows;
+  // Mark ownership: isOwned = user created the bot OR user's own trade
+  return rows.map(r => ({
+    ...r,
+    isOwned: r.botCreatorId === userId || true, // All user's own trades are "owned"
+  }));
 }
 
 interface TradeHistoryFilters {
@@ -86,9 +92,11 @@ export async function getTradeHistory(userId: string, filters: TradeHistoryFilte
       reasoning: trades.reasoning,
       status: trades.status,
       executedAt: trades.executedAt,
+      botId: bots.id,
       botName: bots.name,
       botAvatarColor: bots.avatarColor,
       botAvatarLetter: bots.avatarLetter,
+      botCreatorId: bots.creatorId,
     })
     .from(trades)
     .leftJoin(botSubscriptions, eq(trades.botSubscriptionId, botSubscriptions.id))
@@ -98,5 +106,10 @@ export async function getTradeHistory(userId: string, filters: TradeHistoryFilte
     .limit(take)
     .offset(offset);
 
-  return paginatedResponse(rows, total, paginationParams);
+  const enriched = rows.map(r => ({
+    ...r,
+    isOwned: r.botCreatorId === userId || true,
+  }));
+
+  return paginatedResponse(enriched, total, paginationParams);
 }

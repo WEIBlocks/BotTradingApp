@@ -5,6 +5,7 @@ import {
   varchar,
   text,
   numeric,
+  integer,
   timestamp,
   boolean,
   index,
@@ -71,3 +72,24 @@ export const exchangeAssets = pgTable("exchange_assets", {
   iconColor: varchar("icon_color", { length: 9 }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+// Daily portfolio snapshots for equity history chart
+export const portfolioSnapshots = pgTable(
+  "portfolio_snapshots",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id),
+    date: timestamp("date", { withTimezone: true }).notNull(),
+    totalValue: numeric("total_value", { precision: 14, scale: 2 }).notNull(),
+    change24h: numeric("change_24h", { precision: 14, scale: 2 }).default("0"),
+    changePercent: numeric("change_percent", { precision: 8, scale: 4 }).default("0"),
+    assetCount: integer("asset_count").default(0),
+  },
+  (t) => ({
+    userDateIdx: index("portfolio_snapshots_user_date_idx").on(t.userId, t.date),
+  })
+);

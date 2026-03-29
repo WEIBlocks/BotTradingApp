@@ -62,7 +62,7 @@ function formatUSD(value: number): string {
 
 // ─── Filter Tabs ────────────────────────────────────────────────────────────────
 
-const FILTERS = ['All', 'My Bots', 'Community'] as const;
+const FILTERS = ['All', 'My Bots', 'Live Only', 'Paper Only'] as const;
 type FilterType = (typeof FILTERS)[number];
 
 // ─── Screen ─────────────────────────────────────────────────────────────────────
@@ -87,8 +87,10 @@ export default function LiveTradesScreen() {
   const filteredTrades = activeFilter === 'All'
     ? liveTrades
     : activeFilter === 'My Bots'
-      ? liveTrades.filter(t => t.isOwned)
-      : liveTrades.filter(t => !t.isOwned);
+      ? liveTrades.filter(t => t.botName && t.botName !== 'Manual Trade')
+      : activeFilter === 'Live Only'
+        ? liveTrades.filter(t => !t.isPaper)
+        : liveTrades.filter(t => t.isPaper);
 
   const renderSeparator = useCallback(
     () => <View style={styles.separator} />,
@@ -214,10 +216,19 @@ export default function LiveTradesScreen() {
         </View>
       ) : filteredTrades.length === 0 ? (
         <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32}}>
-          <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 16, color: 'rgba(255,255,255,0.5)', marginBottom: 6}}>No live trades yet</Text>
-          <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)', textAlign: 'center', lineHeight: 19}}>
-            When your bots execute trades, they'll appear here in real-time.
+          <Svg width={64} height={64} viewBox="0 0 24 24" fill="none" style={{marginBottom: 16, opacity: 0.3}}>
+            <Path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="#FFFFFF" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+          <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 18, color: 'rgba(255,255,255,0.6)', marginBottom: 8}}>No trades yet</Text>
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)', textAlign: 'center', lineHeight: 19, marginBottom: 20}}>
+            Create a bot and start shadow trading to see{'\n'}your trades appear here in real-time.
           </Text>
+          <TouchableOpacity
+            style={{backgroundColor: '#10B981', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10}}
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('BotBuilder', {})}>
+            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'}}>Create Bot</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList

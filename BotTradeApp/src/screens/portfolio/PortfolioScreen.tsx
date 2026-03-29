@@ -115,7 +115,7 @@ export default function PortfolioScreen() {
   const fetchData = useCallback(async () => {
     try {
       const [s, a, alloc, bots, shadowRes] = await Promise.all([
-        portfolioApi.getSummary().catch(() => ({totalValue: 0, totalChange24h: 0, totalChangePercent24h: 0}) as PortfolioSummary),
+        portfolioApi.getSummary().catch(() => ({totalValue: 0, totalChange24h: 0, totalChangePercent24h: 0, totalRealizedPnl: 0, closedPositions: 0, openPositions: 0}) as PortfolioSummary),
         portfolioApi.getAssets().catch(() => [] as PortfolioAsset[]),
         portfolioApi.getAllocation().catch(() => [] as AllocationItem[]),
         dashboardApi.getActiveBots().catch(() => [] as DashActiveBot[]),

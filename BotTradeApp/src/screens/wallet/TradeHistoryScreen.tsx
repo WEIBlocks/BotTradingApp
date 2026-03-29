@@ -68,8 +68,18 @@ export default function TradeHistoryScreen({navigation}: Props) {
       </View>
 
       {trades.length === 0 ? (
-        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center'}}>
-          <Text style={{color: 'rgba(255,255,255,0.4)', fontFamily: 'Inter-Regular', fontSize: 14}}>No trades yet</Text>
+        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32}}>
+          <Text style={{fontSize: 48, marginBottom: 16}}>📊</Text>
+          <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 18, color: 'rgba(255,255,255,0.6)', marginBottom: 8}}>No trades yet</Text>
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)', textAlign: 'center', lineHeight: 19, marginBottom: 20}}>
+            Start a shadow session or activate live trading{'\n'}to see your trade history here.
+          </Text>
+          <TouchableOpacity
+            style={{backgroundColor: '#10B981', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10}}
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate('BotBuilder', {})}>
+            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'}}>Create Bot</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList

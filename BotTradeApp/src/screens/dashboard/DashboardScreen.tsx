@@ -41,7 +41,7 @@ function resolveBotDisplayStatus(bot: DashActiveBot, shadowSessions: ShadowSessi
   if (completed) return {label: 'SHADOW DONE', color: '#10B981', icon: 'completed' as const};
   return {label: 'SHADOW', color: '#0D7FF2', icon: 'idle' as const};
 }
-import CandlestickChart from '../../components/charts/CandlestickChart';
+import PortfolioLineChart from '../../components/charts/PortfolioLineChart';
 import PlusIcon from '../../components/icons/PlusIcon';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
@@ -247,7 +247,6 @@ function formatTimeAgo(date: Date): string {
 export default function DashboardScreen() {
   const {width} = useWindowDimensions();
   const navigation = useNavigation<NavProp>();
-  const [selectedTF, setSelectedTF] = useState('1D');
   const {user: authUser, isNewUser} = useAuth();
   const {alert: showAlert, showConfirm} = useToast();
 
@@ -255,18 +254,34 @@ export default function DashboardScreen() {
   const [activeBots, setActiveBots] = useState<DashActiveBot[]>([]);
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
   const [equityData, setEquityData] = useState<number[]>([]);
+  const [equityDates, setEquityDates] = useState<(string | Date)[]>([]);
+  const [equityIsReal, setEquityIsReal] = useState(false);
+  const [equityLoading, setEquityLoading] = useState(false);
   const [activeArena, setActiveArena] = useState<ArenaSession | null>(null);
   const [shadowSessions, setShadowSessions] = useState<ShadowSessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const fetchEquity = useCallback(async (days: number) => {
+    setEquityLoading(true);
+    try {
+      const result = await dashboardApi.getEquityHistoryFull(days);
+      setEquityData(result.equityData);
+      setEquityDates(result.dates);
+      setEquityIsReal(result.isRealData);
+    } catch {
+      // keep existing data
+    } finally {
+      setEquityLoading(false);
+    }
+  }, []);
+
   const fetchData = useCallback(async () => {
     try {
-      const [s, bots, trades, equity, arenaSession, shadowRes] = await Promise.all([
+      const [s, bots, trades, arenaSession, shadowRes] = await Promise.all([
         dashboardApi.getSummary(),
         dashboardApi.getActiveBots(),
         tradesApi.getRecent(5).catch(() => [] as Trade[]),
-        dashboardApi.getEquityHistory(30).catch(() => [] as number[]),
         arenaApi.getActiveSession().catch(() => null),
         botsService.getShadowSessions().then((res: any) => {
           const items = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
@@ -276,16 +291,17 @@ export default function DashboardScreen() {
       setSummary(s);
       setActiveBots(bots);
       setRecentTrades(trades);
-      setEquityData(equity);
       setActiveArena(arenaSession);
       setShadowSessions(shadowRes);
+      // Fetch equity separately (default 30 days)
+      await fetchEquity(30);
     } catch (e) {
       showAlert('Error', 'Failed to load dashboard data. Pull down to retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [fetchEquity]);
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
@@ -423,21 +439,17 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* Chart card */}
+        {/* Equity Curve */}
         <View style={styles.chartCard}>
-          <CandlestickChart
-            data={equityData.length >= 2 ? equityData : [totalBalance, totalBalance]}
+          <PortfolioLineChart
+            data={equityData}
+            dates={equityDates}
+            currentValue={totalBalance}
             width={CHART_WIDTH - 32}
             height={220}
-            selectedTimeframe={selectedTF}
-            onTimeframeChange={setSelectedTF}
-            label="EQUITY CURVE"
-            showGrid
-            showCrosshair
-            showYLabels
-            showXLabels
-            showVolume
-            showMA
+            isRealData={equityIsReal}
+            loading={equityLoading}
+            onTimeframeChange={fetchEquity}
           />
         </View>
 
@@ -451,15 +463,28 @@ export default function DashboardScreen() {
           </View>
           <View style={styles.botList}>
             {activeBots.length === 0 && (
-              <TouchableOpacity
-                style={[styles.botCard, {borderLeftColor: 'rgba(255,255,255,0.1)', justifyContent: 'center', paddingVertical: 24}]}
-                onPress={goToMarket}
-                activeOpacity={0.7}>
-                <View style={{alignItems: 'center', flex: 1}}>
-                  <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 4}}>No active bots yet</Text>
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: '#10B981'}}>Browse the marketplace</Text>
-                </View>
-              </TouchableOpacity>
+              <View style={{flexDirection: 'row', gap: 10}}>
+                <TouchableOpacity
+                  style={[styles.botCard, {borderLeftColor: '#10B981', justifyContent: 'center', paddingVertical: 20, flex: 1}]}
+                  onPress={() => navigation.navigate('BotBuilder', {})}
+                  activeOpacity={0.7}>
+                  <View style={{alignItems: 'center', flex: 1}}>
+                    <Text style={{fontSize: 28, marginBottom: 6}}>🤖</Text>
+                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF', marginBottom: 2}}>Create Bot</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: '#10B981'}}>Build your own</Text>
+                  </View>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.botCard, {borderLeftColor: '#3B82F6', justifyContent: 'center', paddingVertical: 20, flex: 1}]}
+                  onPress={goToMarket}
+                  activeOpacity={0.7}>
+                  <View style={{alignItems: 'center', flex: 1}}>
+                    <Text style={{fontSize: 28, marginBottom: 6}}>🏪</Text>
+                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF', marginBottom: 2}}>Marketplace</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: '#3B82F6'}}>Browse bots</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
             )}
             {activeBots.map((bot: DashActiveBot) => {
               const returnColor = bot.totalReturn >= 0 ? '#10B981' : '#EF4444';

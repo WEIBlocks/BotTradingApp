@@ -9,10 +9,10 @@ import {
 import { trades } from '../../db/schema/trades.js';
 import { users } from '../../db/schema/users.js';
 import { activityLog } from '../../db/schema/training.js';
-import { botDecisions } from '../../db/schema/decisions';
-import { botPositions } from '../../db/schema/positions';
-import { exchangeConnections } from '../../db/schema/exchanges';
-import { eq, and, sql, desc } from 'drizzle-orm';
+import { botDecisions } from '../../db/schema/decisions.js';
+import { botPositions } from '../../db/schema/positions.js';
+import { exchangeConnections } from '../../db/schema/exchanges.js';
+import { eq, and, sql, desc, asc, gte } from 'drizzle-orm';
 import { NotFoundError, ConflictError, ValidationError, AppError } from '../../lib/errors.js';
 import { invalidateRulesCache } from '../../lib/bot-engine.js';
 
@@ -1020,4 +1020,73 @@ export async function stopCopyTrading(userId: string, botId: string) {
 
   if (!session) throw new NotFoundError('Copy trading session');
   return session;
+}
+
+export async function getBotEquityCurve(botId: string, days: number = 30) {
+  // Query closed positions for this bot, ordered by closedAt
+  const closedPositions = await db
+    .select({
+      pnl: botPositions.pnl,
+      pnlPercent: botPositions.pnlPercent,
+      closedAt: botPositions.closedAt,
+      symbol: botPositions.symbol,
+    })
+    .from(botPositions)
+    .where(
+      and(
+        eq(botPositions.botId, botId),
+        eq(botPositions.status, 'closed'),
+        gte(botPositions.closedAt, sql`now() - (${days} || ' days')::interval`),
+      ),
+    )
+    .orderBy(asc(botPositions.closedAt));
+
+  // Build cumulative equity curve
+  let cumPnl = 0;
+  const equityData: number[] = [0]; // start at 0 (baseline)
+  const dates: string[] = [new Date(Date.now() - days * 86400000).toISOString()];
+
+  for (const pos of closedPositions) {
+    cumPnl += parseFloat(pos.pnl ?? '0');
+    equityData.push(Number(cumPnl.toFixed(2)));
+    dates.push(pos.closedAt?.toISOString() ?? new Date().toISOString());
+  }
+
+  // Add current value as last point if no trades found
+  if (equityData.length === 1) {
+    equityData.push(0);
+    dates.push(new Date().toISOString());
+  }
+
+  return { equityData, dates, totalPnl: cumPnl, tradeCount: closedPositions.length };
+}
+
+export async function getBotTradeMarkers(botId: string, symbol: string, days: number = 30) {
+  // Get all decisions (BUY/SELL only) for this bot+symbol
+  const markers = await db
+    .select({
+      action: botDecisions.action,
+      price: botDecisions.price,
+      confidence: botDecisions.confidence,
+      reasoning: botDecisions.reasoning,
+      timestamp: botDecisions.createdAt,
+    })
+    .from(botDecisions)
+    .where(
+      and(
+        eq(botDecisions.botId, botId),
+        eq(botDecisions.symbol, symbol),
+        sql`${botDecisions.action} IN ('BUY', 'SELL')`,
+        gte(botDecisions.createdAt, sql`now() - (${days} || ' days')::interval`),
+      ),
+    )
+    .orderBy(asc(botDecisions.createdAt));
+
+  return markers.map(m => ({
+    action: m.action,
+    price: parseFloat(m.price ?? '0'),
+    confidence: m.confidence,
+    reasoning: m.reasoning,
+    timestamp: m.timestamp?.getTime() ?? 0,
+  }));
 }

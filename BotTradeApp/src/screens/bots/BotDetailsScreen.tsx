@@ -2,10 +2,13 @@ import React, {useCallback, useState} from 'react';
 import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, RefreshControl, Modal, TextInput} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
+import Svg, {Circle as SvgCircle} from 'react-native-svg';
 import {RootStackParamList, Bot} from '../../types';
 import {marketplaceApi} from '../../services/marketplace';
 import {botsService} from '../../services/bots';
+import {api} from '../../services/api';
 import {useAuth} from '../../context/AuthContext';
+import PortfolioLineChart from '../../components/charts/PortfolioLineChart';
 import CandlestickChart from '../../components/charts/CandlestickChart';
 import MonthlyReturnBars from '../../components/charts/MonthlyReturnBars';
 import Badge from '../../components/common/Badge';
@@ -43,6 +46,19 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const [selectedDurationIdx, setSelectedDurationIdx] = useState<number | null>(null);
   const [customDays, setCustomDays] = useState('');
   const [virtualBalance, setVirtualBalance] = useState('10000');
+
+  // Equity curve (line chart from real P&L)
+  const [equityCurve, setEquityCurve] = useState<number[]>([]);
+  const [equityDates, setEquityDates] = useState<(string | Date)[]>([]);
+  const [equityLoading, setEquityLoading] = useState(false);
+  const [equityPnl, setEquityPnl] = useState(0);
+
+  // Candlestick per trading pair
+  const [selectedPair, setSelectedPair] = useState<string | null>(null);
+  const [candleData, setCandleData] = useState<any[]>([]);
+  const [candleTF, setCandleTF] = useState('4h');
+  const [candleLoading, setCandleLoading] = useState(false);
+  const [tradeMarkers, setTradeMarkers] = useState<{action: string; price: number; timestamp: number}[]>([]);
 
   const DURATION_OPTIONS: {label: string; minutes?: number; days?: number}[] = [
     {label: '1 Min', minutes: 1},
@@ -88,7 +104,15 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         }
       }
 
-      if (botData) setBot(botData);
+      if (botData) {
+        setBot(botData);
+        // Auto-select first trading pair for candlestick chart
+        const pairs = botData.config?.pairs ?? ['BTC/USDT'];
+        if (pairs.length > 0 && !selectedPair) {
+          setSelectedPair(pairs[0]);
+          fetchCandles(pairs[0], '4h');
+        }
+      }
 
       // Determine user's relationship with this bot
       const botId = route.params.botId;
@@ -134,12 +158,59 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     }
   }, [route.params.botId]);
 
+  // Fetch bot equity curve (cumulative P&L)
+  const fetchEquityCurve = useCallback(async (days: number) => {
+    setEquityLoading(true);
+    try {
+      const res = await api.get<{data: any}>(`/bots/${route.params.botId}/equity-curve?days=${days}`);
+      const d = res?.data;
+      setEquityCurve(Array.isArray(d?.equityData) ? d.equityData : []);
+      setEquityDates(Array.isArray(d?.dates) ? d.dates : []);
+      setEquityPnl(Number(d?.totalPnl ?? 0));
+    } catch {
+      setEquityCurve([]);
+      setEquityDates([]);
+    } finally {
+      setEquityLoading(false);
+    }
+  }, [route.params.botId]);
+
+  // Fetch real candles + trade markers for a pair
+  const fetchCandles = useCallback(async (pair: string, tf: string) => {
+    setCandleLoading(true);
+    try {
+      const [candleRes, markerRes] = await Promise.all([
+        api.get<{data: any[]}>(`/market/candles?symbol=${encodeURIComponent(pair)}&timeframe=${tf}&limit=100`),
+        api.get<{data: any[]}>(`/bots/${route.params.botId}/trade-markers?symbol=${encodeURIComponent(pair)}&days=90`),
+      ]);
+      setCandleData(Array.isArray(candleRes?.data) ? candleRes.data : []);
+      setTradeMarkers(Array.isArray(markerRes?.data) ? markerRes.data : []);
+    } catch {
+      setCandleData([]);
+      setTradeMarkers([]);
+    } finally {
+      setCandleLoading(false);
+    }
+  }, [route.params.botId]);
+
+  const handlePairSelect = useCallback((pair: string) => {
+    setSelectedPair(pair);
+    setCandleTF('4h');
+    fetchCandles(pair, '4h');
+  }, [fetchCandles]);
+
+  const handleCandleTFChange = useCallback((tf: string) => {
+    setCandleTF(tf);
+    if (selectedPair) fetchCandles(selectedPair, tf);
+  }, [selectedPair, fetchCandles]);
+
   useFocusEffect(useCallback(() => {
     fetchData();
+    fetchEquityCurve(30);
     // Auto-refresh every 30 seconds when bot is active/running
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
-  }, [fetchData]));
+  }, [fetchData, fetchEquityCurve]));
 
   // ─── Actions ─────────────────────────────────────────────────────────────
 
@@ -346,22 +417,123 @@ export default function BotDetailsScreen({navigation, route}: Props) {
           ))}
         </View>
 
-        {/* Equity chart */}
+        {/* Bot P&L Equity Curve (Line Chart) */}
         <View style={styles.chartSection}>
-          <CandlestickChart
-            data={bot.equityData}
+          <Text style={styles.chartSectionLabel}>BOT PERFORMANCE (P&L)</Text>
+          <PortfolioLineChart
+            data={equityCurve.length >= 2 ? equityCurve : [0, equityPnl]}
+            dates={equityDates}
+            currentValue={equityPnl}
             width={CHART_W}
-            height={240}
-            label="PERFORMANCE"
-            timeframes={['1D', '1W', '1M', '3M', 'ALL']}
-            showGrid
-            showCrosshair
-            showYLabels
-            showXLabels
-            showVolume
-            showMA
+            height={200}
+            isRealData={equityCurve.length >= 2}
+            loading={equityLoading}
+            onTimeframeChange={fetchEquityCurve}
           />
         </View>
+
+        {/* Trading Pairs — Real Candlestick Charts */}
+        {(() => {
+          const pairs = bot.config?.pairs ?? ['BTC/USDT'];
+          return (
+            <View style={styles.chartSection}>
+              <Text style={styles.chartSectionLabel}>PRICE ACTION</Text>
+              <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 12}}>
+                Real-time market data for trading pairs
+              </Text>
+
+              {/* Pair selector */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8, marginBottom: 14}}>
+                {pairs.map(pair => (
+                  <TouchableOpacity
+                    key={pair}
+                    activeOpacity={0.7}
+                    style={[
+                      styles.pairChip,
+                      selectedPair === pair && styles.pairChipActive,
+                    ]}
+                    onPress={() => handlePairSelect(pair)}>
+                    <Text style={[
+                      styles.pairChipText,
+                      selectedPair === pair && styles.pairChipTextActive,
+                    ]}>{pair}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Candlestick chart for selected pair */}
+              {selectedPair ? (
+                candleLoading ? (
+                  <View style={{alignItems: 'center', paddingVertical: 40}}>
+                    <ActivityIndicator size="small" color="#10B981" />
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 8}}>Loading {selectedPair}...</Text>
+                  </View>
+                ) : candleData.length > 0 ? (
+                  <>
+                    {/* Timeframe selector for candles */}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 6, marginBottom: 10}}>
+                      {['1h', '4h', '1d', '1w'].map(tf => (
+                        <TouchableOpacity
+                          key={tf}
+                          activeOpacity={0.7}
+                          style={[styles.tfChip, candleTF === tf && styles.tfChipActive]}
+                          onPress={() => handleCandleTFChange(tf)}>
+                          <Text style={[styles.tfChipText, candleTF === tf && styles.tfChipTextActive]}>
+                            {tf.toUpperCase()}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+
+                    <CandlestickChart
+                      data={candleData.map((c: any) => ({
+                        time: c.timestamp,
+                        open: c.open,
+                        high: c.high,
+                        low: c.low,
+                        close: c.close,
+                        volume: c.volume,
+                      }))}
+                      width={CHART_W}
+                      height={260}
+                      showTimeframes={false}
+                      showGrid
+                      showCrosshair
+                      showYLabels
+                    />
+
+                    {/* Trade markers legend */}
+                    {tradeMarkers.length > 0 && (
+                      <View style={styles.markersSection}>
+                        <Text style={styles.markersTitle}>BOT TRADES ON THIS PAIR</Text>
+                        {tradeMarkers.slice(0, 10).map((m, i) => (
+                          <View key={i} style={styles.markerRow}>
+                            <View style={[styles.markerDot, {backgroundColor: m.action === 'BUY' ? '#10B981' : '#EF4444'}]} />
+                            <Text style={styles.markerAction}>{m.action}</Text>
+                            <Text style={styles.markerPrice}>${m.price.toLocaleString('en-US', {minimumFractionDigits: 2})}</Text>
+                            <Text style={styles.markerTime}>
+                              {new Date(m.timestamp).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </>
+                ) : (
+                  <View style={{alignItems: 'center', paddingVertical: 30}}>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)'}}>No candle data for {selectedPair}</Text>
+                  </View>
+                )
+              ) : (
+                <View style={{alignItems: 'center', paddingVertical: 30}}>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)'}}>
+                    Select a pair to view price chart
+                  </Text>
+                </View>
+              )}
+            </View>
+          );
+        })()}
 
         {/* Bot Overview Card */}
         <View style={styles.overviewCard}>
@@ -812,6 +984,22 @@ const styles = StyleSheet.create({
   statCellLabel: {fontFamily: 'Inter-Medium', fontSize: 9, letterSpacing: 0.8, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 6},
   statCellValue: {fontFamily: 'Inter-Bold', fontSize: 22, letterSpacing: -0.5},
   chartSection: {marginBottom: 16},
+  chartSectionLabel: {fontFamily: 'Inter-SemiBold', fontSize: 11, letterSpacing: 1.2, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' as const, marginBottom: 10},
+  pairChip: {paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'},
+  pairChipActive: {backgroundColor: 'rgba(16,185,129,0.12)', borderColor: '#10B981'},
+  pairChipText: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
+  pairChipTextActive: {color: '#10B981'},
+  tfChip: {paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.06)'},
+  tfChipActive: {backgroundColor: '#10B981'},
+  tfChipText: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: 'rgba(255,255,255,0.35)'},
+  tfChipTextActive: {color: '#FFFFFF'},
+  markersSection: {marginTop: 12, backgroundColor: '#161B22', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'},
+  markersTitle: {fontFamily: 'Inter-SemiBold', fontSize: 10, letterSpacing: 1, color: 'rgba(255,255,255,0.4)', marginBottom: 10},
+  markerRow: {flexDirection: 'row' as const, alignItems: 'center' as const, paddingVertical: 6, gap: 8},
+  markerDot: {width: 8, height: 8, borderRadius: 4},
+  markerAction: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#FFFFFF', width: 36},
+  markerPrice: {fontFamily: 'Inter-Medium', fontSize: 12, color: 'rgba(255,255,255,0.7)', flex: 1},
+  markerTime: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)'},
 
   // Overview card
   overviewCard: {

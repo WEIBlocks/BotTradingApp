@@ -148,4 +148,18 @@ export const dashboardApi = {
       return [];
     }
   },
+
+  async getEquityHistoryFull(days = 30): Promise<{equityData: number[]; dates: (string | Date)[]; isRealData: boolean}> {
+    try {
+      const res = await api.get<DataWrap<any>>(`/portfolio/equity-history?days=${days}`);
+      const d = res?.data;
+      return {
+        equityData: Array.isArray(d?.equityData) ? d.equityData : [],
+        dates: Array.isArray(d?.dates) ? d.dates : [],
+        isRealData: Boolean(d?.isRealData),
+      };
+    } catch {
+      return {equityData: [], dates: [], isRealData: false};
+    }
+  },
 };

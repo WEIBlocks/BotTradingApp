@@ -367,5 +367,6 @@ export interface TrainingUploadItem {
 export interface LiveTrade extends Trade {
   isLive: boolean;
   isOwned?: boolean;
+  isPaper?: boolean;
   reasoning?: string;
 }
