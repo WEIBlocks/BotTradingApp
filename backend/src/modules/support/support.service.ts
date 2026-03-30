@@ -1,7 +1,7 @@
 import { db } from '../../config/database.js';
 import { supportTickets, ticketMessages } from '../../db/schema/support';
 import { users } from '../../db/schema/users';
-import { notifications } from '../../db/schema/notifications';
+import { sendNotification as sendNotif } from '../../lib/notify.js';
 import { eq, desc, and, sql } from 'drizzle-orm';
 import { NotFoundError, ForbiddenError } from '../../lib/errors.js';
 
@@ -190,22 +190,18 @@ export async function updateTicket(
   return updated;
 }
 
-// Admin: send notification to specific user
+// Admin: send notification to specific user (with push)
 export async function sendDirectNotification(
   userId: string,
   title: string,
   body: string,
 ) {
-  const [notif] = await db
-    .insert(notifications)
-    .values({
-      userId,
-      type: 'system',
-      title,
-      body,
-      priority: 'high',
-    })
-    .returning();
+  const notif = await sendNotif(userId, {
+    type: 'system',
+    title,
+    body,
+    priority: 'high',
+  });
 
   return notif;
 }

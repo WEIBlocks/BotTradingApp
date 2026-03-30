@@ -3,7 +3,7 @@ import { tradingRoomMessages } from '../../db/schema/trading-room';
 import { users } from '../../db/schema/users';
 import { userSubscriptions } from '../../db/schema/subscriptions';
 import { subscriptionPlans } from '../../db/schema/subscriptions';
-import { notifications } from '../../db/schema/notifications';
+import { sendNotification } from '../../lib/notify.js';
 import { eq, desc, lt, and, sql, count } from 'drizzle-orm';
 import { ForbiddenError, NotFoundError, AppError } from '../../lib/errors.js';
 
@@ -143,18 +143,18 @@ async function notifyProUsers(senderId: string, senderName: string, content: str
   // Truncate message for notification preview
   const preview = content.length > 80 ? content.substring(0, 80) + '...' : content;
 
-  // Batch insert notifications
-  const rows = Array.from(allIds).map(uid => ({
-    userId: uid,
-    type: 'system' as const,
-    title: `💬 ${senderName} in Trading Room`,
-    body: preview,
-    priority: 'normal' as const,
-  }));
-
-  // Insert in chunks of 50 to avoid huge queries
-  for (let i = 0; i < rows.length; i += 50) {
-    await db.insert(notifications).values(rows.slice(i, i + 50));
+  // Send notifications with push (in batches)
+  const userIds = Array.from(allIds);
+  for (let i = 0; i < userIds.length; i += 20) {
+    const batch = userIds.slice(i, i + 20);
+    await Promise.all(batch.map(uid =>
+      sendNotification(uid, {
+        type: 'system',
+        title: `${senderName} in Trading Room`,
+        body: preview,
+        priority: 'normal',
+      }).catch(() => {})
+    ));
   }
 }
 

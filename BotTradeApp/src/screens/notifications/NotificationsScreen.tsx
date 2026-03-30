@@ -49,22 +49,28 @@ function EmptyBellIcon() {
   );
 }
 
-function EmptyState() {
+function EmptyState({tab = 'All'}: {tab?: string}) {
+  const messages: Record<string, {icon: string; title: string; subtitle: string}> = {
+    'All': {icon: '🔔', title: 'No notifications yet', subtitle: 'When your bots trade or important events occur,\nyou\'ll see them here.'},
+    'Trades': {icon: '📊', title: 'No trade notifications', subtitle: 'Trade alerts will appear here when your\nbots execute BUY or SELL orders.'},
+    'System': {icon: '⚙️', title: 'No system notifications', subtitle: 'System updates, connection changes, and\naccount alerts will appear here.'},
+    'Alerts': {icon: '🚨', title: 'No alerts', subtitle: 'Price alerts, risk warnings, and important\nsignals will appear here.'},
+  };
+  const msg = messages[tab] || messages['All'];
   return (
     <View style={emptyStyles.container}>
-      <EmptyBellIcon />
-      <Text style={emptyStyles.title}>No notifications yet</Text>
-      <Text style={emptyStyles.subtitle}>
-        When your bots trade or important events occur,{'\n'}you'll see them here.
-      </Text>
+      <Text style={{fontSize: 48, marginBottom: 16}}>{msg.icon}</Text>
+      <Text style={emptyStyles.title}>{msg.title}</Text>
+      <Text style={emptyStyles.subtitle}>{msg.subtitle}</Text>
     </View>
   );
 }
 
 function timeAgo(dateStr: string | Date): string {
   const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
-  const diff = Date.now() - date.getTime();
+  const diff = Math.max(0, Date.now() - date.getTime());
   const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Just now';
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
@@ -113,9 +119,11 @@ export default function NotificationsScreen({navigation}: Props) {
     } catch {}
   }, []);
 
+  // Map tab names to DB enum values (Trades→trade, Alerts→alert, System→system)
+  const tabToType: Record<string, string> = { 'Trades': 'trade', 'Alerts': 'alert', 'System': 'system' };
   const filtered = notifications.filter(n => {
     if (activeTab === 'All') return true;
-    return n.type === activeTab.toLowerCase();
+    return n.type === tabToType[activeTab];
   });
 
   if (loading) {
@@ -151,7 +159,7 @@ export default function NotificationsScreen({navigation}: Props) {
         keyExtractor={item => item.id}
         contentContainerStyle={[styles.listContent, filtered.length === 0 && {flex: 1}]}
         showsVerticalScrollIndicator={false}
-        ListEmptyComponent={<EmptyState />}
+        ListEmptyComponent={<EmptyState tab={activeTab} />}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -167,11 +175,19 @@ export default function NotificationsScreen({navigation}: Props) {
             <TouchableOpacity
               style={[styles.notifCard, !item.read && styles.notifCardUnread, isHighPriority && styles.notifCardHigh]}
               activeOpacity={0.8}
-              onPress={() => !item.read && handleMarkRead(item.id)}>
+              onPress={() => {
+                if (!item.read) handleMarkRead(item.id);
+                // Navigate based on notification type
+                if (item.type === 'trade') {
+                  navigation.navigate('TradeHistory' as any);
+                } else if (item.type === 'alert') {
+                  navigation.navigate('TradeHistory' as any);
+                }
+              }}>
               {/* Top row */}
               <View style={styles.notifTop}>
                 <View style={styles.notifLeft}>
-                  {item.type === 'alert' && <Badge label="HIGH SIGNAL" variant="green" size="sm" />}
+                  {item.type === 'alert' && <Badge label="ALERT" variant="green" size="sm" />}
                   {item.type === 'system' && <Badge label="SYSTEM" variant="blue" size="sm" />}
                   {item.type === 'trade' && <Badge label="TRADE" variant="purple" size="sm" />}
                 </View>
@@ -185,11 +201,13 @@ export default function NotificationsScreen({navigation}: Props) {
               <Text style={styles.notifTitle}>{item.title}</Text>
               <Text style={styles.notifBody} numberOfLines={3}>{item.body}</Text>
 
-              {/* Actions */}
-              {item.type === 'alert' && (
+              {/* Action button — only for trade notifications */}
+              {item.type === 'trade' && (
                 <View style={styles.notifActions}>
-                  <TouchableOpacity style={styles.viewBtn}>
-                    <Text style={styles.viewBtnText}>View Trade Details</Text>
+                  <TouchableOpacity
+                    style={styles.viewBtn}
+                    onPress={() => navigation.navigate('TradeHistory' as any)}>
+                    <Text style={styles.viewBtnText}>View Trade History</Text>
                   </TouchableOpacity>
                 </View>
               )}

@@ -7,6 +7,7 @@ import { exchangeConnections } from '../../db/schema/exchanges.js';
 import { payments } from '../../db/schema/payments.js';
 import { trades } from '../../db/schema/trades.js';
 import { notifications } from '../../db/schema/notifications.js';
+import { sendNotification } from '../../lib/notify.js';
 import { trainingUploads, activityLog } from '../../db/schema/training.js';
 import { chatMessages } from '../../db/schema/chat.js';
 import { NotFoundError } from '../../lib/errors.js';
@@ -820,16 +821,21 @@ export async function sendMassNotification(data: {
 
   if (targetUsers.length === 0) return { sent: 0 };
 
-  // Batch insert notifications
-  const notifValues = targetUsers.map(u => ({
-    userId: u.id,
-    type: 'system' as const,
-    title: data.title,
-    body: data.body,
-    priority: data.priority || ('normal' as const),
-  }));
+  // Send notifications with push (in batches to avoid overload)
+  let sent = 0;
+  const BATCH = 20;
+  for (let i = 0; i < targetUsers.length; i += BATCH) {
+    const batch = targetUsers.slice(i, i + BATCH);
+    await Promise.all(batch.map(u =>
+      sendNotification(u.id, {
+        type: 'system',
+        title: data.title,
+        body: data.body,
+        priority: data.priority || 'normal',
+      }).catch(() => {})
+    ));
+    sent += batch.length;
+  }
 
-  await db.insert(notifications).values(notifValues);
-
-  return { sent: targetUsers.length };
+  return { sent };
 }
