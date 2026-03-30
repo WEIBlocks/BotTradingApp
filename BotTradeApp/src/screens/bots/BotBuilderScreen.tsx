@@ -679,6 +679,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontFamily: 'Inter-Regular',
+    marginBottom: 10,
     fontSize: 15,
     color: '#FFFFFF',
   },

@@ -378,6 +378,7 @@ export interface CandlestickChartProps {
   showMA?: boolean;
   style?: ViewStyle;
   label?: string;
+  livePrice?: number; // Override displayed price with real-time value
 }
 
 export default function CandlestickChart({
@@ -386,6 +387,7 @@ export default function CandlestickChart({
   height = 300,
   showTimeframes = true,
   timeframes,
+  livePrice,
   selectedTimeframe: externalTF,
   onTimeframeChange,
   showGrid = true,
@@ -464,7 +466,8 @@ export default function CandlestickChart({
 
   const lastCandle = visibleData[visibleData.length - 1];
   const firstCandle = visibleData[0];
-  const priceChange = lastCandle.close - firstCandle.open;
+  const displayPrice = livePrice ?? lastCandle.close;
+  const priceChange = displayPrice - firstCandle.open;
   const priceChangePercent = (
     (priceChange / (firstCandle.open || 1)) *
     100
@@ -479,12 +482,12 @@ export default function CandlestickChart({
       <View style={styles.priceRow}>
         <View style={styles.priceLeft}>
           <Text style={styles.currentPrice}>
-            {lastCandle.close >= 1000
-              ? lastCandle.close.toLocaleString('en-US', {
+            {displayPrice >= 1000
+              ? displayPrice.toLocaleString('en-US', {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })
-              : lastCandle.close.toFixed(2)}
+              : displayPrice.toFixed(2)}
           </Text>
           <View
             style={[

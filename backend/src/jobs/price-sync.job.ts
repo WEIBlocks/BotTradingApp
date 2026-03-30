@@ -1,6 +1,7 @@
 import ccxt from 'ccxt';
 import { redisConnection } from '../config/queue.js';
 import { db } from '../config/database.js';
+import { env } from '../config/env.js';
 import { exchangeAssets, exchangeConnections } from '../db/schema/exchanges.js';
 import { eq, sql } from 'drizzle-orm';
 
@@ -10,7 +11,10 @@ const BASE_STOCK_SYMBOLS = ['AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL'];
 
 const STABLECOINS = new Set(['USDT', 'USDC', 'USD', 'BUSD', 'DAI', 'TUSD', 'FDUSD']);
 
-const binance = new ccxt.binance({ enableRateLimit: true });
+const binance = new ccxt.binance({
+  enableRateLimit: true,
+  options: { defaultType: 'spot' },
+});
 
 // Lazy-init Alpaca client for market data (no auth needed for free tier snapshots)
 let alpacaClient: any = null;
@@ -19,8 +23,8 @@ async function getAlpacaClient() {
   try {
     const Alpaca = (await import('@alpacahq/alpaca-trade-api')).default;
     alpacaClient = new Alpaca({
-      keyId: process.env.ALPACA_API_KEY || 'PLACEHOLDER',
-      secretKey: process.env.ALPACA_API_SECRET || 'PLACEHOLDER',
+      keyId: env.ALPACA_API_KEY || 'PLACEHOLDER',
+      secretKey: env.ALPACA_API_SECRET || 'PLACEHOLDER',
       paper: true,
       usePolygon: false,
     });
@@ -240,21 +244,55 @@ export async function getPrice(symbol: string): Promise<{
 }
 
 /** Check if US stock market is currently open (cached) */
+/** Check if US stock market is currently open */
 export async function isUSMarketOpen(): Promise<boolean> {
+  // 1. Check Redis cache (set by price sync from Alpaca clock)
   const cached = await redisConnection.get('market:us:open').catch(() => null);
   if (cached !== null) return cached === '1';
-  // Fallback: check via Alpaca
+
+  // 2. Try Alpaca clock API
   try {
     const alpaca = await getAlpacaClient();
-    if (!alpaca) return false;
-    const clock = await alpaca.getClock();
-    return clock.is_open;
-  } catch {
-    return false;
-  }
+    if (alpaca) {
+      const clock = await alpaca.getClock();
+      await redisConnection.set('market:us:open', clock.is_open ? '1' : '0', 'EX', 60).catch(() => {});
+      return clock.is_open;
+    }
+  } catch {}
+
+  // 3. Fallback: pure time-based calculation (no API needed)
+  return isMarketOpenByTime();
+}
+
+/** Pure time-based US market hours check (no API dependency) */
+function isMarketOpenByTime(): boolean {
+  const now = new Date();
+  const utcH = now.getUTCHours();
+  const utcM = now.getUTCMinutes();
+  const utcDay = now.getUTCDay(); // 0=Sun, 6=Sat
+
+  // Weekend check
+  if (utcDay === 0 || utcDay === 6) return false;
+
+  // US market hours in UTC:
+  // During EDT (Mar-Nov): 13:30 - 20:00 UTC
+  // During EST (Nov-Mar): 14:30 - 21:00 UTC
+  // Use a safe range that covers both: 13:30 - 21:00 UTC
+  const currentMinutes = utcH * 60 + utcM;
+
+  // Determine if DST is active (approximate: 2nd Sunday of March to 1st Sunday of November)
+  const month = now.getUTCMonth(); // 0-11
+  const isDST = month >= 2 && month <= 9; // March(2) through October(9)
+
+  const openMinutes = isDST ? (13 * 60 + 30) : (14 * 60 + 30); // 13:30 or 14:30 UTC
+  const closeMinutes = isDST ? (20 * 60) : (21 * 60);           // 20:00 or 21:00 UTC
+
+  return currentMinutes >= openMinutes && currentMinutes < closeMinutes;
 }
 
 export async function startPriceSyncJob() {
+  console.log(`[PriceSync] Alpaca key: ${env.ALPACA_API_KEY ? env.ALPACA_API_KEY.slice(0, 6) + '...' : 'NOT SET'}`);
+  console.log(`[PriceSync] Alpaca secret: ${env.ALPACA_API_SECRET ? '***configured***' : 'NOT SET'}`);
   await processPriceSync();
   setInterval(processPriceSync, 30_000);
   console.log('[PriceSync] Job started - runs every 30s (crypto + stocks)');

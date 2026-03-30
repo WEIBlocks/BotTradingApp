@@ -158,7 +158,8 @@ export const botsService = {
   },
 
   /** Get bot decision history (live feed data) with pagination */
-  getDecisions(botId: string, limit = 50, offset = 0) {
-    return api.get<{data: {decisions: any[]; pagination: {total: number; hasMore: boolean}}}>(`/bots/${botId}/decisions?limit=${limit}&offset=${offset}`);
+  getDecisions(botId: string, limit = 50, offset = 0, mode?: 'paper' | 'live') {
+    const modeParam = mode ? `&mode=${mode}` : '';
+    return api.get<{data: {decisions: any[]; pagination: {total: number; hasMore: boolean}}}>(`/bots/${botId}/decisions?limit=${limit}&offset=${offset}${modeParam}`);
   },
 };

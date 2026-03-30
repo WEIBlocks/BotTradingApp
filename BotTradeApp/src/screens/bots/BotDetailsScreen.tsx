@@ -59,6 +59,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const [candleTF, setCandleTF] = useState('4h');
   const [candleLoading, setCandleLoading] = useState(false);
   const [tradeMarkers, setTradeMarkers] = useState<{action: string; price: number; timestamp: number}[]>([]);
+  const [livePrice, setLivePrice] = useState<number | undefined>(undefined);
 
   const DURATION_OPTIONS: {label: string; minutes?: number; days?: number}[] = [
     {label: '1 Min', minutes: 1},
@@ -109,8 +110,11 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         // Auto-select first trading pair for candlestick chart
         const pairs = botData.config?.pairs ?? ['BTC/USDT'];
         if (pairs.length > 0 && !selectedPair) {
+          const isStockBot = botData.category === 'Stocks';
+          const defaultTF = isStockBot ? '1d' : '4h';
           setSelectedPair(pairs[0]);
-          fetchCandles(pairs[0], '4h');
+          setCandleTF(defaultTF);
+          fetchCandles(pairs[0], defaultTF);
         }
       }
 
@@ -178,13 +182,19 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   // Fetch real candles + trade markers for a pair
   const fetchCandles = useCallback(async (pair: string, tf: string) => {
     setCandleLoading(true);
+    setLivePrice(undefined);
     try {
       const [candleRes, markerRes] = await Promise.all([
         api.get<{data: any[]}>(`/market/candles?symbol=${encodeURIComponent(pair)}&timeframe=${tf}&limit=100`),
         api.get<{data: any[]}>(`/bots/${route.params.botId}/trade-markers?symbol=${encodeURIComponent(pair)}&days=90`),
       ]);
-      setCandleData(Array.isArray(candleRes?.data) ? candleRes.data : []);
+      const candles = Array.isArray(candleRes?.data) ? candleRes.data : [];
+      setCandleData(candles);
       setTradeMarkers(Array.isArray(markerRes?.data) ? markerRes.data : []);
+      // Use the very last candle close as the "live" price (most recent available)
+      if (candles.length > 0) {
+        setLivePrice(candles[candles.length - 1].close);
+      }
     } catch {
       setCandleData([]);
       setTradeMarkers([]);
@@ -194,9 +204,11 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   }, [route.params.botId]);
 
   const handlePairSelect = useCallback((pair: string) => {
+    const isStockPair = !pair.includes('/');
+    const defaultTF = isStockPair ? '1d' : '4h';
     setSelectedPair(pair);
-    setCandleTF('4h');
-    fetchCandles(pair, '4h');
+    setCandleTF(defaultTF);
+    fetchCandles(pair, defaultTF);
   }, [fetchCandles]);
 
   const handleCandleTFChange = useCallback((tf: string) => {
@@ -509,7 +521,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                   <>
                     {/* Timeframe selector for candles */}
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 6, marginBottom: 10}}>
-                      {['1h', '4h', '1d', '1w'].map(tf => (
+                      {(bot.category === 'Stocks' ? ['1d', '1w'] : ['1h', '4h', '1d', '1w']).map(tf => (
                         <TouchableOpacity
                           key={tf}
                           activeOpacity={0.7}
@@ -531,6 +543,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                         close: c.close,
                         volume: c.volume,
                       }))}
+                      livePrice={livePrice}
                       width={CHART_W}
                       height={260}
                       showTimeframes={false}

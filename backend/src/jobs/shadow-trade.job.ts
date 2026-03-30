@@ -3,7 +3,7 @@ import { db } from '../config/database.js';
 import { shadowSessions, bots } from '../db/schema/bots';
 import { trades } from '../db/schema/trades';
 import { activityLog } from '../db/schema/training';
-import { getPrice } from './price-sync.job.js';
+import { getPrice, isUSMarketOpen } from './price-sync.job.js';
 import { processSymbol } from '../lib/bot-engine.js';
 
 interface BotConfig {
@@ -44,9 +44,25 @@ async function processShadowTrades() {
         }
 
         const config = (bot.config ?? {}) as BotConfig;
-        const pairs = config.pairs?.length ? config.pairs : ['BTC/USDT', 'ETH/USDT'];
+        const isStockBot = bot.category === 'Stocks';
+        const defaultPairs = isStockBot ? ['AAPL'] : ['BTC/USDT', 'ETH/USDT'];
+        const pairs = config.pairs?.length ? config.pairs : defaultPairs;
+
+        // Skip stock bots when US market is closed
+        if (isStockBot) {
+          const marketOpen = await isUSMarketOpen();
+          if (!marketOpen) {
+            console.log(`[ShadowTrade] Skipping ${bot.name} — US stock market closed`);
+            continue;
+          }
+        }
         const currentBalance = parseFloat(session.currentBalance ?? session.virtualBalance);
         const feeRate = session.enableRealisticFees ? 0.001 : 0;
+
+        // Pre-fetch fresh prices for all pairs (ensures cache is warm)
+        for (const pair of pairs) {
+          await getPrice(pair);
+        }
 
         let balanceDelta = 0;
         let newTrades = 0;

@@ -10,7 +10,7 @@ import { exchangeConnections } from '../db/schema/exchanges';
 import { processSymbol, executeLiveTrade } from '../lib/bot-engine.js';
 import { sendNotification } from '../lib/notify.js';
 import { refreshUserPortfolio } from './portfolio-update.job.js';
-import { isUSMarketOpen } from './price-sync.job.js';
+import { isUSMarketOpen, getPrice } from './price-sync.job.js';
 
 interface BotConfig {
   pairs?: string[];
@@ -106,6 +106,11 @@ async function processLiveTrades() {
             console.log(`[LiveTrade] Skipping ${bot.name} — US stock market closed`);
             continue;
           }
+        }
+
+        // Force fresh price fetch for each pair before trading (avoids stale cache)
+        for (const pair of pairs) {
+          await getPrice(pair); // ensures Redis has latest price (fetches live if cache expired)
         }
 
         for (const pair of pairs) {

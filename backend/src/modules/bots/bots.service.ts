@@ -879,11 +879,16 @@ export async function getBotDecisions(
   botId: string,
   limit = 50,
   offset = 0,
+  mode?: 'paper' | 'live',
 ) {
-  const whereCondition = and(
+  const conditions = [
     eq(botDecisions.botId, botId),
     eq(botDecisions.userId, userId),
-  );
+  ];
+  if (mode) {
+    conditions.push(eq(botDecisions.mode, mode));
+  }
+  const whereCondition = and(...conditions);
 
   // Get total count + action breakdown in one query
   const [stats] = await db

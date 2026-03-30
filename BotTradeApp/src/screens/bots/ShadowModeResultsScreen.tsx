@@ -7,7 +7,7 @@ import {RootStackParamList} from '../../types';
 import type {Bot} from '../../types';
 import {marketplaceApi} from '../../services/marketplace';
 import {botsService} from '../../services/bots';
-import CandlestickChart from '../../components/charts/CandlestickChart';
+import Svg, {Path as SvgPath, Line as SvgLine, Text as SvgText, Circle as SvgCircle, Defs, LinearGradient as SvgLinearGradient, Stop} from 'react-native-svg';
 import CheckCircleIcon from '../../components/icons/CheckCircleIcon';
 import XIcon from '../../components/icons/XIcon';
 import StarIcon from '../../components/icons/StarIcon';
@@ -18,7 +18,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ShadowModeResults'>;
 
 interface ShadowResultData {
   dailyPerformance: number[];
-  equityCurve: number[];
+  equityCurve: any[];
   outperformance: number;
   allocatedCapital: number;
   durationDays: number;
@@ -137,7 +137,26 @@ export default function ShadowModeResultsScreen({navigation, route}: Props) {
   }, [botId, reviewRating, reviewText]);
 
   const botName = bot?.name ?? 'Bot';
-  const equityData = shadowData?.equityCurve ?? bot?.equityData ?? [];
+  const rawEquity = shadowData?.equityCurve ?? bot?.equityData ?? [];
+
+  // Convert flat number array to candlestick format for the chart
+  const equityData = rawEquity.map((val: any, i: number) => {
+    // If already an object (from bot stats), pass through
+    if (typeof val === 'object' && val !== null && val.close !== undefined) return val;
+    // Convert flat number (balance) to candlestick point
+    const price = typeof val === 'number' ? val : Number(val) || 0;
+    const prev = i > 0 ? (typeof rawEquity[i - 1] === 'number' ? rawEquity[i - 1] : Number(rawEquity[i - 1]) || price) : price;
+    const startDate = shadowData?.allocatedCapital ? new Date(Date.now() - (rawEquity.length - i) * 86400000) : new Date();
+    return {
+      time: startDate.getTime(),
+      open: prev,
+      high: Math.max(price, prev) * 1.001,
+      low: Math.min(price, prev) * 0.999,
+      close: price,
+      volume: Math.abs(price - prev) * 10 || 100,
+    };
+  }).filter((d: any) => d.close > 0);
+
   const dailyPerf = shadowData?.dailyPerformance ?? [];
   const outperformance = shadowData?.outperformance ?? 0;
   const allocatedCapital = shadowData?.allocatedCapital ?? 0;
@@ -162,21 +181,35 @@ export default function ShadowModeResultsScreen({navigation, route}: Props) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-        {/* Success badge */}
+        {/* Status badge */}
         <View style={styles.heroSection}>
-          <Animated.View style={[styles.checkCircle, checkStyle]}>
-            <View style={styles.checkInner}>
-              <CheckCircleIcon size={56} color="#10B981" />
+          {isRunning ? (
+            <View style={[styles.checkCircle, {backgroundColor: '#3B82F615'}]}>
+              <View style={styles.checkInner}>
+                <Text style={{fontSize: 48}}>🤖</Text>
+              </View>
             </View>
-          </Animated.View>
+          ) : (
+            <Animated.View style={[styles.checkCircle, checkStyle]}>
+              <View style={styles.checkInner}>
+                <CheckCircleIcon size={56} color="#10B981" />
+              </View>
+            </Animated.View>
+          )}
           <Text style={styles.heroTitle}>
-            {isRunning ? 'Shadow Mode Running' : 'Shadow Period Complete!'}
+            {isRunning ? 'Shadow Mode Active' : 'Shadow Period Complete!'}
           </Text>
           <Text style={styles.heroSubtitle}>
             {isRunning
-              ? `${botName} is running with virtual funds. Stats update in real-time.`
+              ? `${botName} is analyzing markets and trading with virtual funds.`
               : `${botName} ran for ${durationDays} days with virtual funds. Here are your results:`}
           </Text>
+          {isRunning && (
+            <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 6}}>
+              <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: '#3B82F6'}} />
+              <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#3B82F6'}}>Live — auto-updating every 20s</Text>
+            </View>
+          )}
         </View>
 
         <Animated.View style={contentStyle}>
@@ -196,21 +229,86 @@ export default function ShadowModeResultsScreen({navigation, route}: Props) {
             </View>
           </View>
 
-          {/* Performance chart */}
+          {/* Performance chart — Line chart from real equity data */}
           <View style={styles.chartSection}>
-            <CandlestickChart
-              data={equityData}
-              width={width - 40}
-              height={220}
-              label="PORTFOLIO GROWTH"
-              timeframes={['1D', '1W', '2W', 'ALL']}
-              showGrid
-              showCrosshair
-              showYLabels
-              showXLabels
-              showVolume
-              showMA
-            />
+            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.4)', letterSpacing: 1, marginBottom: 12}}>PORTFOLIO GROWTH</Text>
+            {(() => {
+              // Extract flat balance values from equityData
+              const values = equityData.map((d: any) => typeof d === 'number' ? d : (d?.close ?? d?.price ?? 0)).filter((v: number) => v > 0);
+              if (values.length < 2) return <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)', textAlign: 'center', paddingVertical: 40}}>Not enough data yet — trades will build the chart</Text>;
+
+              const chartW = width - 72;
+              const chartH = 180;
+              const padTop = 20;
+              const padBottom = 25;
+              const drawH = chartH - padTop - padBottom;
+
+              const minVal = Math.min(...values);
+              const maxVal = Math.max(...values);
+              const range = maxVal - minVal || 1;
+
+              const points = values.map((v: number, i: number) => ({
+                x: (i / (values.length - 1)) * chartW,
+                y: padTop + drawH - ((v - minVal) / range) * drawH,
+              }));
+
+              const linePath = points.map((p: any, i: number) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+              const areaPath = linePath + ` L${points[points.length - 1].x.toFixed(1)},${chartH - padBottom} L${points[0].x.toFixed(1)},${chartH - padBottom} Z`;
+
+              const isPositive = values[values.length - 1] >= values[0];
+              const lineColor = isPositive ? '#10B981' : '#EF4444';
+              const lastVal = values[values.length - 1];
+              const firstVal = values[0];
+              const changePct = ((lastVal - firstVal) / firstVal * 100).toFixed(2);
+
+              // Y-axis labels (4 ticks)
+              const yLabels = [0, 1, 2, 3].map(i => {
+                const val = minVal + (range * i / 3);
+                return { y: padTop + drawH - (drawH * i / 3), label: val >= 1000 ? `$${(val / 1000).toFixed(1)}k` : `$${val.toFixed(0)}` };
+              });
+
+              return (
+                <View>
+                  <Svg width={chartW + 32} height={chartH} style={{marginLeft: -4}}>
+                    <Defs>
+                      <SvgLinearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                        <Stop offset="0" stopColor={lineColor} stopOpacity="0.15" />
+                        <Stop offset="1" stopColor={lineColor} stopOpacity="0.01" />
+                      </SvgLinearGradient>
+                    </Defs>
+
+                    {/* Grid lines */}
+                    {yLabels.map((yl, i) => (
+                      <SvgLine key={i} x1={0} y1={yl.y} x2={chartW} y2={yl.y} stroke="rgba(255,255,255,0.06)" strokeWidth={1} />
+                    ))}
+
+                    {/* Y labels */}
+                    {yLabels.map((yl, i) => (
+                      <SvgText key={`t${i}`} x={chartW + 4} y={yl.y + 4} fill="rgba(255,255,255,0.3)" fontSize={9} fontFamily="Inter-Regular">{yl.label}</SvgText>
+                    ))}
+
+                    {/* Area fill */}
+                    <SvgPath d={areaPath} fill="url(#areaGrad)" />
+
+                    {/* Line */}
+                    <SvgPath d={linePath} fill="none" stroke={lineColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+
+                    {/* End dot */}
+                    <SvgCircle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r={4} fill={lineColor} />
+                    <SvgCircle cx={points[points.length - 1].x} cy={points[points.length - 1].y} r={7} fill={lineColor} opacity={0.2} />
+                  </Svg>
+
+                  {/* Summary below chart */}
+                  <View style={{flexDirection: 'row', justifyContent: 'space-between', marginTop: 8}}>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)'}}>Start: ${firstVal.toLocaleString()}</Text>
+                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 11, color: lineColor}}>
+                      {isPositive ? '+' : ''}{changePct}%
+                    </Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)'}}>Now: ${lastVal.toLocaleString()}</Text>
+                  </View>
+                </View>
+              );
+            })()}
           </View>
 
           {/* Daily performance grid */}

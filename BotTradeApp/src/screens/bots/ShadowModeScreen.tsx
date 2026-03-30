@@ -180,14 +180,28 @@ export default function ShadowModeScreen({navigation}: Props) {
 
         {sessions.length === 0 && (
           <View style={styles.emptyContainer}>
+            <Text style={{fontSize: 48, marginBottom: 16}}>🧪</Text>
             <Text style={styles.emptyTitle}>No shadow sessions yet</Text>
             <Text style={styles.emptySubtitle}>
-              Go to the Marketplace and tap "Shadow Mode" on any bot to start a virtual trial.
+              Test any bot with virtual money before going live.{'\n'}No risk — just learning.
             </Text>
+            <TouchableOpacity
+              style={{backgroundColor: '#10B981', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, marginTop: 16}}
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate('AllBots' as any)}>
+              <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'}}>Browse Bots</Text>
+            </TouchableOpacity>
           </View>
         )}
 
-        {sessions.map(session => {
+        {/* Sort: running first, then paused, then completed/cancelled, newest first within each */}
+        {[...sessions].sort((a, b) => {
+          const statusOrder: Record<string, number> = {running: 0, paused: 1, completed: 2, cancelled: 3};
+          const aOrder = statusOrder[a.status] ?? 4;
+          const bOrder = statusOrder[b.status] ?? 4;
+          if (aOrder !== bOrder) return aOrder - bOrder;
+          return new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime();
+        }).map(session => {
           const initial = parseFloat(session.virtualBalance) || 10000;
           const current = parseFloat(session.currentBalance) || initial;
           const elapsedMs = Math.max(0, Date.now() - new Date(session.startedAt).getTime());

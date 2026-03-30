@@ -52,6 +52,7 @@ export type RootStackParamList = {
     strategyData?: {
       name?: string;
       strategy?: string;
+      assetClass?: string;
       pairs?: string[];
       riskLevel?: string;
       stopLoss?: number;

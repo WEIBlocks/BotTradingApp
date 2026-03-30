@@ -18,7 +18,7 @@ export class AlpacaAdapter implements ExchangeAdapter {
     this.client = new Alpaca({
       keyId: credentials.apiKey,
       secretKey: credentials.apiSecret,
-      paper: credentials.sandbox ?? true, // default to paper for safety
+      paper: credentials.sandbox !== undefined ? credentials.sandbox : true, // explicit sandbox control
       usePolygon: false,
     });
   }

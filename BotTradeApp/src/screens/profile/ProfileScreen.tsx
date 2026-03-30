@@ -65,16 +65,38 @@ function SwordsMenuIcon({size = 18, color = 'rgba(255,255,255,0.6)'}: {size?: nu
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
+function ShadowMenuIcon({size = 18, color = 'rgba(255,255,255,0.6)'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+function ExchangeMenuIcon({size = 18, color = 'rgba(255,255,255,0.6)'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M16 3l4 4-4 4M20 7H4M8 21l-4-4 4-4M4 17h16" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+function BotMenuIcon({size = 18, color = 'rgba(255,255,255,0.6)'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 2a2 2 0 012 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 017 7v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3a7 7 0 017-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 012-2z" stroke={color} strokeWidth={1.5} />
+      <Path d="M9 14h.01M15 14h.01" stroke={color} strokeWidth={2} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 const SETTINGS = [
   {icon: BellIcon, label: 'Notifications', screen: 'Notifications'},
   {icon: WalletIcon, label: 'Wallet & Funds', screen: 'WalletFunds'},
-  {icon: WalletIcon, label: 'Connected Exchanges', screen: 'ExchangeManage'},
-  {icon: GearIcon, label: 'Subscription', screen: 'Subscription'},
-  {icon: GearIcon, label: 'Trading Room', screen: 'TradingRoom'},
-  {icon: GearIcon, label: 'Creator Studio', screen: 'CreatorStudio'},
-  {icon: SwordsMenuIcon, label: 'Battle History', screen: 'ArenaHistory'},
-  // Refer a Friend — commented out until referral rewards system is fully integrated
-  // {icon: GiftIcon, label: 'Refer a Friend', screen: 'Referral'},
+  {icon: ExchangeMenuIcon, label: 'Connected Exchanges', screen: 'ExchangeManage'},
+  {icon: ShadowMenuIcon, label: 'Shadow Mode', screen: 'ShadowMode'},
+  {icon: BotMenuIcon, label: 'Creator Studio', screen: 'CreatorStudio'},
+  {icon: SwordsMenuIcon, label: 'Battle Arena', screen: 'ArenaHistory'},
   {icon: GearIcon, label: 'Settings', screen: 'Settings'},
 ];
 

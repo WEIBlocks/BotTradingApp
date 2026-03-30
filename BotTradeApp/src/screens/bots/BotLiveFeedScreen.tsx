@@ -13,6 +13,7 @@ import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
 import {RootStackParamList} from '../../types';
 import {botsService} from '../../services/bots';
+import {marketplaceApi} from '../../services/marketplace';
 import {API_BASE_URL} from '../../config/api';
 import {storage} from '../../services/storage';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
@@ -37,11 +38,64 @@ interface BotDecision {
 
 const POLL_INTERVAL = 15000; // 15 seconds
 
+/** Countdown to next US market open */
+function MarketCountdown() {
+  const [timeLeft, setTimeLeft] = useState('');
+
+  useEffect(() => {
+    const calc = () => {
+      const now = new Date();
+      const month = now.getUTCMonth();
+      const isDST = month >= 2 && month <= 9;
+      const OPEN_H = isDST ? 13 : 14; // 9:30 AM ET in UTC
+      const OPEN_M = 30;
+
+      // Next market open
+      const nextOpen = new Date(now);
+      nextOpen.setUTCHours(OPEN_H, OPEN_M, 0, 0);
+
+      // If past today's open, move to tomorrow
+      if (now.getTime() >= nextOpen.getTime()) {
+        nextOpen.setUTCDate(nextOpen.getUTCDate() + 1);
+      }
+
+      // Skip weekends
+      while (nextOpen.getUTCDay() === 0 || nextOpen.getUTCDay() === 6) {
+        nextOpen.setUTCDate(nextOpen.getUTCDate() + 1);
+      }
+
+      const diffMs = nextOpen.getTime() - now.getTime();
+      if (diffMs <= 0) { setTimeLeft('Opening soon...'); return; }
+
+      const hours = Math.floor(diffMs / 3600000);
+      const mins = Math.floor((diffMs % 3600000) / 60000);
+
+      // Convert to local time for display
+      const localH = nextOpen.getHours();
+      const localM = nextOpen.getMinutes();
+      const ampm = localH >= 12 ? 'PM' : 'AM';
+      const h12 = localH % 12 || 12;
+      const localStr = `${h12}:${localM.toString().padStart(2, '0')} ${ampm}`;
+
+      setTimeLeft(`Opens in ${hours}h ${mins}m (${localStr} your time)`);
+    };
+
+    calc();
+    const interval = setInterval(calc, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!timeLeft) return null;
+  return <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(239,68,68,0.7)', marginTop: 2}}>{timeLeft}</Text>;
+}
+
 export default function BotLiveFeedScreen({navigation, route}: Props) {
   const {botId, botName, mode} = route.params as {botId: string; botName: string; mode: string};
 
   const [decisions, setDecisions] = useState<BotDecision[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isStockBot, setIsStockBot] = useState(false);
+  const [marketOpen, setMarketOpen] = useState<boolean | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [connected, setConnected] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
@@ -65,10 +119,41 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
     return () => pulse.stop();
   }, []);
 
-  // Fetch decisions via REST (primary data source)
+  // Detect bot category and check market status via time calculation
+  useEffect(() => {
+    marketplaceApi.getBotDetails(botId).then((bot: any) => {
+      if (bot?.category === 'Stocks') {
+        setIsStockBot(true);
+      }
+    }).catch(() => {});
+  }, [botId]);
+
+  // Market hours check (pure time-based, no API needed)
+  useEffect(() => {
+    if (!isStockBot) return;
+    const checkMarket = () => {
+      const now = new Date();
+      const utcH = now.getUTCHours();
+      const utcM = now.getUTCMinutes();
+      const utcDay = now.getUTCDay();
+      if (utcDay === 0 || utcDay === 6) { setMarketOpen(false); return; }
+      const currentMin = utcH * 60 + utcM;
+      const month = now.getUTCMonth();
+      const isDST = month >= 2 && month <= 9;
+      const openMin = isDST ? 13 * 60 + 30 : 14 * 60 + 30;
+      const closeMin = isDST ? 20 * 60 : 21 * 60;
+      setMarketOpen(currentMin >= openMin && currentMin < closeMin);
+    };
+    checkMarket();
+    const interval = setInterval(checkMarket, 30000);
+    return () => clearInterval(interval);
+  }, [isStockBot]);
+
+  // Fetch decisions via REST (primary data source, filtered by mode)
   const fetchDecisions = useCallback(async () => {
     try {
-      const res: any = await botsService.getDecisions(botId, 50, 0);
+      const feedMode = mode === 'live' ? 'live' : 'paper';
+      const res: any = await botsService.getDecisions(botId, 50, 0, feedMode as 'paper' | 'live');
       // Handle both old format (array) and new format ({decisions, pagination})
       const items: BotDecision[] = Array.isArray(res?.data?.decisions) ? res.data.decisions
         : Array.isArray(res?.data) ? res.data : [];
@@ -101,7 +186,8 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const res: any = await botsService.getDecisions(botId, 50, decisions.length);
+      const feedMode = mode === 'live' ? 'live' : 'paper';
+      const res: any = await botsService.getDecisions(botId, 50, decisions.length, feedMode as 'paper' | 'live');
       const items: BotDecision[] = Array.isArray(res?.data?.decisions) ? res.data.decisions
         : Array.isArray(res?.data) ? res.data : [];
       const pagination = res?.data?.pagination;
@@ -359,6 +445,21 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
         </View>
       </View>
 
+      {/* Market Status Banner (stock bots only) */}
+      {isStockBot && marketOpen !== null && (
+        <View style={[styles.marketBanner, {backgroundColor: marketOpen ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)', borderColor: marketOpen ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'}]}>
+          <View style={[styles.marketDot, {backgroundColor: marketOpen ? '#10B981' : '#EF4444'}]} />
+          <View style={{flex: 1}}>
+            <Text style={[styles.marketText, {color: marketOpen ? '#10B981' : '#EF4444'}]}>
+              {marketOpen ? 'US Market Open — Bot is actively trading' : 'US Market Closed'}
+            </Text>
+            {!marketOpen && (
+              <MarketCountdown />
+            )}
+          </View>
+        </View>
+      )}
+
       {/* Decision Feed */}
       {loading ? (
         <View style={styles.loadingContainer}>
@@ -368,11 +469,13 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
       ) : decisions.length === 0 ? (
         <View style={styles.emptyContainer}>
           <Text style={styles.emptyIcon}>🤖</Text>
-          <Text style={styles.emptyTitle}>Waiting for First Decision</Text>
+          <Text style={styles.emptyTitle}>Waiting for Decisions</Text>
           <Text style={styles.emptySubtitle}>
-            The bot engine analyzes markets every 2 minutes.{'\n'}
-            Make sure you have an active shadow session{'\n'}
-            running for this bot.
+            {isStockBot && marketOpen === false
+              ? 'US stock market is closed. The bot will start\nmaking decisions when market opens (9:30 AM ET).'
+              : mode === 'live'
+                ? 'The bot engine analyzes markets every 2 minutes.\nLive decisions will appear here once the bot acts.'
+                : 'The bot engine analyzes markets every 2 minutes.\nMake sure you have an active shadow session running.'}
           </Text>
           <TouchableOpacity
             style={styles.refreshBtn}
@@ -431,6 +534,20 @@ const styles = StyleSheet.create({
   modeBadge: {paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4},
   modeBadgeText: {fontSize: 9, fontFamily: 'Inter-Bold', letterSpacing: 0.5},
 
+  marketBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 8,
+  },
+  marketDot: {width: 8, height: 8, borderRadius: 4},
+  marketText: {fontFamily: 'Inter-Medium', fontSize: 12, flex: 1},
   statsBar: {
     flexDirection: 'row',
     alignItems: 'center',

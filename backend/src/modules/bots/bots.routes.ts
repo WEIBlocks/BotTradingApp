@@ -288,8 +288,8 @@ export async function botsRoutes(app: FastifyInstance) {
     },
   }, async (request, reply) => {
     const { id } = request.params;
-    const { limit, offset } = request.query as { limit?: number; offset?: number };
-    const result = await getBotDecisions(request.user.userId, id, limit, offset);
+    const { limit, offset, mode } = request.query as { limit?: number; offset?: number; mode?: string };
+    const result = await getBotDecisions(request.user.userId, id, limit, offset, mode as 'paper' | 'live' | undefined);
     return { data: result };
   });
 

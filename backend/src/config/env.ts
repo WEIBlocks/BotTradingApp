@@ -28,6 +28,13 @@ const envSchema = z.object({
   BINANCE_API_SECRET: z.string().default(''),
   BINANCE_TESTNET: z.coerce.boolean().default(true),
 
+  // Alpaca (Stock Trading)
+  ALPACA_API_KEY: z.string().default(''),
+  ALPACA_API_SECRET: z.string().default(''),
+
+  // Twelve Data (Stock candles fallback)
+  TWELVE_DATA_API_KEY: z.string().default(''),
+
   EXCHANGE_ENCRYPTION_KEY: z.string().min(32),
 
   GOOGLE_CLIENT_ID: z.string().default(''),
