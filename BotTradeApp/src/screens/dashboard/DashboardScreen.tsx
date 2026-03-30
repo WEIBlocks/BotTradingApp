@@ -236,10 +236,16 @@ function CoinIcon({symbol, size = 38}: {symbol: string; size?: number}) {
 }
 
 function formatTimeAgo(date: Date): string {
-  const diff = (Date.now() - date.getTime()) / 1000;
+  if (!date || isNaN(date.getTime())) return '';
+  const ts = date.getTime();
+  if (ts < 1000000000000) return ''; // before ~2001 = invalid/epoch
+  const diff = (Date.now() - ts) / 1000;
+  if (diff < 0) return '';
+  if (diff < 60) return 'now';
   if (diff < 3600) return `${Math.round(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.round(diff / 3600)}h ago`;
-  return `${Math.round(diff / 86400)}d ago`;
+  if (diff < 604800) return `${Math.round(diff / 86400)}d ago`;
+  return date.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
 }
 
 // ─── Screen ───────────────────────────────────────────────────────────────────
@@ -553,14 +559,40 @@ export default function DashboardScreen() {
                     </View>
                   )}
                   {isShadow && (
-                    <TouchableOpacity
-                      style={[styles.botActionBtn, {backgroundColor: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.3)', borderWidth: 1, borderRadius: 8, padding: 6}]}
-                      onPress={(e) => { e.stopPropagation(); navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: 'paper'}); }}
-                      activeOpacity={0.7}>
-                      <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
-                        <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill="#3B82F6" />
-                      </Svg>
-                    </TouchableOpacity>
+                    <View style={styles.botActions}>
+                      <TouchableOpacity
+                        style={[styles.botActionBtn, {backgroundColor: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.3)', borderWidth: 1}]}
+                        onPress={(e) => { e.stopPropagation(); navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: 'paper'}); }}
+                        activeOpacity={0.7}>
+                        <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                          <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill="#3B82F6" />
+                        </Svg>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.botActionBtn}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          const session = shadowSessions.find(s => s.botId === bot.id && s.status === 'running');
+                          if (session) {
+                            botsService.pauseShadowSession(session.id).then(fetchData).catch(() => showAlert('Error', 'Failed to pause shadow.'));
+                          }
+                        }}
+                        activeOpacity={0.7}>
+                        <PauseIcon size={13} />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.botActionBtn, styles.botStopBtn]}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          const session = shadowSessions.find(s => s.botId === bot.id && s.status === 'running');
+                          if (session) {
+                            botsService.stopShadowSession(session.id).then(fetchData).catch(() => showAlert('Error', 'Failed to stop shadow.'));
+                          }
+                        }}
+                        activeOpacity={0.7}>
+                        <StopSquareIcon size={12} />
+                      </TouchableOpacity>
+                    </View>
                   )}
                   {isPaused && (
                     <TouchableOpacity
@@ -593,9 +625,13 @@ export default function DashboardScreen() {
               </View>
             )}
             {recentTrades.map((trade: Trade, idx: number) => {
+              // console.log("check the trades ++++++ ", trade);
               const isBuy = trade.side === 'BUY';
-              const coin = trade.symbol.split('/')[0];
+              const coin = trade.symbol.split('/')[0] || trade.symbol;
               const isLast = idx === recentTrades.length - 1;
+              const tradeValue = trade.amount > 0 ? trade.amount * trade.price : trade.price;
+              const modeLabel = trade.mode === 'arena' ? 'ARENA' : trade.mode === 'shadow' ? 'SHADOW' : trade.mode === 'live' ? 'LIVE' : '';
+              const modeColor = trade.mode === 'arena' ? '#8B5CF6' : trade.mode === 'shadow' ? '#3B82F6' : '#10B981';
               return (
                 <View
                   key={trade.id}
@@ -608,19 +644,26 @@ export default function DashboardScreen() {
                           {trade.side}
                         </Text>
                       </View>
-                      <Text style={styles.tradeSymbol}>{trade.symbol.split('/')[0]}</Text>
+                      <Text style={styles.tradeSymbol}>{coin}</Text>
+                      {modeLabel ? (
+                        <View style={{backgroundColor: `${modeColor}15`, paddingHorizontal: 5, paddingVertical: 1, borderRadius: 3, marginLeft: 4}}>
+                          <Text style={{fontFamily: 'Inter-Bold', fontSize: 8, color: modeColor}}>{modeLabel}</Text>
+                        </View>
+                      ) : null}
                     </View>
                     <Text style={styles.tradeMeta}>
-                      Bot: {trade.botName} · {formatTimeAgo(trade.timestamp)}
+                      {trade.botName} · {formatTimeAgo(trade.timestamp)}
                     </Text>
                   </View>
                   <View style={styles.tradeRight}>
                     <Text style={styles.tradeAmount}>
-                      ${(trade.amount * trade.price).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                      ${tradeValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                     </Text>
-                    <Text style={styles.tradeQty}>
-                      {trade.amount < 1 ? trade.amount.toFixed(4) : trade.amount.toFixed(2)} {coin}
-                    </Text>
+                    {trade.amount > 0 && (
+                      <Text style={styles.tradeQty}>
+                        {trade.amount < 1 ? trade.amount.toFixed(4) : trade.amount.toFixed(2)} {coin}
+                      </Text>
+                    )}
                   </View>
                 </View>
               );

@@ -86,11 +86,15 @@ function rankLabel(rank: number): string {
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function ArenaLiveScreen({navigation, route}: Props) {
-  const {gladiatorIds, sessionId: existingSessionId, durationSeconds} = route.params;
+  const {gladiatorIds, sessionId: existingSessionId, durationSeconds, mode: arenaMode, virtualBalance: arenaBal} = route.params as any;
   const {alert: showAlert} = useToast();
   const [session, setSession] = useState<ArenaSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [exitModalVisible, setExitModalVisible] = useState(false);
+  const [decisionFilter, setDecisionFilter] = useState<string | null>(null);
+  const [decisionPage, setDecisionPage] = useState(0);
+  const [feedTab, setFeedTab] = useState<'decisions' | 'trades'>('decisions');
+  const DECISIONS_PER_PAGE = 10;
   const sessionIdRef = useRef<string | null>(existingSessionId ?? null);
   const allowLeaveRef = useRef(false);
 
@@ -106,7 +110,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
         .catch(() => showAlert('Error', 'Failed to load arena session.'))
         .finally(() => setLoading(false));
     } else {
-      arenaApi.createSession(gladiatorIds, durationSeconds)
+      arenaApi.createSession(gladiatorIds, durationSeconds, arenaMode ?? 'shadow', arenaBal ?? 10000)
         .then(s => {
           sessionIdRef.current = s.id;
           setSession(s);
@@ -268,7 +272,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
         <View style={styles.statusSection}>
           <Text style={styles.statusLabel}>STATUS</Text>
           <View style={styles.statusRow}>
-            <Text style={styles.statusTitle}>Simulating: {statusText}</Text>
+            <Text style={styles.statusTitle}>Running: {statusText}</Text>
             {/* LIVE BATTLE pill */}
             <View style={styles.livePill}>
               <View style={styles.liveDot} />
@@ -314,6 +318,16 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
           const returnSign = (g.currentReturn || 0) >= 0 ? '+' : '';
           const accentColor = LINE_COLORS[activeGladiators.findIndex(a => a.id === g.id)] || '#10B981';
 
+          // Count decisions per bot — holds are trimmed to 20 in backend, so estimate total
+          const botLog = (g as any).decisionLog || [];
+          const botBuys = botLog.filter((d: any) => d.action === 'BUY').length;
+          const botSells = botLog.filter((d: any) => d.action === 'SELL').length;
+          const loggedHolds = botLog.filter((d: any) => d.action === 'HOLD').length;
+          // Total decisions = totalTrades (all BUY+SELL from engine) + estimated holds
+          const totalFromEngine = (g.totalTrades ?? 0);
+          const estimatedHolds = Math.max(loggedHolds, botLog.length - botBuys - botSells);
+          const holdsAreTrimmed = loggedHolds >= 20 && totalFromEngine < botLog.length;
+
           return (
             <View key={g.id} style={[styles.leaderRow, isFirst && styles.leaderRowFirst]}>
               {/* Rank + accent line below it */}
@@ -327,10 +341,15 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
               {/* Avatar */}
               <BotFaceAvatar color={g.avatarColor || accentColor} size={44} />
 
-              {/* Name + strategy */}
-              <View style={styles.leaderInfo}>
+              {/* Name + strategy + stats */}
+              <View style={[styles.leaderInfo, {flex: 1}]}>
                 <Text style={styles.leaderName}>{g.name}</Text>
                 <Text style={styles.leaderStrategy}>{g.strategy.toUpperCase()}</Text>
+                <View style={{flexDirection: 'row', gap: 4, marginTop: 3, flexWrap: 'nowrap'}}>
+                  <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#10B981'}}>B:{botBuys}</Text>
+                  <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#EF4444'}}>S:{botSells}</Text>
+                  <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#6B7280'}}>H:{loggedHolds >= 20 ? '20+' : loggedHolds}</Text>
+                </View>
               </View>
 
               {/* Return + trophy */}
@@ -338,18 +357,189 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
                 <Text style={[styles.returnValue, {color: returnColor}]}>
                   {returnSign}{(g.currentReturn || 0).toFixed(2)}%
                 </Text>
+                {g.totalPnl != null && g.totalPnl !== 0 && (
+                  <Text style={{fontFamily: 'Inter-Medium', fontSize: 10, color: returnColor, textAlign: 'right'}}>
+                    {g.totalPnl >= 0 ? '+' : ''}${g.totalPnl.toFixed(2)}
+                  </Text>
+                )}
                 {isFirst && (
-                  <>
-                    <View style={styles.returnSubRow}>
-                      <Text style={styles.returnSubLabel}>SIMULATED P&amp;L</Text>
-                      <TrophySmall />
-                    </View>
-                  </>
+                  <View style={styles.returnSubRow}>
+                    <Text style={styles.returnSubLabel}>LEADING</Text>
+                    <TrophySmall />
+                  </View>
                 )}
               </View>
             </View>
           );
         })}
+
+        {/* ── LIVE DECISIONS FEED ── */}
+        {activeGladiators.length > 0 && (
+          <>
+            {/* Tab toggle: Decisions vs Trades */}
+            <View style={{flexDirection: 'row', marginHorizontal: 16, marginBottom: 12, backgroundColor: '#111827', borderRadius: 10, padding: 3}}>
+              <TouchableOpacity
+                style={{flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: feedTab === 'decisions' ? '#1F2937' : 'transparent'}}
+                onPress={() => { setFeedTab('decisions'); setDecisionPage(0); }}>
+                <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: feedTab === 'decisions' ? '#FFFFFF' : 'rgba(255,255,255,0.4)'}}>📋 Decisions</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: feedTab === 'trades' ? '#1F2937' : 'transparent'}}
+                onPress={() => { setFeedTab('trades'); setDecisionPage(0); }}>
+                <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: feedTab === 'trades' ? '#FFFFFF' : 'rgba(255,255,255,0.4)'}}>💰 Trades</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Bot filter tabs */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 12, paddingHorizontal: 16}}>
+              <TouchableOpacity
+                style={[styles.decisionFilterChip, !decisionFilter && styles.decisionFilterChipActive]}
+                onPress={() => setDecisionFilter(null)}>
+                <Text style={[styles.decisionFilterText, !decisionFilter && styles.decisionFilterTextActive]}>All Bots</Text>
+              </TouchableOpacity>
+              {activeGladiators.map(g => (
+                <TouchableOpacity
+                  key={g.id}
+                  style={[styles.decisionFilterChip, decisionFilter === g.id && styles.decisionFilterChipActive]}
+                  onPress={() => setDecisionFilter(g.id === decisionFilter ? null : g.id)}>
+                  <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: g.avatarColor || '#6C63FF', marginRight: 6}} />
+                  <Text style={[styles.decisionFilterText, decisionFilter === g.id && styles.decisionFilterTextActive]}>{g.name}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* Overall stats bar */}
+            {(() => {
+              const allDecs: any[] = [];
+              for (const g of activeGladiators) {
+                const log = (g as any).decisionLog;
+                if (Array.isArray(log)) allDecs.push(...log);
+              }
+              const totalB = allDecs.filter(d => d.action === 'BUY').length;
+              const totalS = allDecs.filter(d => d.action === 'SELL').length;
+              const loggedH = allDecs.filter(d => d.action === 'HOLD').length;
+              // Holds are trimmed per bot (max 20 each), so show 100+ if at limit
+              const botsAtHoldLimit = activeGladiators.filter(g => {
+                const log = (g as any).decisionLog || [];
+                return log.filter((d: any) => d.action === 'HOLD').length >= 20;
+              }).length;
+              const holdsDisplay = botsAtHoldLimit > 0 ? `${loggedH}+` : `${loggedH}`;
+              const totalDisplay = botsAtHoldLimit > 0 ? `${totalB + totalS}+${loggedH}` : `${allDecs.length}`;
+              return (
+                <View style={{flexDirection: 'row', marginHorizontal: 16, marginBottom: 12, backgroundColor: '#111827', borderRadius: 10, padding: 10, gap: 4}}>
+                  <View style={{flex: 1, alignItems: 'center'}}>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#10B981'}}>{totalB}</Text>
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#10B981'}}>Buys</Text>
+                  </View>
+                  <View style={{width: 1, backgroundColor: '#1F2937'}} />
+                  <View style={{flex: 1, alignItems: 'center'}}>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#EF4444'}}>{totalS}</Text>
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#EF4444'}}>Sells</Text>
+                  </View>
+                  <View style={{width: 1, backgroundColor: '#1F2937'}} />
+                  <View style={{flex: 1, alignItems: 'center'}}>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#6B7280'}}>{holdsDisplay}</Text>
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#6B7280'}}>Holds</Text>
+                  </View>
+                  <View style={{width: 1, backgroundColor: '#1F2937'}} />
+                  <View style={{flex: 1, alignItems: 'center'}}>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'}}>{totalB + totalS}</Text>
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.4)'}}>Trades</Text>
+                  </View>
+                </View>
+              );
+            })()}
+
+            {/* Decision/Trade cards with pagination */}
+            {(() => {
+              const allDecisions: {botName: string; botColor: string; action: string; symbol: string; price: number; reasoning: string; time: string}[] = [];
+              for (const g of activeGladiators) {
+                if (decisionFilter && decisionFilter !== g.id) continue;
+                const log = (g as any).decisionLog;
+                if (Array.isArray(log)) {
+                  for (const d of log) {
+                    // If "Trades" tab, only show BUY/SELL
+                    if (feedTab === 'trades' && d.action === 'HOLD') continue;
+                    allDecisions.push({
+                      botName: g.name,
+                      botColor: g.avatarColor || '#6C63FF',
+                      action: d.action,
+                      symbol: d.symbol,
+                      price: d.price,
+                      reasoning: d.reasoning,
+                      time: d.time,
+                    });
+                  }
+                }
+              }
+              allDecisions.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
+
+              if (allDecisions.length === 0) {
+                return (
+                  <View style={{alignItems: 'center', paddingVertical: 24}}>
+                    <Text style={{fontSize: 32, marginBottom: 8}}>{feedTab === 'trades' ? '💰' : '📋'}</Text>
+                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 4}}>
+                      {feedTab === 'trades' ? 'No trades executed yet' : 'Waiting for bot decisions...'}
+                    </Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.2)', textAlign: 'center'}}>
+                      {feedTab === 'trades' ? 'BUY and SELL orders will appear here when bots execute trades.' : 'Decisions will appear as bots analyze the market.'}
+                    </Text>
+                  </View>
+                );
+              }
+
+              const totalPages = Math.ceil(allDecisions.length / DECISIONS_PER_PAGE);
+              const paged = allDecisions.slice(decisionPage * DECISIONS_PER_PAGE, (decisionPage + 1) * DECISIONS_PER_PAGE);
+
+              return (
+                <>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.2)', textAlign: 'center', marginBottom: 8}}>
+                    Showing {decisionPage * DECISIONS_PER_PAGE + 1}-{Math.min((decisionPage + 1) * DECISIONS_PER_PAGE, allDecisions.length)} of {allDecisions.length} {feedTab === 'trades' ? 'trades' : 'decisions'}
+                  </Text>
+                  {paged.map((d, i) => (
+                    <View key={`dec-${decisionPage}-${i}`} style={{marginHorizontal: 16, marginBottom: 8, backgroundColor: '#111827', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#1F2937', borderLeftWidth: d.action !== 'HOLD' ? 3 : 1, borderLeftColor: d.action === 'BUY' ? '#10B981' : d.action === 'SELL' ? '#EF4444' : '#1F2937'}}>
+                      <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4}}>
+                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+                          <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: d.botColor}} />
+                          <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#9CA3AF'}}>{d.botName}</Text>
+                          <Text style={{fontFamily: 'Inter-Bold', fontSize: 12, color: d.action === 'BUY' ? '#10B981' : d.action === 'SELL' ? '#EF4444' : '#6B7280'}}>
+                            {d.action === 'BUY' ? '🟢' : d.action === 'SELL' ? '🔴' : '⏸'} {d.action}
+                          </Text>
+                        </View>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.2)'}}>
+                          {new Date(d.time).toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false})}
+                        </Text>
+                      </View>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: '#6B7280'}}>{d.symbol} @ ${d.price?.toFixed?.(2) ?? '0'}</Text>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2}} numberOfLines={2}>{d.reasoning}</Text>
+                    </View>
+                  ))}
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <View style={{flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 12, marginTop: 8, marginBottom: 8}}>
+                      <TouchableOpacity
+                        disabled={decisionPage === 0}
+                        onPress={() => setDecisionPage(p => Math.max(0, p - 1))}
+                        style={{paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: decisionPage === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.08)'}}>
+                        <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: decisionPage === 0 ? 'rgba(255,255,255,0.15)' : '#FFFFFF'}}>Prev</Text>
+                      </TouchableOpacity>
+                      <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: 'rgba(255,255,255,0.4)'}}>
+                        {decisionPage + 1} / {totalPages}
+                      </Text>
+                      <TouchableOpacity
+                        disabled={decisionPage >= totalPages - 1}
+                        onPress={() => setDecisionPage(p => Math.min(totalPages - 1, p + 1))}
+                        style={{paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: decisionPage >= totalPages - 1 ? 'rgba(255,255,255,0.03)' : 'rgba(255,255,255,0.08)'}}>
+                        <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: decisionPage >= totalPages - 1 ? 'rgba(255,255,255,0.15)' : '#FFFFFF'}}>Next</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </>
+              );
+            })()}
+          </>
+        )}
 
         <View style={{height: 40}} />
       </ScrollView>
@@ -526,5 +716,23 @@ const styles = StyleSheet.create({
   },
   modalBtnCancelText: {
     fontFamily: 'Inter-SemiBold', fontSize: 15, color: 'rgba(255,255,255,0.5)',
+  },
+
+  // Decision filter chips
+  decisionFilterChip: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 20, marginRight: 8,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+  },
+  decisionFilterChipActive: {
+    backgroundColor: '#10B98115', borderColor: '#10B981',
+  },
+  decisionFilterText: {
+    fontFamily: 'Inter-Medium', fontSize: 12, color: 'rgba(255,255,255,0.4)',
+  },
+  decisionFilterTextActive: {
+    color: '#10B981',
   },
 });

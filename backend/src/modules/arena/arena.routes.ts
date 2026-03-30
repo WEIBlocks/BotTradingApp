@@ -2,88 +2,60 @@ import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
 import * as arenaService from './arena.service.js';
-import {
-  createSessionBodySchema,
-  sessionIdParamsSchema,
-  dataResponseSchema,
-} from './arena.schema.js';
+import { createSessionBodySchema, sessionIdParamsSchema, dataResponseSchema } from './arena.schema.js';
 
 export async function arenaRoutes(app: FastifyInstance) {
   const zApp = app.withTypeProvider<ZodTypeProvider>();
-  // All routes require auth
   zApp.addHook('preHandler', authenticate);
 
   // GET /bots - list available bots for arena
   zApp.get('/bots', {
-    schema: {
-      response: { 200: dataResponseSchema },
-      security: [{ bearerAuth: [] }],
-    },
-  }, async (_request, _reply) => {
-    const bots = await arenaService.getAvailableBots();
+    schema: { response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+  }, async (request) => {
+    const bots = await arenaService.getAvailableBots(request.user.userId);
     return { data: bots };
   });
 
   // GET /history - list user's past arena sessions
   zApp.get('/history', {
-    schema: {
-      response: { 200: dataResponseSchema },
-      security: [{ bearerAuth: [] }],
-    },
-  }, async (request, _reply) => {
+    schema: { response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+  }, async (request) => {
     const history = await arenaService.getHistory(request.user.userId);
     return { data: history };
   });
 
-  // GET /session/active - get user's active running session (if any)
+  // GET /session/active - get active running session
   zApp.get('/session/active', {
-    schema: {
-      response: { 200: dataResponseSchema },
-      security: [{ bearerAuth: [] }],
-    },
-  }, async (request, _reply) => {
+    schema: { response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+  }, async (request) => {
     const session = await arenaService.getActiveSession(request.user.userId);
     return { data: session };
   });
 
   // POST /session - create arena session
   zApp.post('/session', {
-    schema: {
-      body: createSessionBodySchema,
-      response: { 200: dataResponseSchema },
-      security: [{ bearerAuth: [] }],
-    },
-  }, async (request, _reply) => {
-    const { botIds, durationSeconds } = request.body;
+    schema: { body: createSessionBodySchema, response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+  }, async (request) => {
+    const { botIds, durationSeconds, mode, virtualBalance } = request.body;
     const session = await arenaService.createSession(
-      request.user.userId,
-      botIds,
-      durationSeconds,
+      request.user.userId, botIds, durationSeconds, mode, virtualBalance,
     );
     return { data: session };
   });
 
-  // GET /session/:id - get session details
+  // GET /session/:id - get session details (live updates)
   zApp.get('/session/:id', {
-    schema: {
-      params: sessionIdParamsSchema,
-      response: { 200: dataResponseSchema },
-      security: [{ bearerAuth: [] }],
-    },
-  }, async (request, _reply) => {
+    schema: { params: sessionIdParamsSchema, response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+  }, async (request) => {
     const { id } = request.params;
     const session = await arenaService.getSession(id, request.user.userId);
     return { data: session };
   });
 
-  // GET /session/:id/results - get final arena results
+  // GET /session/:id/results - get final results
   zApp.get('/session/:id/results', {
-    schema: {
-      params: sessionIdParamsSchema,
-      response: { 200: dataResponseSchema },
-      security: [{ bearerAuth: [] }],
-    },
-  }, async (request, _reply) => {
+    schema: { params: sessionIdParamsSchema, response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+  }, async (request) => {
     const { id } = request.params;
     const results = await arenaService.getSessionResults(id, request.user.userId);
     return { data: results };

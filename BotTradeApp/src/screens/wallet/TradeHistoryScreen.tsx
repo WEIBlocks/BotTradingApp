@@ -17,10 +17,11 @@ export default function TradeHistoryScreen({navigation}: Props) {
   const [summary, setSummary] = useState<TradeSummary>({totalPnl: 0, totalTrades: 0, winRate: 0});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [modeFilter, setModeFilter] = useState<'all' | 'live' | 'shadow' | 'arena'>('all');
 
   const fetchData = useCallback(async () => {
     try {
-      const [historyRes, summaryRes] = await Promise.all([tradesApi.getHistory(), tradesApi.getSummary()]);
+      const [historyRes, summaryRes] = await Promise.all([tradesApi.getHistory({limit: 100}), tradesApi.getSummary()]);
       setTrades(historyRes.trades);
       setSummary(summaryRes);
     } catch {
@@ -30,6 +31,8 @@ export default function TradeHistoryScreen({navigation}: Props) {
       setRefreshing(false);
     }
   }, []);
+
+  const filteredTrades = modeFilter === 'all' ? trades : trades.filter(t => t.mode === modeFilter);
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
@@ -67,7 +70,29 @@ export default function TradeHistoryScreen({navigation}: Props) {
         </View>
       </View>
 
-      {trades.length === 0 ? (
+      {/* Mode Filter */}
+      <View style={styles.filterRow}>
+        {([
+          {key: 'all', label: 'All', color: '#FFFFFF'},
+          {key: 'live', label: 'Live', color: '#10B981'},
+          {key: 'shadow', label: 'Shadow', color: '#3B82F6'},
+          {key: 'arena', label: 'Arena', color: '#8B5CF6'},
+        ] as const).map(f => (
+          <TouchableOpacity
+            key={f.key}
+            activeOpacity={0.7}
+            style={[styles.filterChip, modeFilter === f.key && {backgroundColor: `${f.color}15`, borderColor: f.color}]}
+            onPress={() => setModeFilter(f.key)}>
+            {f.key !== 'all' && <View style={[styles.filterDot, {backgroundColor: modeFilter === f.key ? f.color : 'rgba(255,255,255,0.2)'}]} />}
+            <Text style={[styles.filterText, modeFilter === f.key && {color: f.color}]}>{f.label}</Text>
+            <Text style={[styles.filterCount, modeFilter === f.key && {color: f.color}]}>
+              {f.key === 'all' ? trades.length : trades.filter(t => t.mode === f.key).length}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {filteredTrades.length === 0 ? (
         <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32}}>
           <Text style={{fontSize: 48, marginBottom: 16}}>📊</Text>
           <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 18, color: 'rgba(255,255,255,0.6)', marginBottom: 8}}>No trades yet</Text>
@@ -83,7 +108,7 @@ export default function TradeHistoryScreen({navigation}: Props) {
         </View>
       ) : (
         <FlatList
-          data={trades}
+          data={filteredTrades}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
@@ -108,7 +133,12 @@ const styles = StyleSheet.create({
   header: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12},
   iconBtn: {width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center'},
   headerTitle: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF'},
-  summary: {flexDirection: 'row', paddingHorizontal: 20, marginBottom: 8, backgroundColor: '#161B22', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)'},
+  summary: {flexDirection: 'row', paddingHorizontal: 20, marginBottom: 0, backgroundColor: '#161B22', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)'},
+  filterRow: {flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 10, gap: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)'},
+  filterChip: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', gap: 5},
+  filterDot: {width: 6, height: 6, borderRadius: 3},
+  filterText: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
+  filterCount: {fontFamily: 'Inter-Medium', fontSize: 11, color: 'rgba(255,255,255,0.25)'},
   summaryItem: {flex: 1, alignItems: 'center'},
   summaryValue: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#10B981', marginBottom: 2},
   summaryLabel: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.5},

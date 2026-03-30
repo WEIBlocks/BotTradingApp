@@ -34,21 +34,28 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
   const {winnerId, sessionId} = route.params;
   const [allGladiators, setAllGladiators] = useState<Gladiator[]>([]);
   const [loading, setLoading] = useState(true);
+  const [sessionStats, setSessionStats] = useState<any>(null);
+  const [sessionInfo, setSessionInfo] = useState<any>(null);
 
   useEffect(() => {
-    const fetchResults = sessionId
-      ? arenaApi.getResults(sessionId).then(r => r.rankings)
-      : arenaApi.getAvailableBots();
-
-    fetchResults
-      .then(bots => {
-        const sorted = [...bots].sort(
-          (a, b) => (b.currentReturn || 0) - (a.currentReturn || 0),
-        );
-        setAllGladiators(sorted);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    if (sessionId) {
+      arenaApi.getResults(sessionId)
+        .then(r => {
+          const sorted = [...r.rankings].sort(
+            (a, b) => (b.currentReturn || 0) - (a.currentReturn || 0),
+          );
+          setAllGladiators(sorted);
+          setSessionStats(r.stats);
+          setSessionInfo(r.session);
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    } else {
+      arenaApi.getAvailableBots()
+        .then(bots => setAllGladiators(bots))
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }
   }, [sessionId]);
 
   const winner = allGladiators[0];
@@ -119,11 +126,44 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
           <Text style={styles.championStrategy}>{winner.strategy}</Text>
           <View style={styles.championReturn}>
             <Text style={styles.championReturnValue}>
-              +{(winner.currentReturn || 0).toFixed(1)}%
+              {(winner.currentReturn || 0) >= 0 ? '+' : ''}{(winner.currentReturn || 0).toFixed(2)}%
             </Text>
             <Text style={styles.championReturnLabel}>Total Return</Text>
           </View>
+          {winner.totalPnl !== undefined && (
+            <Text style={{fontFamily: 'Inter-Medium', fontSize: 13, color: (winner.totalPnl ?? 0) >= 0 ? '#10B981' : '#EF4444', marginTop: 4}}>
+              P&L: {(winner.totalPnl ?? 0) >= 0 ? '+' : ''}${Math.abs(winner.totalPnl ?? 0).toFixed(2)}
+            </Text>
+          )}
+          {winner.totalTrades !== undefined && winner.totalTrades > 0 && (
+            <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2}}>
+              {winner.totalTrades} trades | {winner.winRate?.toFixed(0) ?? 0}% win rate
+            </Text>
+          )}
         </View>
+
+        {/* Virtual Balance Overview */}
+        {sessionStats && (
+          <View style={{marginHorizontal: 20, marginBottom: 16, backgroundColor: '#161B22', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'}}>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
+              <View>
+                <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5}}>STARTING BALANCE</Text>
+                <Text style={{fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF'}}>${parseFloat(sessionStats.virtualBalance || '10000').toLocaleString()}</Text>
+              </View>
+              <View style={{alignItems: 'flex-end'}}>
+                <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5}}>NET P&L</Text>
+                <Text style={{fontFamily: 'Inter-Bold', fontSize: 18, color: parseFloat(sessionStats.totalPnl || '0') >= 0 ? '#10B981' : '#EF4444'}}>
+                  {parseFloat(sessionStats.totalPnl || '0') >= 0 ? '+' : ''}${parseFloat(sessionStats.totalPnl || '0').toFixed(2)}
+                </Text>
+              </View>
+            </View>
+            {sessionInfo && (
+              <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)'}}>
+                Duration: {Math.round((sessionInfo.durationSeconds || 0) / 60)} min | {sessionStats.botCount} bots competing
+              </Text>
+            )}
+          </View>
+        )}
 
         {/* Podium */}
         <Animated.View style={[styles.podiumSection, podiumStyle]}>
@@ -257,6 +297,91 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
             })}
           </View>
         </Animated.View>
+
+        {/* Session Stats Summary */}
+        {sessionStats && (
+          <View style={{marginHorizontal: 20, marginBottom: 16}}>
+            <Text style={styles.sectionTitle}>SESSION STATS</Text>
+            <View style={{backgroundColor: '#161B22', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'}}>
+              <View style={{flexDirection: 'row', marginBottom: 12}}>
+                <View style={{flex: 1, alignItems: 'center'}}>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF'}}>{sessionStats.totalTrades}</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)'}}>Total Trades</Text>
+                </View>
+                <View style={{flex: 1, alignItems: 'center'}}>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 20, color: '#10B981'}}>{sessionStats.totalBuys}</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)'}}>Buys</Text>
+                </View>
+                <View style={{flex: 1, alignItems: 'center'}}>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 20, color: '#EF4444'}}>{sessionStats.totalSells}</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)'}}>Sells</Text>
+                </View>
+              </View>
+              <View style={{flexDirection: 'row'}}>
+                <View style={{flex: 1, alignItems: 'center'}}>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#10B981'}}>+{sessionStats.bestReturn}%</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)'}}>Best Return</Text>
+                </View>
+                <View style={{flex: 1, alignItems: 'center'}}>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#EF4444'}}>{sessionStats.worstReturn}%</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)'}}>Worst Return</Text>
+                </View>
+                <View style={{flex: 1, alignItems: 'center'}}>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#FFFFFF'}}>{sessionStats.botCount}</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)'}}>Bots</Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Per-Bot Trade Breakdown */}
+        <View style={{marginHorizontal: 20, marginBottom: 16}}>
+          <Text style={styles.sectionTitle}>BOT PERFORMANCE</Text>
+          {allGladiators.map((g, i) => {
+            const trades = g.totalTrades ?? 0;
+            const pnl = g.totalPnl ?? 0;
+            const ret = g.currentReturn ?? 0;
+            const buys = g.decisionLog?.filter(d => d.action === 'BUY').length ?? 0;
+            const sells = g.decisionLog?.filter(d => d.action === 'SELL').length ?? 0;
+            const retColor = ret >= 0 ? '#10B981' : '#EF4444';
+            return (
+              <View key={g.id} style={{backgroundColor: '#161B22', borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'}}>
+                <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 8}}>
+                  <View style={{width: 32, height: 32, borderRadius: 16, backgroundColor: g.avatarColor, alignItems: 'center', justifyContent: 'center', marginRight: 10}}>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'}}>{g.name.charAt(0)}</Text>
+                  </View>
+                  <View style={{flex: 1}}>
+                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'}}>{g.name}</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)'}}>{g.strategy}</Text>
+                  </View>
+                  <View style={{alignItems: 'flex-end'}}>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: retColor}}>{ret >= 0 ? '+' : ''}{ret.toFixed(2)}%</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)'}}>P&L: ${pnl.toFixed(2)}</Text>
+                  </View>
+                </View>
+                <View style={{flexDirection: 'row', gap: 8}}>
+                  <View style={{flex: 1, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: 8, alignItems: 'center'}}>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'}}>{trades}</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.4)'}}>Trades</Text>
+                  </View>
+                  <View style={{flex: 1, backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: 8, padding: 8, alignItems: 'center'}}>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#10B981'}}>{buys}</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: '#10B981'}}>Buys</Text>
+                  </View>
+                  <View style={{flex: 1, backgroundColor: 'rgba(239,68,68,0.08)', borderRadius: 8, padding: 8, alignItems: 'center'}}>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#EF4444'}}>{sells}</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: '#EF4444'}}>Sells</Text>
+                  </View>
+                  <View style={{flex: 1, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: 8, alignItems: 'center'}}>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'}}>{g.winRate.toFixed(0)}%</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.4)'}}>Win Rate</Text>
+                  </View>
+                </View>
+              </View>
+            );
+          })}
+        </View>
 
         {/* Action Buttons */}
         <View style={styles.actions}>

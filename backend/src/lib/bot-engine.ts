@@ -508,18 +508,25 @@ export async function processSymbol(opts: {
   const dailyLossLimit = opts.dailyLossLimit ?? 0;
   const cacheKey = `${sessionKey}:${symbol}`;
 
-  // Acquire lock to prevent concurrent processing
-  const lockKey = `engine:${botId}:${symbol}`;
-  const locked = await acquireLock(lockKey);
+  // Acquire lock — use sessionKey to allow same bot in different contexts (arena/shadow/live)
+  const lockKey = `engine:${sessionKey}:${symbol}`;
+  const locked = await acquireLock(lockKey, 15000);
   if (!locked) {
-    return { action: 'HOLD', confidence: 0, reasoning: 'Processing in progress', indicators: {}, aiCalled: false, tokensCost: 0, price: 0, symbol };
+    // Don't return price 0 — try to get real price for display
+    const fallbackPrice = await getPrice(symbol);
+    return { action: 'HOLD', confidence: 0, reasoning: 'Processing in progress', indicators: {}, aiCalled: false, tokensCost: 0, price: fallbackPrice?.price ?? 0, symbol };
   }
 
   try {
-    // 1. Get price
-    const priceData = await getPrice(symbol);
+    // 1. Get price (with retry)
+    let priceData = await getPrice(symbol);
     if (!priceData) {
-      return { action: 'HOLD', confidence: 0, reasoning: `No price data for ${symbol}`, indicators: {}, aiCalled: false, tokensCost: 0, price: 0, symbol };
+      // Retry once after 1 second
+      await new Promise(r => setTimeout(r, 1000));
+      priceData = await getPrice(symbol);
+    }
+    if (!priceData) {
+      return { action: 'HOLD', confidence: 0, reasoning: `Waiting for price data (${symbol})`, indicators: {}, aiCalled: false, tokensCost: 0, price: 0, symbol };
     }
 
     // 1b. Check daily loss limit
@@ -810,13 +817,17 @@ export async function executeLiveTrade(
     );
     await adapter.disconnect();
 
-    const totalValue = order.amount * order.price;
+    // Use order's fill price if available, otherwise fall back to the decision's market price
+    const fillPrice = order.price > 0 ? order.price : decision.price;
+    const fillAmount = order.amount > 0 ? order.amount : amount;
+    const totalValue = fillAmount * fillPrice;
+
     await db.insert(trades).values({
       userId, botSubscriptionId: subscriptionId, symbol: decision.symbol,
-      side: decision.action as 'BUY' | 'SELL', amount: order.amount.toFixed(8),
-      price: order.price.toFixed(8), totalValue: totalValue.toFixed(2),
+      side: decision.action as 'BUY' | 'SELL', amount: fillAmount.toFixed(8),
+      price: fillPrice.toFixed(8), totalValue: totalValue.toFixed(2),
       isPaper: false, exchangeOrderId: order.id, orderType,
-      reasoning: decision.reasoning, status: 'filled',
+      reasoning: decision.reasoning, status: order.status === 'new' ? 'pending' : 'filled',
     });
 
     // Track daily loss for daily loss limit

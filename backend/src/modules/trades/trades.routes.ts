@@ -37,6 +37,7 @@ export async function tradesRoutes(app: FastifyInstance) {
       symbol: query.symbol,
       side: query.side,
       is_paper: query.is_paper,
+      mode: (query as any).mode,
       botId: query.botId,
       page: query.page,
       limit: query.limit,

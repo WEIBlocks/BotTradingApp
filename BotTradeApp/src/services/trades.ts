@@ -37,6 +37,7 @@ export interface TradeHistoryQuery {
   symbol?: string;
   side?: string;
   is_paper?: boolean;
+  mode?: 'live' | 'shadow' | 'all';
   botId?: string;
   page?: number;
   limit?: number;
@@ -57,18 +58,30 @@ export interface TradeSummary {
 
 // ─── Transform ──────────────────────────────────────────────────────────────
 
-function mapTrade(t: TradeRow): Trade {
+function safeDateParse(val: any): Date {
+  if (!val || val === 'null' || val === 'undefined') return new Date(0);
+  if (val instanceof Date) return isNaN(val.getTime()) ? new Date(0) : val;
+  const str = String(val);
+  if (str.length < 8) return new Date(0);
+  const ms = Date.parse(str);
+  if (!isNaN(ms) && ms > 0) return new Date(ms);
+  return new Date(0);
+}
+
+function mapTrade(t: any): Trade {
+  const ts = t.executedAt ?? t.executed_at ?? t.timestamp ?? t.createdAt ?? t.created_at;
   return {
     id: t.id ?? '',
     symbol: t.symbol ?? '',
-    side: (t.side?.toUpperCase() ?? 'BUY') as Trade['side'],
-    amount: parseFloat(t.amount) || 0,
-    price: parseFloat(t.price) || 0,
-    timestamp: new Date(t.executedAt ?? Date.now()),
-    botId: t.botId ?? '',
-    botName: t.botName ?? 'Manual Trade',
-    pnl: t.pnl != null ? parseFloat(t.pnl) : undefined,
-    pnlPercent: t.pnlPercent != null ? parseFloat(t.pnlPercent) : undefined,
+    side: (String(t.side).toUpperCase() ?? 'BUY') as Trade['side'],
+    amount: parseFloat(String(t.amount)) || 0,
+    price: parseFloat(String(t.price)) || 0,
+    timestamp: safeDateParse(ts),
+    botId: t.botId ?? t.bot_id ?? '',
+    botName: t.botName ?? t.bot_name ?? 'Bot',
+    pnl: t.pnl != null ? parseFloat(String(t.pnl)) : undefined,
+    pnlPercent: t.pnlPercent != null ? parseFloat(String(t.pnlPercent)) : undefined,
+    mode: t.mode ?? (String(t.isPaper ?? t.is_paper) === 'true' ? 'shadow' : 'live'),
   };
 }
 

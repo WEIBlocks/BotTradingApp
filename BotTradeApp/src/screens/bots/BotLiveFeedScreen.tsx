@@ -546,7 +546,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 8,
   },
-  marketDot: {width: 8, height: 8, borderRadius: 4},
+  marketDot: {width: 8, height: 16, borderRadius: 4},
   marketText: {fontFamily: 'Inter-Medium', fontSize: 12, flex: 1},
   statsBar: {
     flexDirection: 'row',

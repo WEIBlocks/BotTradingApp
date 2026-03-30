@@ -337,6 +337,48 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     });
   }, [userBotState.subscriptionId, fetchData]);
 
+  const handlePauseShadow = useCallback(() => {
+    if (!userBotState.shadowSessionId) return;
+    showConfirm({
+      title: 'Pause Shadow Mode',
+      message: 'This will pause the shadow session. No new paper trades will be made.',
+      confirmText: 'Pause',
+      onConfirm: () => {
+        setActionLoading(true);
+        botsService.pauseShadowSession(userBotState.shadowSessionId!)
+          .then(() => fetchData())
+          .catch(() => showAlert('Error', 'Failed to pause shadow session.'))
+          .finally(() => setActionLoading(false));
+      },
+    });
+  }, [userBotState.shadowSessionId, fetchData]);
+
+  const handleStopShadow = useCallback(() => {
+    if (!userBotState.shadowSessionId) return;
+    showConfirm({
+      title: 'Stop Shadow Mode',
+      message: 'This will stop the shadow session permanently. You can view the results after.',
+      confirmText: 'Stop',
+      destructive: true,
+      onConfirm: () => {
+        setActionLoading(true);
+        botsService.stopShadowSession(userBotState.shadowSessionId!)
+          .then(() => fetchData())
+          .catch(() => showAlert('Error', 'Failed to stop shadow session.'))
+          .finally(() => setActionLoading(false));
+      },
+    });
+  }, [userBotState.shadowSessionId, fetchData]);
+
+  const handleResumeShadow = useCallback(() => {
+    if (!userBotState.shadowSessionId) return;
+    setActionLoading(true);
+    botsService.resumeShadowSession(userBotState.shadowSessionId!)
+      .then(() => fetchData())
+      .catch(() => showAlert('Error', 'Failed to resume shadow session.'))
+      .finally(() => setActionLoading(false));
+  }, [userBotState.shadowSessionId, fetchData]);
+
   // ─── Render ──────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -905,25 +947,31 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             </TouchableOpacity>
           </>
         ) : userBotState.status === 'shadow_running' ? (
-          /* Shadow mode running — Live Feed accessible from header */
+          /* Shadow mode running — Pause/Stop + Go Live */
           <>
+            <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
+              <TouchableOpacity style={[styles.pauseBtn, {flex: 1}]} onPress={handlePauseShadow} activeOpacity={0.8}>
+                <Text style={styles.pauseBtnText}>Pause</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.stopBtn, {flex: 1}]} onPress={handleStopShadow} activeOpacity={0.8}>
+                <Text style={styles.stopBtnText}>Stop</Text>
+              </TouchableOpacity>
+            </View>
             <TouchableOpacity style={styles.goLiveSmallBtn} onPress={handleActivate} activeOpacity={0.85}>
               <Text style={styles.goLiveSmallText}>Go Live</Text>
             </TouchableOpacity>
           </>
         ) : userBotState.status === 'shadow_paused' ? (
-          /* Shadow mode paused */
+          /* Shadow mode paused — Resume/Stop + Go Live */
           <>
-            <View style={styles.statusCard}>
-              <View style={[styles.statusDot, {backgroundColor: '#F97316'}]} />
-              <View style={styles.statusTextCol}>
-                <Text style={styles.statusTitle}>Shadow Mode Paused</Text>
-                <Text style={styles.statusSub}>Virtual trades paused</Text>
-              </View>
+            <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
+              <TouchableOpacity style={[styles.resumeBtn, {flex: 1}]} onPress={handleResumeShadow} activeOpacity={0.8}>
+                <Text style={styles.resumeBtnText}>Resume Shadow</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.stopBtn, {flex: 1}]} onPress={handleStopShadow} activeOpacity={0.8}>
+                <Text style={styles.stopBtnText}>Stop Shadow</Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity style={styles.viewShadowBtn} onPress={handleViewShadow} activeOpacity={0.8}>
-              <Text style={styles.viewShadowText}>View</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={styles.goLiveSmallBtn} onPress={handleActivate} activeOpacity={0.85}>
               <Text style={styles.goLiveSmallText}>Go Live</Text>
             </TouchableOpacity>
@@ -1149,13 +1197,13 @@ const styles = StyleSheet.create({
 
   // Live buttons
   pauseBtn: {
-    height: 52, paddingHorizontal: 16, borderRadius: 12,
+    height: 52, paddingHorizontal: 5, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'rgba(249,115,22,0.15)', borderWidth: 1, borderColor: 'rgba(249,115,22,0.3)',
   },
   pauseBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#F97316'},
   stopBtn: {
-    height: 52, paddingHorizontal: 16, borderRadius: 12,
+    height: 52, paddingHorizontal: 5, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'rgba(239,68,68,0.15)', borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)',
   },

@@ -3,7 +3,7 @@
  * Uses the hybrid AI engine + real exchange execution
  */
 
-import { eq, and } from 'drizzle-orm';
+import { eq, and, sql } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import { bots, botSubscriptions } from '../db/schema/bots';
 import { exchangeConnections } from '../db/schema/exchanges';
@@ -46,8 +46,37 @@ async function processLiveTrades() {
 
     for (const { subscription, bot } of activeSubscriptions) {
       try {
-        // Get user's exchange connection
-        const exchangeConnId = subscription.exchangeConnId;
+        // Determine if this is a stock or crypto bot
+        const config = (bot.config ?? {}) as BotConfig;
+        const pairs = config.pairs?.length ? config.pairs : ['BTC/USDT'];
+        const isStockBot = bot.category === 'Stocks' || pairs.some(p => p.endsWith('/USD') && !p.endsWith('/USDT'));
+
+        // Get the RIGHT exchange connection — Alpaca for stocks, Binance for crypto
+        let exchangeConnId = subscription.exchangeConnId;
+
+        if (isStockBot) {
+          // Find user's Alpaca connection
+          const [alpacaConn] = await db.select().from(exchangeConnections)
+            .where(and(
+              eq(exchangeConnections.userId, subscription.userId),
+              sql`LOWER(${exchangeConnections.provider}) = 'alpaca'`,
+              eq(exchangeConnections.status, 'connected'),
+            )).limit(1);
+
+          if (alpacaConn) {
+            exchangeConnId = alpacaConn.id;
+          } else {
+            console.warn(`[LiveTrade] No Alpaca connection for stock bot ${bot.name}`);
+            await sendNotification(subscription.userId, {
+              type: 'alert',
+              title: `Trade Failed — ${bot.name}`,
+              body: 'Stock bot requires an Alpaca exchange connection. Please connect Alpaca in Exchange settings.',
+              priority: 'high',
+            }).catch(() => {});
+            continue;
+          }
+        }
+
         if (!exchangeConnId) {
           console.warn(`[LiveTrade] Subscription ${subscription.id} has no exchange connection`);
           continue;
@@ -93,10 +122,6 @@ async function processLiveTrades() {
           continue;
         }
 
-        const config = (bot.config ?? {}) as BotConfig;
-        const isStockBot = bot.category === 'Stocks';
-        const defaultPairs = isStockBot ? ['AAPL'] : ['BTC/USDT'];
-        const pairs = config.pairs?.length ? config.pairs : defaultPairs;
         const allocatedAmount = parseFloat(subscription.allocatedAmount ?? '0');
 
         // Skip stock bots when US market is closed
@@ -152,9 +177,10 @@ async function processLiveTrades() {
               console.log(`[LiveTrade] Order filled: ${result.orderId}`);
               // Refresh portfolio immediately after trade execution
               refreshUserPortfolio(subscription.userId).catch(() => {});
+              const priceDisplay = decision.price >= 1000 ? `$${decision.price.toLocaleString('en-US', {maximumFractionDigits: 2})}` : `$${decision.price.toFixed(2)}`;
               await sendNotification(subscription.userId, {
                 type: 'trade',
-                title: `${decision.action} ${pair}`,
+                title: `${decision.action} ${pair} @ ${priceDisplay}`,
                 body: `${bot.name}: ${decision.reasoning}`,
               }).catch(() => {});
             } else {

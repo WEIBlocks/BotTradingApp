@@ -153,6 +153,7 @@ export interface Trade {
   botName: string;
   pnl?: number;
   pnlPercent?: number;
+  mode?: 'live' | 'shadow' | 'paper' | 'arena';
 }
 
 export interface MonthlyReturn {
@@ -180,6 +181,9 @@ export interface Gladiator {
   selected: boolean;
   currentReturn?: number;
   equityData?: number[];
+  totalTrades?: number;
+  totalPnl?: number;
+  decisionLog?: { action: string; symbol: string; price: number; reasoning: string; time: string }[];
 }
 
 export interface Notification {

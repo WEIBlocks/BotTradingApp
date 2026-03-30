@@ -133,10 +133,15 @@ export async function connectWithApiKey(
 
         totalUsd += valueUsd;
 
+        // For stocks: amount = share count (free), for crypto: amount = total holdings
+        const assetAmount = assetClass === 'stocks' && !['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes(bal.currency)
+          ? bal.free  // share count
+          : bal.total; // crypto amount or cash
+
         await db.insert(exchangeAssets).values({
           exchangeConnId: connection.id,
           symbol: bal.currency,
-          amount: String(bal.total),
+          amount: String(assetAmount),
           valueUsd: String(valueUsd.toFixed(2)),
         });
       }
@@ -271,10 +276,14 @@ export async function resync(connectionId: string, userId: string) {
 
       totalUsd += valueUsd;
 
+      const resyncAmount = connAssetClass === 'stocks' && !['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes(bal.currency)
+        ? bal.free  // share count
+        : bal.total;
+
       await db.insert(exchangeAssets).values({
         exchangeConnId: connectionId,
         symbol: bal.currency,
-        amount: String(bal.total),
+        amount: String(resyncAmount),
         valueUsd: String(valueUsd.toFixed(2)),
       });
     }

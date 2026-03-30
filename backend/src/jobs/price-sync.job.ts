@@ -127,32 +127,41 @@ async function syncStockPrices(symbols: string[]) {
   if (!alpaca) return 0;
 
   try {
-    // Fetch snapshots for all stock symbols at once
-    const snapshots = await alpaca.getSnapshots(symbols);
     let count = 0;
 
     for (const symbol of symbols) {
-      const snap = snapshots[symbol];
-      if (!snap) continue;
+      try {
+        // Use getLatestTrade + getBarsV2 (more reliable than getSnapshot)
+        const trade = await alpaca.getLatestTrade(symbol);
+        const price = trade?.Price ?? trade?.p ?? 0;
+        if (price <= 0) continue;
 
-      const lastTrade = snap.latestTrade;
-      const dailyBar = snap.dailyBar;
-      const prevBar = snap.prevDailyBar;
-      const price = lastTrade?.p ?? dailyBar?.c ?? 0;
-      const prevClose = prevBar?.c ?? dailyBar?.o ?? price;
-      const change24h = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
+        // Try to get daily bar for high/low/volume
+        let high = price, low = price, volume = 0, prevClose = price;
+        try {
+          const bars = alpaca.getBarsV2(symbol, { limit: 2, timeframe: '1Day' });
+          const barArr: any[] = [];
+          for await (const bar of bars) barArr.push(bar);
+          if (barArr.length > 0) {
+            const latest = barArr[barArr.length - 1];
+            high = latest.HighPrice ?? latest.h ?? price;
+            low = latest.LowPrice ?? latest.l ?? price;
+            volume = latest.Volume ?? latest.v ?? 0;
+            if (barArr.length > 1) {
+              prevClose = barArr[barArr.length - 2].ClosePrice ?? barArr[barArr.length - 2].c ?? price;
+            }
+          }
+        } catch {}
 
-      const data = {
-        price,
-        change24h,
-        volume: dailyBar?.v ?? 0,
-        high24h: dailyBar?.h ?? price,
-        low24h: dailyBar?.l ?? price,
-        timestamp: Date.now(),
-      };
+        const change24h = prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0;
 
-      await redisConnection.set(`price:${symbol}`, JSON.stringify(data), 'EX', 120);
-      count++;
+        const data = { price, change24h, volume, high24h: high, low24h: low, timestamp: Date.now() };
+
+        // Store under both plain symbol and with /USD suffix
+        await redisConnection.set(`price:${symbol}`, JSON.stringify(data), 'EX', 120);
+        await redisConnection.set(`price:${symbol}:USD`, JSON.stringify(data), 'EX', 120);
+        count++;
+      } catch {}
     }
 
     // Cache market hours status
@@ -195,28 +204,39 @@ export async function getPrice(symbol: string): Promise<{
   low24h: number;
   timestamp: number;
 } | null> {
+  // Try exact key first
   const redisKey = `price:${symbol.replace('/', ':')}`;
   const raw = await redisConnection.get(redisKey);
   if (raw) return JSON.parse(raw);
 
-  // Fallback: fetch directly based on symbol format
-  const isStock = !symbol.includes('/');
+  // For stock symbols like AAPL/USD, also try just AAPL (how stock sync stores them)
+  const cleanSymbol = symbol.replace('/USD', '').replace('/USDT', '');
+  if (cleanSymbol !== symbol) {
+    const stockKey = `price:${cleanSymbol}`;
+    const stockRaw = await redisConnection.get(stockKey);
+    if (stockRaw) return JSON.parse(stockRaw);
+  }
+
+  // Fallback: fetch directly — detect stock vs crypto
+  const isStock = !symbol.includes('/') || symbol.endsWith('/USD');
 
   if (isStock) {
     try {
       const alpaca = await getAlpacaClient();
       if (!alpaca) return null;
-      const snap = await alpaca.getSnapshot(symbol);
-      const price = snap?.latestTrade?.p ?? 0;
-      const prevClose = snap?.prevDailyBar?.c ?? price;
+      const stockSym = cleanSymbol;
+      const trade = await alpaca.getLatestTrade(stockSym);
+      const price = trade?.Price ?? trade?.p ?? 0;
+      if (price <= 0) return null;
       const data = {
         price,
-        change24h: prevClose > 0 ? ((price - prevClose) / prevClose) * 100 : 0,
-        volume: snap?.dailyBar?.v ?? 0,
-        high24h: snap?.dailyBar?.h ?? price,
-        low24h: snap?.dailyBar?.l ?? price,
+        change24h: 0,
+        volume: 0,
+        high24h: price,
+        low24h: price,
         timestamp: Date.now(),
       };
+      await redisConnection.set(`price:${stockSym}`, JSON.stringify(data), 'EX', 120);
       await redisConnection.set(redisKey, JSON.stringify(data), 'EX', 120);
       return data;
     } catch {

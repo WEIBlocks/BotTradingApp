@@ -1,5 +1,5 @@
 import React, {useState, useCallback, useEffect} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
@@ -16,9 +16,8 @@ const DURATION_OPTIONS = [
   {label: '5 Min',   seconds: 300},
   {label: '15 Min',  seconds: 900},
   {label: '1 Hour',  seconds: 3600},
-  {label: '1 Day',   seconds: 86400},
-  {label: '7 Days',  seconds: 604800},
-  {label: '30 Days', seconds: 2592000},
+  {label: '6 Hours', seconds: 21600},
+  {label: '24 Hours', seconds: 86400},
 ];
 
 // ─── Icons ─────────────────────────────────────────────────────────────────────
@@ -129,7 +128,9 @@ export default function ArenaSetupScreen() {
   const [gladiators, setGladiators] = useState<Gladiator[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeSession, setActiveSession] = useState<ArenaSession | null>(null);
-  const [selectedDuration, setSelectedDuration] = useState(DURATION_OPTIONS[1]); // default 5 min
+  const [selectedDuration, setSelectedDuration] = useState(DURATION_OPTIONS[1]);
+  const [arenaMode, setArenaMode] = useState<'shadow' | 'live'>('shadow');
+  const [virtualBalance, setVirtualBalance] = useState('10000');
 
   useEffect(() => {
     Promise.all([
@@ -168,13 +169,21 @@ export default function ArenaSetupScreen() {
       return;
     }
     const ids = gladiators.filter(g => g.selected).map(g => g.id);
+    const bal = parseFloat(virtualBalance) || 10000;
     showConfirm({
-      title: 'Enter Arena',
-      message: `Start a battle with ${ids.length} bots? This will begin a live trading competition.`,
-      confirmText: 'Enter Arena',
-      onConfirm: () => navigation.navigate('ArenaLive', {gladiatorIds: ids, durationSeconds: selectedDuration.seconds}),
+      title: arenaMode === 'live' ? 'Live Arena Battle' : 'Shadow Arena Battle',
+      message: arenaMode === 'live'
+        ? `Start a LIVE battle with ${ids.length} bots using real exchange funds?`
+        : `Start a shadow battle with ${ids.length} bots using $${bal.toLocaleString()} virtual funds?`,
+      confirmText: 'Start Battle',
+      onConfirm: () => navigation.navigate('ArenaLive', {
+        gladiatorIds: ids,
+        durationSeconds: selectedDuration.seconds,
+        mode: arenaMode,
+        virtualBalance: bal,
+      } as any),
     });
-  }, [gladiators, navigation, activeSession, selectedDuration, showConfirm]);
+  }, [gladiators, navigation, activeSession, selectedDuration, arenaMode, virtualBalance, showConfirm]);
 
   return (
     <View style={styles.container}>
@@ -222,6 +231,49 @@ export default function ArenaSetupScreen() {
         )}
 
         {/* Duration picker */}
+        {/* Battle Mode */}
+        <Text style={styles.sectionLabel}>BATTLE MODE</Text>
+        <View style={{flexDirection: 'row', gap: 10, marginBottom: 16}}>
+          <TouchableOpacity
+            style={[styles.durationChip, {flex: 1, paddingVertical: 14}, arenaMode === 'shadow' && styles.durationChipActive]}
+            onPress={() => setArenaMode('shadow')} activeOpacity={0.7}>
+            <Text style={{fontSize: 18, marginBottom: 4}}>🧪</Text>
+            <Text style={[styles.durationChipText, arenaMode === 'shadow' && styles.durationChipTextActive]}>Shadow</Text>
+            <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Virtual funds</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.durationChip, {flex: 1, paddingVertical: 14}, arenaMode === 'live' && {backgroundColor: '#FF6B0020', borderColor: '#FF6B00'}]}
+            onPress={() => setArenaMode('live')} activeOpacity={0.7}>
+            <Text style={{fontSize: 18, marginBottom: 4}}>⚡</Text>
+            <Text style={[styles.durationChipText, arenaMode === 'live' && {color: '#FF6B00'}]}>Live</Text>
+            <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Real exchange</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Virtual Balance (shadow mode only) */}
+        {arenaMode === 'shadow' && (
+          <>
+            <Text style={styles.sectionLabel}>VIRTUAL BALANCE</Text>
+            <TextInput
+              style={{backgroundColor: '#161B22', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', color: '#FFFFFF', fontFamily: 'Inter-SemiBold', fontSize: 16, paddingHorizontal: 16, paddingVertical: 12, marginBottom: 16}}
+              value={virtualBalance}
+              onChangeText={setVirtualBalance}
+              keyboardType="numeric"
+              placeholder="10000"
+              placeholderTextColor="rgba(255,255,255,0.2)"
+            />
+          </>
+        )}
+
+        {arenaMode === 'live' && (
+          <View style={{backgroundColor: '#FF6B0010', borderRadius: 10, borderWidth: 1, borderColor: '#FF6B0030', padding: 14, marginBottom: 16}}>
+            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FF6B00', marginBottom: 4}}>Live Battle Mode</Text>
+            <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 18}}>
+              Bots will compete using your real exchange balance. Make sure you have sufficient funds connected.
+            </Text>
+          </View>
+        )}
+
         <Text style={styles.sectionLabel}>BATTLE DURATION</Text>
         <ScrollView
           horizontal

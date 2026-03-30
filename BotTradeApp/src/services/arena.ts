@@ -88,6 +88,20 @@ export interface ArenaResults {
   winnerId: string;
   rankings: Gladiator[];
   totalGladiators: number;
+  stats?: {
+    totalTrades: number;
+    totalBuys: number;
+    totalSells: number;
+    bestReturn: string;
+    worstReturn: string;
+    botCount: number;
+  };
+  session?: {
+    virtualBalance: string;
+    durationSeconds: number;
+    startedAt: string;
+    endedAt: string | null;
+  };
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -107,18 +121,22 @@ function mapBotToGladiator(b: ArenaBotRow, index: number): Gladiator {
   };
 }
 
-function mapGladiatorRow(g: GladiatorRow): Gladiator {
+function mapGladiatorRow(g: any): Gladiator {
+  const ret = parseFloat(g.finalReturn ?? g.currentReturn ?? '0') || 0;
   return {
-    id: g.botId,
-    name: g.botName ?? 'Unknown',
-    strategy: g.botStrategy ?? '',
-    statLabel: g.isWinner ? 'Champion' : `Rank #${g.rank ?? '?'}`,
-    winRate: parseFloat(g.winRate ?? '0') || 0,
-    level: Math.floor((parseFloat(g.finalReturn ?? '0') || 0) + 20),
-    avatarColor: g.botColor ?? '#6C63FF',
+    id: g.botId ?? g.id,
+    name: g.botName ?? g.name ?? 'Unknown',
+    strategy: g.botStrategy ?? g.strategy ?? '',
+    statLabel: g.isWinner ? 'Champion' : g.rank ? `Rank #${g.rank}` : '',
+    winRate: parseFloat(g.winRate ?? g.currentWinRate ?? '0') || 0,
+    level: Math.max(1, Math.round(Math.abs(ret) * 2 + 10)),
+    avatarColor: g.botColor ?? g.avatarColor ?? '#6C63FF',
     selected: true,
-    currentReturn: parseFloat(g.finalReturn ?? '0') || 0,
+    currentReturn: ret,
     equityData: Array.isArray(g.equityData) ? g.equityData : [],
+    totalTrades: g.totalTrades ?? g.currentTrades ?? 0,
+    totalPnl: parseFloat(g.totalPnl ?? g.currentPnl ?? '0') || 0,
+    decisionLog: Array.isArray(g.decisionLog) ? g.decisionLog : [],
   };
 }
 
@@ -133,9 +151,9 @@ export const arenaApi = {
   },
 
   /** Create a new arena session. */
-  async createSession(botIds: string[], durationSeconds = 300): Promise<ArenaSession> {
+  async createSession(botIds: string[], durationSeconds = 300, mode: 'shadow' | 'live' = 'shadow', virtualBalance = 10000): Promise<ArenaSession> {
     const res = await api.post<DataWrap<SessionResponse>>('/arena/session', {
-      botIds, durationSeconds,
+      botIds, durationSeconds, mode, virtualBalance,
     } as Record<string, unknown>);
     const s = res?.data;
     return {
@@ -188,12 +206,14 @@ export const arenaApi = {
 
   /** Get final results for a completed session. */
   async getResults(sessionId: string): Promise<ArenaResults> {
-    const res = await api.get<DataWrap<ResultsResponse>>(`/arena/session/${sessionId}/results`);
+    const res = await api.get<DataWrap<any>>(`/arena/session/${sessionId}/results`);
     const r = res?.data;
     return {
       winnerId: r?.winner?.botId ?? '',
       rankings: (r?.rankings ?? []).map(mapGladiatorRow),
       totalGladiators: r?.totalGladiators ?? 0,
+      stats: r?.stats,
+      session: r?.session,
     };
   },
 };
