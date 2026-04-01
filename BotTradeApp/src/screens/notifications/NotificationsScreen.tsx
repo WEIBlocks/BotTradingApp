@@ -142,9 +142,9 @@ export default function NotificationsScreen({navigation}: Props) {
           <ChevronLeftIcon size={22} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Smart Notifications</Text>
-        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('NotificationSettings' as any)}>
+        {/* <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.navigate('NotificationSettings' as any)}>
           <SettingsGearIcon size={20} />
-        </TouchableOpacity>
+        </TouchableOpacity> */}
       </View>
 
       {/* Tabs */}
@@ -224,9 +224,9 @@ export default function NotificationsScreen({navigation}: Props) {
 
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: '#0F1117'},
-  header: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12},
+  header: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12},
   iconBtn: {width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center'},
-  headerTitle: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF'},
+  headerTitle: {fontFamily: 'Inter-Bold', fontSize: 18, marginLeft: 18, color: '#FFFFFF'},
   tabsRow: {flexDirection: 'row', paddingHorizontal: 20, marginBottom: 8, gap: 4},
   listContent: {paddingHorizontal: 20, paddingTop: 8, paddingBottom: 32},
   notifCard: {
