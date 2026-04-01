@@ -1,9 +1,9 @@
-import React, {useEffect} from 'react';
-import {StatusBar, Alert} from 'react-native';
+import React, {useEffect, useRef} from 'react';
+import {StatusBar} from 'react-native';
 import {NavigationContainer} from '@react-navigation/native';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {AuthProvider} from './context/AuthContext';
-import {ToastProvider} from './context/ToastContext';
+import {ToastProvider, useToast} from './context/ToastContext';
 import {NetworkProvider} from './context/NetworkContext';
 import {IAPProvider} from './context/IAPContext';
 import ErrorBoundary from './components/common/ErrorBoundary';
@@ -19,7 +19,27 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {API_BASE_URL} from './config/api';
 
+type PushKind = 'trade' | 'system' | 'alert' | 'unknown';
+type ToastKind = 'success' | 'error' | 'info' | 'warning';
+
+const FOREGROUND_DEDUP_WINDOW_MS = 2500;
+
+function mapPushToToast(kind: PushKind, title?: string): ToastKind {
+  if (kind === 'trade') return 'success';
+  if (kind === 'alert') return 'warning';
+  if (kind === 'system') return 'info';
+
+  const t = (title ?? '').toLowerCase();
+  if (t.includes('error') || t.includes('failed') || t.includes('invalid')) return 'error';
+  if (t.includes('warning') || t.includes('risk') || t.includes('limit')) return 'warning';
+  if (t.includes('filled') || t.includes('executed') || t.includes('profit')) return 'success';
+  return 'info';
+}
+
 function PushNotificationSetup() {
+  const {alert: showAlert} = useToast();
+  const seenRef = useRef<Record<string, number>>({});
+
   useEffect(() => {
     let unsubForeground: (() => void) | undefined;
 
@@ -65,9 +85,24 @@ function PushNotificationSetup() {
 
         // Foreground messages (modular API)
         unsubForeground = onMessage(msg, async remoteMessage => {
-          const title = remoteMessage.notification?.title;
-          const body = remoteMessage.notification?.body;
-          if (title) Alert.alert(title, body || '');
+          const title = remoteMessage.notification?.title || remoteMessage.data?.title || 'New notification';
+          const body = remoteMessage.notification?.body || remoteMessage.data?.body || '';
+
+          const rawType = (remoteMessage.data?.type || 'unknown').toLowerCase();
+          const kind: PushKind =
+            rawType === 'trade' || rawType === 'system' || rawType === 'alert'
+              ? (rawType as PushKind)
+              : 'unknown';
+
+          const dedupKey = `${kind}|${title}|${body}`;
+          const now = Date.now();
+          const lastShown = seenRef.current[dedupKey] || 0;
+          if (now - lastShown < FOREGROUND_DEDUP_WINDOW_MS) return;
+          seenRef.current[dedupKey] = now;
+
+          const toastType = mapPushToToast(kind, title);
+          const duration = kind === 'alert' ? 6000 : 4200;
+          showAlert(title, body, toastType, duration);
         });
 
         // Token refresh (modular API)
@@ -88,7 +123,7 @@ function PushNotificationSetup() {
 
     const timer = setTimeout(setup, 3000);
     return () => { clearTimeout(timer); unsubForeground?.(); };
-  }, []);
+  }, [showAlert]);
 
   return null;
 }

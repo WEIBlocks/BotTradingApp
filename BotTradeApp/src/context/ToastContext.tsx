@@ -105,17 +105,17 @@ const ACCENT_MAP: Record<ToastType, string> = {
 };
 
 const BG_MAP: Record<ToastType, string> = {
-  success: 'rgba(16,185,129,0.08)',
-  error: 'rgba(239,68,68,0.08)',
-  info: 'rgba(13,127,242,0.08)',
-  warning: 'rgba(245,158,11,0.08)',
+  success: 'rgba(16,185,129,0.20)',
+  error: 'rgba(239,68,68,0.20)',
+  info: 'rgba(13,127,242,0.22)',
+  warning: 'rgba(245,158,11,0.22)',
 };
 
 const BORDER_MAP: Record<ToastType, string> = {
-  success: 'rgba(16,185,129,0.25)',
-  error: 'rgba(239,68,68,0.25)',
-  info: 'rgba(13,127,242,0.25)',
-  warning: 'rgba(245,158,11,0.25)',
+  success: 'rgba(16,185,129,0.55)',
+  error: 'rgba(239,68,68,0.55)',
+  info: 'rgba(13,127,242,0.55)',
+  warning: 'rgba(245,158,11,0.55)',
 };
 
 // ─── Auto-detect toast type from title keywords ─────────────────────────────
@@ -133,6 +133,7 @@ function detectType(title: string): ToastType {
 function ToastItem({toast, onDismiss}: {toast: ToastMessage; onDismiss: (id: number) => void}) {
   const translateY = useRef(new Animated.Value(-80)).current;
   const opacity = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.96)).current;
   const Icon = ICON_MAP[toast.type];
   const accent = ACCENT_MAP[toast.type];
 
@@ -140,12 +141,14 @@ function ToastItem({toast, onDismiss}: {toast: ToastMessage; onDismiss: (id: num
     Animated.parallel([
       Animated.spring(translateY, {toValue: 0, useNativeDriver: true, tension: 80, friction: 12}),
       Animated.timing(opacity, {toValue: 1, duration: 200, useNativeDriver: true}),
+      Animated.spring(scale, {toValue: 1, useNativeDriver: true, tension: 90, friction: 10}),
     ]).start();
 
     const timer = setTimeout(() => {
       Animated.parallel([
         Animated.timing(translateY, {toValue: -80, duration: 250, useNativeDriver: true}),
         Animated.timing(opacity, {toValue: 0, duration: 250, useNativeDriver: true}),
+        Animated.timing(scale, {toValue: 0.98, duration: 250, useNativeDriver: true}),
       ]).start(() => onDismiss(toast.id));
     }, toast.duration || 3500);
 
@@ -156,8 +159,9 @@ function ToastItem({toast, onDismiss}: {toast: ToastMessage; onDismiss: (id: num
     <Animated.View style={[styles.toast, {
       backgroundColor: BG_MAP[toast.type],
       borderColor: BORDER_MAP[toast.type],
-      transform: [{translateY}],
+      transform: [{translateY}, {scale}],
       opacity,
+      shadowColor: accent,
     }]}>
       <View style={[styles.accentBar, {backgroundColor: accent}]} />
       <View style={styles.toastContent}>
@@ -373,7 +377,7 @@ export function ToastProvider({children}: {children: React.ReactNode}) {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: 50,
+    top: 58,
     left: 0,
     right: 0,
     alignItems: 'center',
@@ -382,15 +386,15 @@ const styles = StyleSheet.create({
   },
   toast: {
     width: width - 32,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
-    marginBottom: 8,
+    marginBottom: 10,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: {width: 0, height: 4},
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 10,
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 12,
   },
   accentBar: {
     height: 3,
@@ -402,7 +406,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 12,
-    backgroundColor: '#161B22',
+    backgroundColor: 'rgba(10,14,20,0.92)',
   },
   toastText: {
     flex: 1,
