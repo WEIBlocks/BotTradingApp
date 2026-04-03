@@ -17,15 +17,12 @@ interface ShadowSessionInfo {
 }
 
 function resolveBotDisplayStatus(bot: DashActiveBot, shadowSessions: ShadowSessionInfo[]) {
-  if (bot.subStatus !== 'shadow') {
-    const isPaused = bot.subStatus === 'paused';
-    const isLive = bot.subStatus === 'active' && bot.status === 'live';
-    return {
-      label: isPaused ? 'PAUSED' : isLive ? 'LIVE' : 'PAPER',
-      color: isPaused ? '#F97316' : isLive ? '#10B981' : '#F59E0B',
-      icon: isPaused ? 'paused' as const : 'running' as const,
-    };
-  }
+  // If there's an active/paused live subscription, that takes full priority —
+  // a completed shadow session is no longer relevant once the user has gone live
+  if (bot.subStatus === 'active' && bot.status === 'live') return {label: 'LIVE', color: '#10B981', icon: 'running' as const};
+  if (bot.subStatus === 'paused' && bot.status === 'live') return {label: 'PAUSED', color: '#F97316', icon: 'paused' as const};
+
+  // Check shadow sessions — only when no live subscription is active
   const sessions = shadowSessions.filter(s => s.botId === bot.id);
   const running = sessions.find(s => s.status === 'running');
   const completed = sessions.find(s => s.status === 'completed');
@@ -34,7 +31,12 @@ function resolveBotDisplayStatus(bot: DashActiveBot, shadowSessions: ShadowSessi
   if (running) return {label: 'SHADOW', color: '#0D7FF2', icon: 'running' as const};
   if (paused) return {label: 'SHADOW PAUSED', color: '#F97316', icon: 'paused' as const};
   if (completed) return {label: 'SHADOW DONE', color: '#10B981', icon: 'completed' as const};
-  return {label: 'SHADOW', color: '#0D7FF2', icon: 'idle' as const};
+
+  // No shadow session, no live subscription — use remaining subscription states
+  if (bot.subStatus === 'paused') return {label: 'PAUSED', color: '#F97316', icon: 'paused' as const};
+  if (bot.subStatus === 'active') return {label: 'SHADOW', color: '#3B82F6', icon: 'running' as const};
+  // stopped / expired with no shadow session
+  return {label: 'SHADOW DONE', color: '#10B981', icon: 'completed' as const};
 }
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
@@ -193,7 +195,7 @@ export default function PortfolioScreen() {
     const priority = (bot: DashActiveBot) => {
       const d = resolveBotDisplayStatus(bot, shadowSessions);
       if (d.label === 'LIVE') return 0;
-      if (d.label === 'PAPER') return 1;
+      if (d.label === 'SHADOW' && d.icon === 'running') return 1;
       if (d.label === 'SHADOW') return 2;
       if (d.label === 'PAUSED') return 3;
       if (d.label === 'SHADOW PAUSED') return 4;
@@ -462,14 +464,32 @@ export default function PortfolioScreen() {
                       </Text>
                     </Text>
                   </View>
-                  {(display.label === 'LIVE' || display.label === 'SHADOW') && (
+                  {display.label === 'LIVE' && (
                     <TouchableOpacity
-                      style={{backgroundColor: display.label === 'LIVE' ? 'rgba(16,185,129,0.1)' : 'rgba(59,130,246,0.1)', borderRadius: 8, padding: 7, borderWidth: 1, borderColor: display.label === 'LIVE' ? 'rgba(16,185,129,0.3)' : 'rgba(59,130,246,0.3)'}}
-                      onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: display.label === 'LIVE' ? 'live' : 'paper'})}
+                      style={{backgroundColor: 'rgba(16,185,129,0.1)', borderRadius: 8, padding: 7, borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)'}}
+                      onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: 'live'})}
                       activeOpacity={0.7}>
                       <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-                        <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill={display.label === 'LIVE' ? '#10B981' : '#3B82F6'} />
+                        <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill="#10B981" />
                       </Svg>
+                    </TouchableOpacity>
+                  )}
+                  {display.label === 'SHADOW' && display.icon === 'running' && (
+                    <TouchableOpacity
+                      style={{backgroundColor: 'rgba(59,130,246,0.1)', borderRadius: 8, padding: 7, borderWidth: 1, borderColor: 'rgba(59,130,246,0.3)'}}
+                      onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: 'paper'})}
+                      activeOpacity={0.7}>
+                      <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                        <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill="#3B82F6" />
+                      </Svg>
+                    </TouchableOpacity>
+                  )}
+                  {display.icon === 'completed' && (
+                    <TouchableOpacity
+                      style={{backgroundColor: 'rgba(16,185,129,0.1)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)'}}
+                      onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
+                      activeOpacity={0.7}>
+                      <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 11, color: '#10B981'}}>Go Live</Text>
                     </TouchableOpacity>
                   )}
                 </TouchableOpacity>

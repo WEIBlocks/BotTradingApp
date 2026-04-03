@@ -21,16 +21,12 @@ interface ShadowSessionInfo {
 
 /** Resolve the actual display status of a bot, cross-referencing shadow sessions */
 function resolveBotDisplayStatus(bot: DashActiveBot, shadowSessions: ShadowSessionInfo[]) {
-  if (bot.subStatus !== 'shadow') {
-    const isPaused = bot.subStatus === 'paused';
-    const isLive = bot.subStatus === 'active' && bot.status === 'live';
-    return {
-      label: isPaused ? 'PAUSED' : isLive ? 'LIVE' : 'PAPER',
-      color: isPaused ? '#F97316' : isLive ? '#10B981' : '#F59E0B',
-      icon: isPaused ? 'paused' as const : 'running' as const,
-    };
-  }
-  // Shadow bot — check shadow sessions for this bot
+  // If there's an active/paused live subscription, that takes full priority —
+  // a completed shadow session is no longer relevant once the user has gone live
+  if (bot.subStatus === 'active' && bot.status === 'live') return {label: 'LIVE', color: '#10B981', icon: 'running' as const};
+  if (bot.subStatus === 'paused' && bot.status === 'live') return {label: 'PAUSED', color: '#F97316', icon: 'paused' as const};
+
+  // Check shadow sessions — only when no live subscription is active
   const sessions = shadowSessions.filter(s => s.botId === bot.id);
   const running = sessions.find(s => s.status === 'running');
   const completed = sessions.find(s => s.status === 'completed');
@@ -39,7 +35,12 @@ function resolveBotDisplayStatus(bot: DashActiveBot, shadowSessions: ShadowSessi
   if (running) return {label: 'SHADOW', color: '#0D7FF2', icon: 'running' as const};
   if (paused) return {label: 'SHADOW PAUSED', color: '#F97316', icon: 'paused' as const};
   if (completed) return {label: 'SHADOW DONE', color: '#10B981', icon: 'completed' as const};
-  return {label: 'SHADOW', color: '#0D7FF2', icon: 'idle' as const};
+
+  // No shadow session, no live subscription — use remaining subscription states
+  if (bot.subStatus === 'paused') return {label: 'PAUSED', color: '#F97316', icon: 'paused' as const};
+  if (bot.subStatus === 'active') return {label: 'SHADOW', color: '#3B82F6', icon: 'running' as const};
+  // stopped / expired with no shadow session
+  return {label: 'SHADOW DONE', color: '#10B981', icon: 'completed' as const};
 }
 import PortfolioLineChart from '../../components/charts/PortfolioLineChart';
 import PlusIcon from '../../components/icons/PlusIcon';
@@ -337,7 +338,7 @@ export default function DashboardScreen() {
     const priority = (bot: DashActiveBot) => {
       const d = resolveBotDisplayStatus(bot, shadowSessions);
       if (d.label === 'LIVE') return 0;
-      if (d.label === 'PAPER') return 1;
+      if (d.label === 'SHADOW' && d.icon === 'running') return 1;
       if (d.label === 'SHADOW') return 2;
       if (d.label === 'PAUSED') return 3;
       if (d.label === 'SHADOW PAUSED') return 4;
@@ -500,7 +501,7 @@ export default function DashboardScreen() {
                       <Text style={[styles.bpExBadgeText, {color: accentColor}]}>{isCrypto ? 'CRYPTO' : 'STOCKS'}</Text>
                     </View>
                     <Text style={styles.bpExName}>{providerLabel}</Text>
-                    {ex.sandbox && <Text style={styles.bpExSandbox}>PAPER</Text>}
+                    {ex.sandbox && <Text style={styles.bpExSandbox}>TEST</Text>}
                   </View>
                   <View style={styles.bpExStats}>
                     <View style={styles.bpExStat}>
@@ -587,8 +588,12 @@ export default function DashboardScreen() {
               const returnColor = bot.totalReturn >= 0 ? '#10B981' : '#EF4444';
               const returnSign = bot.totalReturn >= 0 ? '+' : '';
               const display = resolveBotDisplayStatus(bot, shadowSessions);
-              const isShadow = bot.subStatus === 'shadow';
-              const isPaused = bot.subStatus === 'paused';
+              // Use display as single source of truth — avoids raw subStatus mismatches
+              const isLiveRunning = display.label === 'LIVE';
+              const isShadowRunning = display.label === 'SHADOW' && display.icon === 'running';
+              const isShadowPaused = display.label === 'SHADOW PAUSED';
+              const isShadowCompleted = display.icon === 'completed';
+              const isPaused = display.label === 'PAUSED';
               return (
                 <TouchableOpacity
                   key={bot.id}
@@ -625,7 +630,7 @@ export default function DashboardScreen() {
                       </Text>
                     </Text>
                   </View>
-                  {!isShadow && !isPaused && (
+                  {isLiveRunning && (
                     <View style={styles.botActions}>
                       <TouchableOpacity
                         style={[styles.botActionBtn, {backgroundColor: 'rgba(16,185,129,0.1)', borderColor: 'rgba(16,185,129,0.3)'}]}
@@ -649,7 +654,7 @@ export default function DashboardScreen() {
                       </TouchableOpacity>
                     </View>
                   )}
-                  {isShadow && display.icon !== 'completed' && (
+                  {(isShadowRunning || isShadowPaused) && (
                     <View style={styles.botActions}>
                       <TouchableOpacity
                         style={[styles.botActionBtn, {backgroundColor: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.3)', borderWidth: 1}]}
@@ -685,7 +690,7 @@ export default function DashboardScreen() {
                       </TouchableOpacity>
                     </View>
                   )}
-                  {isShadow && display.icon === 'completed' && (
+                  {isShadowCompleted && (
                     <TouchableOpacity
                       style={[styles.resumeSmallBtn, {backgroundColor: 'rgba(16,185,129,0.15)', borderColor: 'rgba(16,185,129,0.4)'}]}
                       onPress={(e) => { e.stopPropagation(); navigation.navigate('BotDetails', {botId: bot.id}); }}

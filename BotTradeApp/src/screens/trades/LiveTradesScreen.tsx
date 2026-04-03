@@ -62,7 +62,7 @@ function formatUSD(value: number): string {
 
 // ─── Filter Tabs ────────────────────────────────────────────────────────────────
 
-const FILTERS = ['All', 'My Bots', 'Live Only', 'Paper Only'] as const;
+const FILTERS = ['All', 'My Bots', 'Live Only', 'Shadow Only'] as const;
 type FilterType = (typeof FILTERS)[number];
 
 // ─── Screen ─────────────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ export default function LiveTradesScreen() {
       ? liveTrades.filter(t => t.botName && t.botName !== 'Manual Trade')
       : activeFilter === 'Live Only'
         ? liveTrades.filter(t => !t.isPaper)
-        : liveTrades.filter(t => t.isPaper);
+        : liveTrades.filter(t => t.isPaper); // Shadow Only
 
   const renderSeparator = useCallback(
     () => <View style={styles.separator} />,

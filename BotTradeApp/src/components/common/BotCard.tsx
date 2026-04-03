@@ -39,7 +39,7 @@ export default function BotCard({bot, onPress, style, compact = false}: BotCardP
         </View>
         <View style={styles.topRight}>
           <Badge
-            label={bot.status === 'live' ? 'LIVE' : 'PAPER'}
+            label={bot.status === 'live' ? 'LIVE' : 'SHADOW'}
             variant={bot.status === 'live' ? 'green' : 'blue'}
             size="sm"
           />

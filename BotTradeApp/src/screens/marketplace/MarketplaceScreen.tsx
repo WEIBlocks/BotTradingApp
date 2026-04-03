@@ -196,7 +196,7 @@ function BotGridCard({
           style={gridStyles.paperBtn}
           onPress={onPaperPress}
           activeOpacity={0.7}>
-          <Text style={gridStyles.paperBtnText}>Paper</Text>
+          <Text style={gridStyles.paperBtnText}>Shadow</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={gridStyles.liveBtn}

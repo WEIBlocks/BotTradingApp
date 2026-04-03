@@ -32,45 +32,46 @@ interface ShadowSessionInfo {
 }
 
 function resolveBotDisplayStatus(bot: DashActiveBot, shadowSessions: ShadowSessionInfo[]) {
-  if (bot.subStatus !== 'shadow') {
-    const isPaused = bot.subStatus === 'paused';
-    const isLive = bot.subStatus === 'active' && bot.status === 'live';
-    return {
-      label: isPaused ? 'PAUSED' : isLive ? 'LIVE' : 'PAPER',
-      color: isPaused ? '#F97316' : isLive ? '#10B981' : '#F59E0B',
-      icon: isPaused ? 'paused' as const : 'running' as const,
-    };
-  }
+  // If there's an active/paused live subscription, that takes full priority —
+  // a completed shadow session is no longer relevant once the user has gone live
+  if (bot.subStatus === 'active' && bot.status === 'live') return {label: 'LIVE', color: '#10B981', icon: 'running' as const};
+  if (bot.subStatus === 'paused' && bot.status === 'live') return {label: 'PAUSED', color: '#F97316', icon: 'paused' as const};
+
+  // Check shadow sessions — only when no live subscription is active
   const sessions = shadowSessions.filter(s => s.botId === bot.id);
   const running = sessions.find(s => s.status === 'running');
   const completed = sessions.find(s => s.status === 'completed');
   const paused = sessions.find(s => s.status === 'paused');
+
   if (running) return {label: 'SHADOW', color: '#0D7FF2', icon: 'running' as const};
   if (paused) return {label: 'SHADOW PAUSED', color: '#F97316', icon: 'paused' as const};
   if (completed) return {label: 'SHADOW DONE', color: '#10B981', icon: 'completed' as const};
-  return {label: 'SHADOW', color: '#0D7FF2', icon: 'idle' as const};
+
+  // No shadow session, no live subscription — use remaining subscription states
+  if (bot.subStatus === 'paused') return {label: 'PAUSED', color: '#F97316', icon: 'paused' as const};
+  if (bot.subStatus === 'active') return {label: 'SHADOW', color: '#3B82F6', icon: 'running' as const};
+  // stopped / expired with no shadow session
+  return {label: 'SHADOW DONE', color: '#10B981', icon: 'completed' as const};
 }
 
-// Priority order for sorting: live running > paper running > shadow running > paused > shadow paused > completed/idle
+// Priority order: live > shadow (paper mode) > shadow session running > paused > shadow paused > completed/idle
 function botSortPriority(bot: DashActiveBot, display: ReturnType<typeof resolveBotDisplayStatus>): number {
   if (display.label === 'LIVE') return 0;
-  if (display.label === 'PAPER') return 1;
-  if (display.label === 'SHADOW') return 2;
-  if (display.label === 'PAUSED') return 3;
-  if (display.label === 'SHADOW PAUSED') return 4;
-  if (display.label === 'SHADOW DONE') return 5;
-  return 6;
+  if (display.label === 'SHADOW' && display.icon === 'running') return 1;
+  if (display.label === 'PAUSED') return 2;
+  if (display.label === 'SHADOW PAUSED') return 3;
+  if (display.label === 'SHADOW DONE') return 4;
+  return 5;
 }
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
-type FilterKey = 'all' | 'live' | 'paper' | 'shadow' | 'paused' | 'completed';
+type FilterKey = 'all' | 'live' | 'shadow' | 'paused' | 'completed';
 
 const FILTERS: {key: FilterKey; label: string; color: string}[] = [
   {key: 'all', label: 'All', color: '#FFFFFF'},
   {key: 'live', label: 'Live', color: '#10B981'},
-  {key: 'paper', label: 'Paper', color: '#F59E0B'},
-  {key: 'shadow', label: 'Shadow', color: '#0D7FF2'},
+  {key: 'shadow', label: 'Shadow', color: '#3B82F6'},
   {key: 'paused', label: 'Paused', color: '#F97316'},
   {key: 'completed', label: 'Done', color: '#A78BFA'},
 ];
@@ -136,7 +137,6 @@ export default function ActiveBotsScreen() {
     if (filter === 'all') return enriched;
     return enriched.filter(({display}) => {
       if (filter === 'live') return display.label === 'LIVE';
-      if (filter === 'paper') return display.label === 'PAPER';
       if (filter === 'shadow') return display.label === 'SHADOW' || display.label === 'SHADOW PAUSED';
       if (filter === 'paused') return display.label === 'PAUSED';
       if (filter === 'completed') return display.label === 'SHADOW DONE';
@@ -146,10 +146,9 @@ export default function ActiveBotsScreen() {
 
   // Count per filter
   const counts = useMemo(() => {
-    const c: Record<FilterKey, number> = {all: enriched.length, live: 0, paper: 0, shadow: 0, paused: 0, completed: 0};
+    const c: Record<FilterKey, number> = {all: enriched.length, live: 0, shadow: 0, paused: 0, completed: 0};
     for (const {display} of enriched) {
       if (display.label === 'LIVE') c.live++;
-      else if (display.label === 'PAPER') c.paper++;
       else if (display.label === 'SHADOW' || display.label === 'SHADOW PAUSED') c.shadow++;
       else if (display.label === 'PAUSED') c.paused++;
       else if (display.label === 'SHADOW DONE') c.completed++;
@@ -184,6 +183,7 @@ export default function ActiveBotsScreen() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.filterScrollView}
         contentContainerStyle={styles.filterRow}>
         {FILTERS.map(f => {
           const count = counts[f.key];
@@ -208,6 +208,7 @@ export default function ActiveBotsScreen() {
       </ScrollView>
 
       <ScrollView
+        style={{flex: 1}}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -230,8 +231,11 @@ export default function ActiveBotsScreen() {
         ) : (
           <View style={styles.botList}>
             {filtered.map(({bot, display}) => {
-              const isShadow = bot.subStatus === 'shadow';
-              const isPaused = bot.subStatus === 'paused';
+              const isLiveRunning = display.label === 'LIVE';
+              const isShadowRunning = display.label === 'SHADOW' && display.icon === 'running';
+              const isShadowPaused = display.label === 'SHADOW PAUSED';
+              const isShadowCompleted = display.icon === 'completed';
+              const isPaused = display.label === 'PAUSED';
               const returnColor = bot.totalReturn >= 0 ? '#10B981' : '#EF4444';
               const returnSign = bot.totalReturn >= 0 ? '+' : '';
               return (
@@ -270,8 +274,8 @@ export default function ActiveBotsScreen() {
                       </Text>
                     </Text>
                   </View>
-                  {/* Actions */}
-                  {!isShadow && !isPaused && (
+                  {/* Actions — all based on display, not raw subStatus */}
+                  {isLiveRunning && (
                     <View style={styles.botActions}>
                       <TouchableOpacity
                         style={[styles.actionBtn, {backgroundColor: 'rgba(16,185,129,0.1)', borderColor: 'rgba(16,185,129,0.3)'}]}
@@ -295,7 +299,7 @@ export default function ActiveBotsScreen() {
                       </TouchableOpacity>
                     </View>
                   )}
-                  {isShadow && display.icon !== 'completed' && (
+                  {(isShadowRunning || isShadowPaused) && (
                     <View style={styles.botActions}>
                       <TouchableOpacity
                         style={[styles.actionBtn, {backgroundColor: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.3)', borderWidth: 1}]}
@@ -327,7 +331,7 @@ export default function ActiveBotsScreen() {
                       </TouchableOpacity>
                     </View>
                   )}
-                  {isShadow && display.icon === 'completed' && (
+                  {isShadowCompleted && (
                     <TouchableOpacity
                       style={styles.goLiveBtn}
                       onPress={(e) => { e.stopPropagation(); navigation.navigate('BotDetails', {botId: bot.id}); }}
@@ -368,6 +372,7 @@ const styles = StyleSheet.create({
   headerTitle: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF', letterSpacing: -0.3},
   headerSub: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 1},
 
+  filterScrollView: {flexGrow: 0, flexShrink: 0},
   filterRow: {
     flexDirection: 'row', gap: 8,
     paddingHorizontal: 20, paddingBottom: 14,
@@ -387,7 +392,7 @@ const styles = StyleSheet.create({
   },
   filterCountText: {fontFamily: 'Inter-Bold', fontSize: 10, color: 'rgba(255,255,255,0.4)'},
 
-  scrollContent: {paddingHorizontal: 20},
+  scrollContent: {paddingHorizontal: 20, paddingTop: 4},
 
   emptyState: {alignItems: 'center', paddingTop: 60},
   emptyIcon: {fontSize: 48, marginBottom: 12},
@@ -396,7 +401,7 @@ const styles = StyleSheet.create({
 
   botList: {gap: 8},
   botCard: {
-    flexDirection: 'row', alignItems: 'center',
+    flexDirection: 'row', alignItems: 'flex-start',
     backgroundColor: '#161B22', borderRadius: 14,
     borderTopWidth: 1, borderBottomWidth: 1, borderRightWidth: 1,
     borderTopColor: 'rgba(255,255,255,0.07)',
@@ -421,7 +426,7 @@ const styles = StyleSheet.create({
   statusBadgeText: {fontFamily: 'Inter-Bold', fontSize: 9, letterSpacing: 0.5},
   botPair: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.45)'},
 
-  botActions: {flexDirection: 'row', gap: 6},
+  botActions: {flexDirection: 'row', gap: 6, alignSelf: 'flex-start'},
   actionBtn: {
     width: 30, height: 30, borderRadius: 8,
     backgroundColor: 'rgba(255,255,255,0.06)',
@@ -436,12 +441,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(16,185,129,0.15)',
     borderWidth: 1, borderColor: 'rgba(16,185,129,0.4)',
     borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+    alignSelf: 'flex-start',
   },
   goLiveText: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: '#10B981'},
   resumeBtn: {
     backgroundColor: 'rgba(255,255,255,0.08)',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
     borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6,
+    alignSelf: 'flex-start',
   },
   resumeText: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: '#FFFFFF'},
 });

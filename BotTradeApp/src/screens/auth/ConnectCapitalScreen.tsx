@@ -120,7 +120,7 @@ export default function ConnectCapitalScreen({navigation}: Props) {
           <ChevronLeftIcon size={20} color="#10B981" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Account Setup</Text>
-        <TouchableOpacity style={styles.infoBtn} onPress={() => showAlert('About Capital Connection', 'Connect your brokerage account to enable live automated trading, or start with paper trading to practice risk-free.')}>
+        <TouchableOpacity style={styles.infoBtn} onPress={() => showAlert('About Capital Connection', 'Connect your brokerage account to enable live automated trading, or start with shadow mode to practice risk-free.')}>
           <InfoIcon size={20} color="#10B981" />
         </TouchableOpacity>
       </View>
@@ -140,7 +140,7 @@ export default function ConnectCapitalScreen({navigation}: Props) {
               <PaperTradingIcon />
             </View>
             <View style={styles.featuredNameCol}>
-              <Text style={styles.featuredName}>Paper Trading</Text>
+              <Text style={styles.featuredName}>Shadow Mode</Text>
               <Text style={styles.featuredSubtitle}>No risk, real-time simulation</Text>
             </View>
             <Badge label="RECOMMENDED" variant="green" size="sm" />
@@ -167,7 +167,7 @@ export default function ConnectCapitalScreen({navigation}: Props) {
               <Text style={styles.brokerName}>{b.name}</Text>
               <Text style={styles.brokerSubtitle}>{b.subtitle}</Text>
             </View>
-            <TouchableOpacity style={styles.connectBtn} activeOpacity={0.7} onPress={() => showAlert('Coming Soon', `${b.name} integration is coming soon. Start with paper trading to get started immediately!`)}>
+            <TouchableOpacity style={styles.connectBtn} activeOpacity={0.7} onPress={() => showAlert('Coming Soon', `${b.name} integration is coming soon. Start with shadow mode to get started immediately!`)}>
               <Text style={styles.connectText}>Connect</Text>
             </TouchableOpacity>
           </View>

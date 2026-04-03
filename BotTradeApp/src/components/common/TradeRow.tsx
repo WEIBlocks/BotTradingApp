@@ -9,7 +9,7 @@ interface TradeRowProps {
 const MODE_CONFIG: Record<string, {label: string; color: string; bg: string}> = {
   live: {label: 'LIVE', color: '#10B981', bg: 'rgba(16,185,129,0.1)'},
   shadow: {label: 'SHADOW', color: '#3B82F6', bg: 'rgba(59,130,246,0.1)'},
-  paper: {label: 'PAPER', color: '#F59E0B', bg: 'rgba(245,158,11,0.1)'},
+  paper: {label: 'SHADOW', color: '#3B82F6', bg: 'rgba(59,130,246,0.1)'},
   arena: {label: 'ARENA', color: '#8B5CF6', bg: 'rgba(139,92,246,0.1)'},
 };
 

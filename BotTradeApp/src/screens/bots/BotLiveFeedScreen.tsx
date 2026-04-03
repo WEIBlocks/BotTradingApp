@@ -409,7 +409,7 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
             <Text style={[styles.liveText, {color: statusColor}]}>{statusText}</Text>
             <View style={[styles.modeBadge, {backgroundColor: mode === 'live' ? '#FF6B0020' : '#00C85120'}]}>
               <Text style={[styles.modeBadgeText, {color: mode === 'live' ? '#FF6B00' : '#00C851'}]}>
-                {mode === 'live' ? 'LIVE TRADING' : 'PAPER'}
+                {mode === 'live' ? 'LIVE TRADING' : 'SHADOW'}
               </Text>
             </View>
           </View>

@@ -743,7 +743,7 @@ export default function CreatorStudioScreen() {
                             <Text style={bm.userName} numberOfLines={1}>{u.name || 'User'}</Text>
                             <View style={[bm.userModePill, {backgroundColor: u.mode === 'live' ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)'}]}>
                               <Text style={[bm.userModeText, {color: u.mode === 'live' ? '#EF4444' : '#10B981'}]}>
-                                {u.mode === 'live' ? 'LIVE' : 'PAPER'}
+                                {u.mode === 'live' ? 'LIVE' : 'SHADOW'}
                               </Text>
                             </View>
                             <View style={[bm.userModePill, {backgroundColor: u.status === 'active' ? 'rgba(59,130,246,0.12)' : 'rgba(255,255,255,0.06)'}]}>

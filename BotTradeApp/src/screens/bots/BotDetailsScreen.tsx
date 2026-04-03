@@ -355,7 +355,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     if (!userBotState.shadowSessionId) return;
     showConfirm({
       title: 'Pause Shadow Mode',
-      message: 'This will pause the shadow session. No new paper trades will be made.',
+      message: 'This will pause the shadow session. No new shadow trades will be made.',
       confirmText: 'Pause',
       onConfirm: () => {
         setActionLoading(true);
