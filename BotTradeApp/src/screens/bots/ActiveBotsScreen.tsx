@@ -334,7 +334,7 @@ export default function ActiveBotsScreen() {
                   {isShadowCompleted && (
                     <TouchableOpacity
                       style={styles.goLiveBtn}
-                      onPress={(e) => { e.stopPropagation(); navigation.navigate('BotDetails', {botId: bot.id}); }}
+                      onPress={(e) => { e.stopPropagation(); navigation.navigate('BotPurchase', {botId: bot.id}); }}
                       activeOpacity={0.7}>
                       <Text style={styles.goLiveText}>Go Live</Text>
                     </TouchableOpacity>

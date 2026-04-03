@@ -1,6 +1,6 @@
-import React, {useState, useCallback, useEffect} from 'react';
+import React, {useState, useCallback} from 'react';
 import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput} from 'react-native';
-import {useNavigation} from '@react-navigation/native';
+import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 import {RootStackParamList, Gladiator} from '../../types';
@@ -132,18 +132,21 @@ export default function ArenaSetupScreen() {
   const [arenaMode, setArenaMode] = useState<'shadow' | 'live'>('shadow');
   const [virtualBalance, setVirtualBalance] = useState('10000');
 
-  useEffect(() => {
-    Promise.all([
-      arenaApi.getAvailableBots(),
-      arenaApi.getActiveSession().catch(() => null),
-    ])
-      .then(([bots, session]) => {
-        setGladiators(bots);
-        setActiveSession(session);
-      })
-      .catch(() => showAlert('Error', 'Failed to load arena bots. Please try again.'))
-      .finally(() => setLoading(false));
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      Promise.all([
+        arenaApi.getAvailableBots(),
+        arenaApi.getActiveSession().catch(() => null),
+      ])
+        .then(([bots, session]) => {
+          setGladiators(bots);
+          setActiveSession(session);
+        })
+        .catch(() => showAlert('Error', 'Failed to load arena bots. Please try again.'))
+        .finally(() => setLoading(false));
+    }, []),
+  );
 
   const selectedCount = gladiators.filter(g => g.selected).length;
   const progress = selectedCount / MAX_GLADIATORS;

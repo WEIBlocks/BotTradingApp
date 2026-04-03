@@ -132,8 +132,8 @@ export async function botsRoutes(app: FastifyInstance) {
     },
   }, async (request, reply) => {
     const { id } = request.params;
-    const { mode } = request.body;
-    const result = await purchaseBot(request.user.userId, id, mode);
+    const { mode, allocatedAmount } = request.body;
+    const result = await purchaseBot(request.user.userId, id, mode, allocatedAmount);
     return reply.status(201).send({ data: result });
   });
 

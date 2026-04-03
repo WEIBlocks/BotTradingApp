@@ -39,6 +39,7 @@ export const updateBotBodySchema = z.object({
 
 export const purchaseBotBodySchema = z.object({
   mode: z.enum(['live', 'paper']).default('live'),
+  allocatedAmount: z.number().positive().optional(),
 });
 
 export const shadowModeBodySchema = z.object({

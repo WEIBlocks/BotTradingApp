@@ -208,6 +208,7 @@ export async function getUserConnections(userId: string) {
       sandbox: exchangeConnections.sandbox,
       accountLabel: exchangeConnections.accountLabel,
       totalBalance: exchangeConnections.totalBalance,
+      assetClass: exchangeConnections.assetClass,
       lastSyncAt: exchangeConnections.lastSyncAt,
       errorMessage: exchangeConnections.errorMessage,
       createdAt: exchangeConnections.createdAt,

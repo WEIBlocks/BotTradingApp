@@ -1,11 +1,10 @@
-import React, {useState, useEffect} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator} from 'react-native';
+import React, {useState, useEffect, useCallback} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, KeyboardAvoidingView, Platform} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import type {Bot} from '../../types';
 import {marketplaceApi} from '../../services/marketplace';
 import {botsService} from '../../services/bots';
-import {portfolioApi} from '../../services/portfolio';
 import {configApi} from '../../services/config';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 import CheckCircleIcon from '../../components/icons/CheckCircleIcon';
@@ -13,9 +12,19 @@ import LockIcon from '../../components/icons/LockIcon';
 import {useIAP} from '../../context/IAPContext';
 import {useToast} from '../../context/ToastContext';
 import {useAuth} from '../../context/AuthContext';
-import Svg, {Path} from 'react-native-svg';
+import Svg, {Path, Circle, Rect} from 'react-native-svg';
+import {api} from '../../services/api';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BotPurchase'>;
+
+interface ExchangeInfo {
+  id: string;
+  provider: string;
+  assetClass: 'crypto' | 'stocks';
+  totalBalance: number;
+  status: string;
+  sandbox: boolean;
+}
 
 const GooglePlayIcon = ({size = 16}: {size?: number}) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -23,12 +32,46 @@ const GooglePlayIcon = ({size = 16}: {size?: number}) => (
   </Svg>
 );
 
+function CryptoIcon({size = 16}: {size?: number}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={10} stroke="#F59E0B" strokeWidth={1.5} />
+      <Path d="M9 8h4.5a2.5 2.5 0 010 5H9m0-5v8m0-8v8m4.5-3H9" stroke="#F59E0B" strokeWidth={1.5} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+function StocksIcon({size = 16}: {size?: number}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M3 17l4-4 4 4 4-6 4 2" stroke="#3B82F6" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      <Rect x={3} y={19} width={18} height={1.5} rx={0.75} fill="#3B82F6" />
+    </Svg>
+  );
+}
+
+function WarningIcon({size = 16}: {size?: number}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke="#F97316" strokeWidth={1.5} strokeLinejoin="round" />
+      <Path d="M12 9v4M12 17h.01" stroke="#F97316" strokeWidth={1.5} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+/** Map bot category to required exchange asset class */
+function getRequiredAssetClass(botCategory: string): 'crypto' | 'stocks' {
+  return botCategory.toLowerCase() === 'stocks' ? 'stocks' : 'crypto';
+}
+
 export default function BotPurchaseScreen({navigation, route}: Props) {
   const [bot, setBot] = useState<Bot | null>(null);
   const [loading, setLoading] = useState(true);
   const [activating, setActivating] = useState(false);
-  const [availableCapital, setAvailableCapital] = useState(0);
   const [feeRate, setFeeRate] = useState(0.07);
+  const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);
+  const [allocatedAmount, setAllocatedAmount] = useState('');
+  const [amountError, setAmountError] = useState('');
 
   const {purchaseBot, processing: iapProcessing} = useIAP();
   const {alert: showAlert, showConfirm} = useToast();
@@ -38,35 +81,95 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   useEffect(() => {
     Promise.all([
       marketplaceApi.getBotDetails(route.params.botId),
-      portfolioApi.getSummary().catch(() => ({totalValue: 0})),
+      api.get('/exchange/user/connections').then((r: any) => {
+        const list = Array.isArray(r?.data) ? r.data : Array.isArray(r) ? r : [];
+        return list as ExchangeInfo[];
+      }).catch(() => [] as ExchangeInfo[]),
       configApi.getPlatformConfig().catch(() => ({platformFeeRate: 0.07})),
     ])
-      .then(([botData, portfolio, config]) => {
+      .then(([botData, exchangeList, config]) => {
         setBot(botData);
-        setAvailableCapital(portfolio.totalValue || 0);
+        setExchanges(exchangeList);
         setFeeRate(config.platformFeeRate || 0.07);
+
+        // Pre-fill amount with available balance for matching exchange
+        const required = getRequiredAssetClass(botData.category ?? 'Crypto');
+        const match = exchangeList.find((e: ExchangeInfo) => e.assetClass === required && e.status === 'connected');
+        if (match) {
+          setAllocatedAmount(String(Math.floor(match.totalBalance)));
+        }
       })
       .catch(() => showAlert('Error', 'Failed to load bot details'))
       .finally(() => setLoading(false));
   }, [route.params.botId]);
 
+  const requiredAssetClass = bot ? getRequiredAssetClass(bot.category ?? 'Crypto') : 'crypto';
+  const matchingExchange = exchanges.find(e => e.assetClass === requiredAssetClass && e.status === 'connected');
+  const availableBalance = matchingExchange ? matchingExchange.totalBalance : 0;
+  const parsedAmount = parseFloat(allocatedAmount) || 0;
+
+  const validateAmount = useCallback((val: string): string => {
+    const num = parseFloat(val);
+    if (!val || isNaN(num) || num <= 0) return 'Enter a valid amount greater than 0';
+    if (num > availableBalance) {
+      return `Exceeds available ${requiredAssetClass === 'stocks' ? 'stock' : 'crypto'} balance ($${availableBalance.toLocaleString()})`;
+    }
+    return '';
+  }, [availableBalance, requiredAssetClass]);
+
+  const handleAmountChange = (val: string) => {
+    // Only allow numbers and one decimal point
+    const cleaned = val.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+    setAllocatedAmount(cleaned);
+    setAmountError(validateAmount(cleaned));
+  };
+
+  const handleMaxPress = () => {
+    const val = String(Math.floor(availableBalance));
+    setAllocatedAmount(val);
+    setAmountError(validateAmount(val));
+  };
+
+  const doActivate = async () => {
+    if (!bot) return;
+    const err = validateAmount(allocatedAmount);
+    if (err) { setAmountError(err); return; }
+    if (!matchingExchange) {
+      const label = requiredAssetClass === 'stocks' ? 'stock (Alpaca)' : 'crypto';
+      showAlert('No Exchange Connected', `This bot requires a connected ${label} exchange. Please connect one first.`);
+      return;
+    }
+
+    setActivating(true);
+    try {
+      await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: parsedAmount});
+      showAlert('Bot Activated!', `${bot.name} is now running live with $${parsedAmount.toLocaleString()} allocated.`);
+      navigation.navigate('Main');
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || err?.message || 'Failed to activate bot. Please try again.';
+      showAlert('Error', msg);
+    } finally {
+      setActivating(false);
+    }
+  };
+
   const handleActivate = async () => {
     if (!bot) return;
+    const err = validateAmount(allocatedAmount);
+    if (err) { setAmountError(err); return; }
 
-    // Admin bypasses payment — activate directly
     if (bot.price > 0 && !isAdmin) {
       showConfirm({
         title: 'Confirm Purchase',
-        message: `Purchase ${bot.name} for $${bot.price}/month?\n\nPayment will be handled securely through Google Play.`,
+        message: `Purchase ${bot.name} for $${bot.price}/month?\n\nAllocated capital: $${parsedAmount.toLocaleString()}\nPayment will be handled securely through Google Play.`,
         confirmText: 'Purchase',
         onConfirm: async () => {
           setActivating(true);
           try {
             const success = await purchaseBot(bot.id, bot.price);
             if (success) {
-              // IAP succeeded — now activate on backend
-              await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: availableCapital || undefined});
-              showAlert('Bot Activated!', `${bot.name} is now running live.`);
+              await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: parsedAmount});
+              showAlert('Bot Activated!', `${bot.name} is now running live with $${parsedAmount.toLocaleString()} allocated.`);
               navigation.navigate('Main');
             }
           } catch (err: any) {
@@ -80,24 +183,11 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
       return;
     }
 
-    // Free bot — just activate directly
     showConfirm({
       title: 'Confirm Activation',
-      message: `Activate ${bot.name} for free?\n\nCapital allocated: $${availableCapital > 0 ? availableCapital.toLocaleString() : '0'}`,
+      message: `Activate ${bot.name} for free?\n\nAllocated capital: $${parsedAmount.toLocaleString()} from ${matchingExchange?.provider ?? 'exchange'}`,
       confirmText: 'Activate',
-      onConfirm: async () => {
-        setActivating(true);
-        try {
-          await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: availableCapital || undefined});
-          showAlert('Bot Activated!', `${bot.name} is now running live.`);
-          navigation.navigate('Main');
-        } catch (err: any) {
-          const msg = err?.response?.data?.message || err?.message || 'Failed to activate bot. Please try again.';
-          showAlert('Error', msg);
-        } finally {
-          setActivating(false);
-        }
-      },
+      onConfirm: doActivate,
     });
   };
 
@@ -129,9 +219,13 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   ];
 
   const isProcessing = activating || iapProcessing;
+  const isStockBot = requiredAssetClass === 'stocks';
+  const assetColor = isStockBot ? '#3B82F6' : '#F59E0B';
+  const assetLabel = isStockBot ? 'Stock' : 'Crypto';
+  const canActivate = !amountError && parsedAmount > 0 && !!matchingExchange;
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ChevronLeftIcon size={22} color="#FFFFFF" />
@@ -140,7 +234,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
         <View style={styles.backBtn} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {/* Bot summary */}
         <View style={styles.botCard}>
           <View style={[styles.botAvatar, {backgroundColor: bot.avatarColor}]}>
@@ -148,6 +242,11 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
           </View>
           <Text style={styles.botName}>{bot.name}</Text>
           <Text style={styles.botStats}>{bot.returnPercent.toFixed(1)}% 30D • {bot.winRate}% Win Rate</Text>
+          {/* Asset class badge */}
+          <View style={[styles.assetBadge, {backgroundColor: `${assetColor}18`, borderColor: `${assetColor}40`}]}>
+            {isStockBot ? <StocksIcon size={13} /> : <CryptoIcon size={13} />}
+            <Text style={[styles.assetBadgeText, {color: assetColor}]}>{assetLabel} Bot</Text>
+          </View>
         </View>
 
         {/* Plan card */}
@@ -162,21 +261,76 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
           <Text style={styles.platformFee}>+ {Math.round(feeRate * 100)}% platform fee on profits earned</Text>
         </View>
 
+        {/* Exchange info */}
+        <Text style={styles.sectionLabel}>TRADING CAPITAL</Text>
+
+        {matchingExchange ? (
+          <View style={[styles.exchangeCard, {borderColor: `${assetColor}30`}]}>
+            <View style={styles.exchangeRow}>
+              <View style={[styles.exchangeDot, {backgroundColor: assetColor}]} />
+              <Text style={styles.exchangeName}>{matchingExchange.provider}</Text>
+              {matchingExchange.sandbox && (
+                <View style={styles.sandboxBadge}>
+                  <Text style={styles.sandboxText}>TEST</Text>
+                </View>
+              )}
+              <Text style={styles.exchangeBalance}>${availableBalance.toLocaleString(undefined, {maximumFractionDigits: 2})}</Text>
+            </View>
+            <Text style={styles.exchangeSub}>Available {assetLabel} balance</Text>
+          </View>
+        ) : (
+          <View style={styles.noExchangeCard}>
+            <WarningIcon size={18} />
+            <View style={{flex: 1}}>
+              <Text style={styles.noExchangeTitle}>No {assetLabel} Exchange Connected</Text>
+              <Text style={styles.noExchangeSub}>
+                {isStockBot
+                  ? 'Connect an Alpaca account to run this stock bot.'
+                  : 'Connect Binance or Coinbase to run this crypto bot.'}
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Allocated amount input */}
+        <View style={[styles.amountCard, amountError ? {borderColor: 'rgba(239,68,68,0.4)'} : {}]}>
+          <View style={styles.amountHeader}>
+            <Text style={styles.amountLabel}>AMOUNT TO ALLOCATE</Text>
+            {matchingExchange && (
+              <TouchableOpacity onPress={handleMaxPress} activeOpacity={0.7} style={styles.maxBtn}>
+                <Text style={[styles.maxBtnText, {color: assetColor}]}>MAX</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          <View style={styles.amountInputRow}>
+            <Text style={styles.dollarSign}>$</Text>
+            <TextInput
+              style={styles.amountInput}
+              value={allocatedAmount}
+              onChangeText={handleAmountChange}
+              keyboardType="decimal-pad"
+              placeholder="0"
+              placeholderTextColor="rgba(255,255,255,0.2)"
+              editable={!!matchingExchange}
+            />
+          </View>
+          {amountError ? (
+            <Text style={styles.amountError}>{amountError}</Text>
+          ) : parsedAmount > 0 && availableBalance > 0 ? (
+            <Text style={styles.amountSub}>
+              {((parsedAmount / availableBalance) * 100).toFixed(0)}% of your {assetLabel.toLowerCase()} balance
+            </Text>
+          ) : null}
+        </View>
+
         {/* Features */}
-        <Text style={styles.sectionLabel}>WHAT'S INCLUDED</Text>
+        <Text style={[styles.sectionLabel, {marginTop: 20}]}>WHAT'S INCLUDED</Text>
         {features.map(f => (
           <View key={f} style={styles.featureRow}>
             <CheckCircleIcon size={18} color="#10B981" />
             <Text style={styles.featureText}>{f}</Text>
           </View>
         ))}
-
-        {/* Capital allocation */}
-        <View style={styles.capitalCard}>
-          <Text style={styles.capitalLabel}>CAPITAL TO ALLOCATE</Text>
-          <Text style={styles.capitalValue}>${availableCapital > 0 ? availableCapital.toLocaleString() : '—'}</Text>
-          <Text style={styles.capitalSub}>Adjust after activation</Text>
-        </View>
 
         {/* Payment info */}
         {bot.price > 0 && (
@@ -196,10 +350,10 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
           <Text style={styles.secText}>Secured by Google Play • Cancel anytime</Text>
         </View>
         <TouchableOpacity
-          style={[styles.activateBtn, isProcessing && {opacity: 0.6}]}
+          style={[styles.activateBtn, (!canActivate || isProcessing) && {opacity: 0.5}]}
           onPress={handleActivate}
           activeOpacity={0.85}
-          disabled={isProcessing}>
+          disabled={!canActivate || isProcessing}>
           {isProcessing ? (
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : (
@@ -209,7 +363,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
           )}
         </TouchableOpacity>
       </View>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -219,11 +373,15 @@ const styles = StyleSheet.create({
   backBtn: {width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center'},
   headerTitle: {fontFamily: 'Inter-SemiBold', fontSize: 17, color: '#FFFFFF'},
   scroll: {paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20},
+
   botCard: {alignItems: 'center', backgroundColor: '#161B22', borderRadius: 20, padding: 24, marginBottom: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'},
   botAvatar: {width: 64, height: 64, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 10},
   botAvatarText: {fontFamily: 'Inter-Bold', fontSize: 24, color: '#FFFFFF'},
   botName: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF', marginBottom: 4},
-  botStats: {fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)'},
+  botStats: {fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginBottom: 10},
+  assetBadge: {flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1},
+  assetBadgeText: {fontFamily: 'Inter-SemiBold', fontSize: 11},
+
   planCard: {backgroundColor: 'rgba(16,185,129,0.1)', borderRadius: 16, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)'},
   planHeader: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6},
   planName: {fontFamily: 'Inter-SemiBold', fontSize: 16, color: '#FFFFFF'},
@@ -231,25 +389,39 @@ const styles = StyleSheet.create({
   priceAmount: {fontFamily: 'Inter-Bold', fontSize: 28, color: '#10B981'},
   priceUnit: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.5)', marginBottom: 4, marginLeft: 2},
   platformFee: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
-  sectionLabel: {fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 12},
+
+  sectionLabel: {fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 10},
+
+  exchangeCard: {backgroundColor: '#161B22', borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1},
+  exchangeRow: {flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4},
+  exchangeDot: {width: 8, height: 8, borderRadius: 4},
+  exchangeName: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', flex: 1},
+  exchangeBalance: {fontFamily: 'Inter-Bold', fontSize: 15, color: '#FFFFFF'},
+  exchangeSub: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', marginLeft: 16},
+  sandboxBadge: {backgroundColor: 'rgba(251,191,36,0.15)', borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2},
+  sandboxText: {fontFamily: 'Inter-Bold', fontSize: 9, color: '#FBBF24', letterSpacing: 0.5},
+
+  noExchangeCard: {flexDirection: 'row', alignItems: 'flex-start', gap: 12, backgroundColor: 'rgba(249,115,22,0.08)', borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(249,115,22,0.25)'},
+  noExchangeTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#F97316', marginBottom: 3},
+  noExchangeSub: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.45)', lineHeight: 17},
+
+  amountCard: {backgroundColor: '#161B22', borderRadius: 14, padding: 16, marginBottom: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)'},
+  amountHeader: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10},
+  amountLabel: {fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase'},
+  maxBtn: {backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3},
+  maxBtnText: {fontFamily: 'Inter-Bold', fontSize: 11},
+  amountInputRow: {flexDirection: 'row', alignItems: 'center'},
+  dollarSign: {fontFamily: 'Inter-Bold', fontSize: 28, color: 'rgba(255,255,255,0.3)', marginRight: 4},
+  amountInput: {flex: 1, fontFamily: 'Inter-Bold', fontSize: 34, color: '#FFFFFF', padding: 0},
+  amountError: {fontFamily: 'Inter-Regular', fontSize: 12, color: '#EF4444', marginTop: 6},
+  amountSub: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 6},
+
   featureRow: {flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10},
   featureText: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.7)'},
-  capitalCard: {backgroundColor: '#1C2333', borderRadius: 14, padding: 16, marginTop: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'},
-  capitalLabel: {fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 6},
-  capitalValue: {fontFamily: 'Inter-Bold', fontSize: 26, color: '#FFFFFF'},
-  capitalSub: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)'},
-  paymentInfoCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    borderRadius: 12,
-    padding: 14,
-    marginTop: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.04)',
-  },
+
+  paymentInfoCard: {flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12, padding: 14, marginTop: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)'},
   paymentInfoText: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', flex: 1},
+
   footer: {paddingHorizontal: 20, paddingBottom: 32, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)'},
   secRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 12},
   secText: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)'},

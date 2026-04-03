@@ -693,7 +693,7 @@ export default function DashboardScreen() {
                   {isShadowCompleted && (
                     <TouchableOpacity
                       style={[styles.resumeSmallBtn, {backgroundColor: 'rgba(16,185,129,0.15)', borderColor: 'rgba(16,185,129,0.4)'}]}
-                      onPress={(e) => { e.stopPropagation(); navigation.navigate('BotDetails', {botId: bot.id}); }}
+                      onPress={(e) => { e.stopPropagation(); navigation.navigate('BotPurchase', {botId: bot.id}); }}
                       activeOpacity={0.7}>
                       <Text style={[styles.resumeSmallText, {color: '#10B981'}]}>Go Live</Text>
                     </TouchableOpacity>

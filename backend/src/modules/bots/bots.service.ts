@@ -213,7 +213,7 @@ export async function resumeBot(userId: string, botSubId: string) {
   return updated;
 }
 
-export async function purchaseBot(userId: string, botId: string, mode: 'live' | 'paper') {
+export async function purchaseBot(userId: string, botId: string, mode: 'live' | 'paper', requestedAmount?: number) {
   // Check bot exists
   const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
   if (!bot) {
@@ -235,11 +235,16 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
     throw new ConflictError('This bot is already active');
   }
 
-  // For live mode: auto-find user's connected exchange
+  // For live mode: find exchange matching bot's asset class
   let exchangeConnId: string | null = null;
   let allocatedAmount = '0';
   if (mode === 'live') {
-    const [conn] = await db
+    // Determine required asset class from bot category
+    const botCategory = (bot.category ?? 'Crypto').toLowerCase();
+    const requiredAssetClass = botCategory === 'stocks' ? 'stocks' : 'crypto';
+
+    // Find connected exchange matching the asset class
+    const userExchanges = await db
       .select()
       .from(exchangeConnections)
       .where(
@@ -247,14 +252,28 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
           eq(exchangeConnections.userId, userId),
           eq(exchangeConnections.status, 'connected'),
         ),
-      )
-      .limit(1);
+      );
 
-    if (!conn) {
-      throw new AppError(400, 'No connected exchange found. Please connect your exchange first before going live.');
+    const matchingConn = userExchanges.find(c => (c.assetClass ?? 'crypto') === requiredAssetClass);
+
+    if (!matchingConn) {
+      const label = requiredAssetClass === 'stocks' ? 'stock (Alpaca)' : 'crypto';
+      throw new AppError(400, `No connected ${label} exchange found. Please connect a ${label} exchange before going live with this bot.`);
     }
-    exchangeConnId = conn.id;
-    allocatedAmount = conn.totalBalance ?? '1000';
+
+    const availableBalance = parseFloat(matchingConn.totalBalance ?? '0');
+
+    // Validate requested amount against this exchange's balance
+    if (requestedAmount !== undefined) {
+      if (requestedAmount > availableBalance) {
+        throw new ValidationError(`Allocated amount ($${requestedAmount}) exceeds available ${requiredAssetClass} balance ($${availableBalance.toFixed(2)}).`);
+      }
+      allocatedAmount = String(requestedAmount);
+    } else {
+      allocatedAmount = matchingConn.totalBalance ?? '1000';
+    }
+
+    exchangeConnId = matchingConn.id;
   }
 
   const [subscription] = await db

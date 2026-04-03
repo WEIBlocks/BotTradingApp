@@ -487,7 +487,7 @@ export default function PortfolioScreen() {
                   {display.icon === 'completed' && (
                     <TouchableOpacity
                       style={{backgroundColor: 'rgba(16,185,129,0.1)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)'}}
-                      onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
+                      onPress={() => navigation.navigate('BotPurchase', {botId: bot.id})}
                       activeOpacity={0.7}>
                       <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 11, color: '#10B981'}}>Go Live</Text>
                     </TouchableOpacity>
