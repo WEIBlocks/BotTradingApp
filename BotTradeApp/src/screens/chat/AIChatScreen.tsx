@@ -20,6 +20,7 @@ interface Message {
   id: string;
   role: 'ai' | 'user';
   text: string;
+  cleanPrompt?: string;
   hasStrategyCard?: boolean;
   strategyData?: {
     name: string;
@@ -352,6 +353,7 @@ export default function AIChatScreen() {
         id: (Date.now() + 1).toString(),
         role: 'ai',
         text: cleanReply,
+        cleanPrompt: response.cleanPrompt,
         hasStrategyCard: !!response.strategy,
         strategyData: response.strategy,
       };
@@ -434,7 +436,7 @@ export default function AIChatScreen() {
                       riskLevel: item.strategyData?.riskLevel,
                       stopLoss: (item.strategyData as any)?.stopLoss,
                       takeProfit: (item.strategyData as any)?.takeProfit,
-                      prompt: item.text,
+                      prompt: item.cleanPrompt || item.text,
                     },
                   })}
                   activeOpacity={0.8}>
@@ -548,7 +550,7 @@ export default function AIChatScreen() {
             value={inputText}
             onChangeText={setInputText}
             multiline
-            maxLength={500}
+            maxLength={8000}
             returnKeyType="send"
             onSubmitEditing={sendMessage}
           />

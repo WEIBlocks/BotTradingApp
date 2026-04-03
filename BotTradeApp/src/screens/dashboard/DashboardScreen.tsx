@@ -1,5 +1,5 @@
-import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, useWindowDimensions, ActivityIndicator, RefreshControl} from 'react-native';
+import React, {useState, useCallback, useRef} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, useWindowDimensions, ActivityIndicator, RefreshControl, Animated} from 'react-native';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {CommonActions} from '@react-navigation/native';
@@ -7,7 +7,7 @@ import Svg, {Path, Rect, Circle, Polygon} from 'react-native-svg';
 import {RootStackParamList, Trade} from '../../types';
 import {useAuth} from '../../context/AuthContext';
 import {useToast} from '../../context/ToastContext';
-import {dashboardApi, DashboardSummary, ActiveBot as DashActiveBot} from '../../services/dashboard';
+import {dashboardApi, DashboardSummary, ActiveBot as DashActiveBot, ExchangePower} from '../../services/dashboard';
 import {botsService} from '../../services/bots';
 import {tradesApi} from '../../services/trades';
 import {arenaApi, ArenaSession} from '../../services/arena';
@@ -267,6 +267,8 @@ export default function DashboardScreen() {
   const [shadowSessions, setShadowSessions] = useState<ShadowSessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [bpOpen, setBpOpen] = useState(false);
+  const bpAnim = useRef(new Animated.Value(0)).current;
 
   const fetchEquity = useCallback(async (days: number) => {
     setEquityLoading(true);
@@ -321,6 +323,32 @@ export default function DashboardScreen() {
   const totalProfit = summary?.totalProfit ?? 0;
   const accountBalance = summary?.accountBalance ?? 0;
   const buyingPower = summary?.buyingPower ?? 0;
+  const exchanges: ExchangePower[] = summary?.exchanges ?? [];
+
+  const toggleBpDropdown = () => {
+    const toValue = bpOpen ? 0 : 1;
+    setBpOpen(!bpOpen);
+    Animated.timing(bpAnim, {toValue, duration: 220, useNativeDriver: true}).start();
+  };
+  const chevronRotate = bpAnim.interpolate({inputRange: [0, 1], outputRange: ['0deg', '180deg']});
+
+  // Sort bots: live running → paper running → shadow running → paused → shadow paused → completed/idle
+  const sortedBots = [...activeBots].sort((a, b) => {
+    const priority = (bot: DashActiveBot) => {
+      const d = resolveBotDisplayStatus(bot, shadowSessions);
+      if (d.label === 'LIVE') return 0;
+      if (d.label === 'PAPER') return 1;
+      if (d.label === 'SHADOW') return 2;
+      if (d.label === 'PAUSED') return 3;
+      if (d.label === 'SHADOW PAUSED') return 4;
+      if (d.label === 'SHADOW DONE') return 5;
+      return 6;
+    };
+    return priority(a) - priority(b);
+  });
+  const BOTS_LIMIT = 7;
+  const visibleBots = sortedBots.slice(0, BOTS_LIMIT);
+  const hasMoreBots = sortedBots.length > BOTS_LIMIT;
 
   const isPositive = totalProfitPercent >= 0;
   const profitColor = isPositive ? '#10B981' : '#EF4444';
@@ -433,17 +461,66 @@ export default function DashboardScreen() {
           </Text>
         </View>
 
-        {/* Metrics cards */}
-        <View style={styles.metricsRow}>
+        {/* Metrics cards — combined */}
+        <View style={[styles.metricsRow, bpOpen && {marginBottom: 0}]}>
           <View style={styles.metricCard}>
             <Text style={styles.metricLabel}>ACCOUNT BALANCE</Text>
-            <Text style={styles.metricValue}>${accountBalance.toLocaleString()}</Text>
+            <Text style={styles.metricValue}>${accountBalance.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
           </View>
-          <View style={styles.metricCard}>
-            <Text style={styles.metricLabel}>BUYING POWER</Text>
-            <Text style={styles.metricValue}>${buyingPower.toLocaleString()}</Text>
-          </View>
+          <TouchableOpacity
+            style={styles.metricCard}
+            activeOpacity={exchanges.length > 0 ? 0.75 : 1}
+            onPress={exchanges.length > 0 ? toggleBpDropdown : undefined}>
+            <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+              <Text style={styles.metricLabel}>BUYING POWER</Text>
+              {exchanges.length > 0 && (
+                <Animated.View style={{transform: [{rotate: chevronRotate}]}}>
+                  <Svg width={14} height={14} viewBox="0 0 14 14" fill="none">
+                    <Path d="M3 5 L7 9 L11 5" stroke="rgba(255,255,255,0.35)" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
+                  </Svg>
+                </Animated.View>
+              )}
+            </View>
+            <Text style={[styles.metricValue, {color: '#10B981'}]}>${buyingPower.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
+            <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>ALL EXCHANGES</Text>
+          </TouchableOpacity>
         </View>
+
+        {/* Per-exchange breakdown — expands below the metrics row */}
+        {bpOpen && exchanges.length > 0 && (
+          <View style={styles.bpDropdown}>
+            {exchanges.map((ex, i) => {
+              const isCrypto = ex.assetClass === 'crypto';
+              const accentColor = isCrypto ? '#F59E0B' : '#3B82F6';
+              const providerLabel = ex.provider.charAt(0).toUpperCase() + ex.provider.slice(1);
+              return (
+                <View key={i} style={[styles.bpExBox, i < exchanges.length - 1 && {marginBottom: 8}]}>
+                  <View style={styles.bpExHeader}>
+                    <View style={[styles.bpExBadge, {backgroundColor: `${accentColor}20`}]}>
+                      <Text style={[styles.bpExBadgeText, {color: accentColor}]}>{isCrypto ? 'CRYPTO' : 'STOCKS'}</Text>
+                    </View>
+                    <Text style={styles.bpExName}>{providerLabel}</Text>
+                    {ex.sandbox && <Text style={styles.bpExSandbox}>PAPER</Text>}
+                  </View>
+                  <View style={styles.bpExStats}>
+                    <View style={styles.bpExStat}>
+                      <Text style={styles.bpExStatVal}>${parseFloat(ex.totalBalance.toString()).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
+                      <Text style={styles.bpExStatLbl}>Balance</Text>
+                    </View>
+                    <View style={styles.bpExStat}>
+                      <Text style={[styles.bpExStatVal, {color: '#F97316'}]}>${parseFloat(ex.allocatedCapital.toString()).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
+                      <Text style={styles.bpExStatLbl}>In Bots</Text>
+                    </View>
+                    <View style={[styles.bpExStat, {backgroundColor: `${accentColor}10`, borderColor: `${accentColor}20`}]}>
+                      <Text style={[styles.bpExStatVal, {color: '#10B981'}]}>${parseFloat(ex.buyingPower.toString()).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</Text>
+                      <Text style={styles.bpExStatLbl}>Free</Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
 
         {/* Equity Curve */}
         <View style={styles.chartCard}>
@@ -462,10 +539,24 @@ export default function DashboardScreen() {
         {/* Active Bots */}
         <View style={styles.section}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>ACTIVE BOTS</Text>
-            <TouchableOpacity onPress={goToMarket}>
-              <Text style={styles.sectionAction}>View Store</Text>
-            </TouchableOpacity>
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+              <Text style={styles.sectionTitle}>ACTIVE BOTS</Text>
+              {activeBots.length > 0 && (
+                <View style={{backgroundColor: 'rgba(16,185,129,0.15)', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2}}>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 11, color: '#10B981'}}>{activeBots.length}</Text>
+                </View>
+              )}
+            </View>
+            <View style={{flexDirection: 'row', gap: 12, alignItems: 'center'}}>
+              {hasMoreBots && (
+                <TouchableOpacity onPress={() => navigation.navigate('ActiveBots')}>
+                  <Text style={styles.sectionAction}>View All</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={goToMarket}>
+                <Text style={[styles.sectionAction, {color: 'rgba(255,255,255,0.35)'}]}>Store</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           <View style={styles.botList}>
             {activeBots.length === 0 && (
@@ -492,7 +583,7 @@ export default function DashboardScreen() {
                 </TouchableOpacity>
               </View>
             )}
-            {activeBots.map((bot: DashActiveBot) => {
+            {visibleBots.map((bot: DashActiveBot) => {
               const returnColor = bot.totalReturn >= 0 ? '#10B981' : '#EF4444';
               const returnSign = bot.totalReturn >= 0 ? '+' : '';
               const display = resolveBotDisplayStatus(bot, shadowSessions);
@@ -558,7 +649,7 @@ export default function DashboardScreen() {
                       </TouchableOpacity>
                     </View>
                   )}
-                  {isShadow && (
+                  {isShadow && display.icon !== 'completed' && (
                     <View style={styles.botActions}>
                       <TouchableOpacity
                         style={[styles.botActionBtn, {backgroundColor: 'rgba(59,130,246,0.1)', borderColor: 'rgba(59,130,246,0.3)', borderWidth: 1}]}
@@ -594,6 +685,14 @@ export default function DashboardScreen() {
                       </TouchableOpacity>
                     </View>
                   )}
+                  {isShadow && display.icon === 'completed' && (
+                    <TouchableOpacity
+                      style={[styles.resumeSmallBtn, {backgroundColor: 'rgba(16,185,129,0.15)', borderColor: 'rgba(16,185,129,0.4)'}]}
+                      onPress={(e) => { e.stopPropagation(); navigation.navigate('BotDetails', {botId: bot.id}); }}
+                      activeOpacity={0.7}>
+                      <Text style={[styles.resumeSmallText, {color: '#10B981'}]}>Go Live</Text>
+                    </TouchableOpacity>
+                  )}
                   {isPaused && (
                     <TouchableOpacity
                       style={styles.resumeSmallBtn}
@@ -607,6 +706,17 @@ export default function DashboardScreen() {
                 </TouchableOpacity>
               );
             })}
+            {hasMoreBots && (
+              <TouchableOpacity
+                style={styles.viewAllBotsBtn}
+                onPress={() => navigation.navigate('ActiveBots')}
+                activeOpacity={0.7}>
+                <Text style={styles.viewAllBotsBtnText}>View all {sortedBots.length} bots</Text>
+                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                  <Path d="M9 18l6-6-6-6" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -790,6 +900,31 @@ const styles = StyleSheet.create({
   },
   metricValue: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF'},
 
+  // Buying Power dropdown
+  bpDropdown: {
+    marginTop: -6, marginBottom: 16, paddingTop: 14, paddingBottom: 4,
+    paddingHorizontal: 12, backgroundColor: '#161B22',
+    borderBottomLeftRadius: 14, borderBottomRightRadius: 14,
+    borderWidth: 1, borderTopWidth: 0, borderColor: 'rgba(255,255,255,0.07)',
+  },
+  bpExBox: {
+    backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 10,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', padding: 10,
+  },
+  bpExHeader: {flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10},
+  bpExBadge: {paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5},
+  bpExBadgeText: {fontFamily: 'Inter-Bold', fontSize: 9, letterSpacing: 0.5},
+  bpExName: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#FFFFFF', flex: 1},
+  bpExSandbox: {fontFamily: 'Inter-Regular', fontSize: 9, color: '#F97316'},
+  bpExStats: {flexDirection: 'row', gap: 6},
+  bpExStat: {
+    flex: 1, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 8,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+    paddingVertical: 7, paddingHorizontal: 8, alignItems: 'center',
+  },
+  bpExStatVal: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: '#FFFFFF'},
+  bpExStatLbl: {fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', marginTop: 2},
+
   // Chart card
   chartCard: {
     backgroundColor: '#0F1520', borderRadius: 16,
@@ -817,6 +952,13 @@ const styles = StyleSheet.create({
 
   // Bot list
   botList: {gap: 8},
+  viewAllBotsBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    marginTop: 4, paddingVertical: 12,
+    backgroundColor: 'rgba(16,185,129,0.07)', borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.15)',
+  },
+  viewAllBotsBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#10B981'},
   botCard: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#161B22', borderRadius: 14,

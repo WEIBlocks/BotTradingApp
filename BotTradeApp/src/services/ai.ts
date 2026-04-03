@@ -9,6 +9,7 @@ interface DataWrap<T> { data: T }
 export interface AIChatResponse {
   reply: string;
   conversationId: string;
+  cleanPrompt?: string;
   strategy?: {
     name: string;
     description: string;
@@ -51,6 +52,7 @@ export const aiApi = {
     return {
       reply: d.reply,
       conversationId: d.conversationId,
+      cleanPrompt: d.cleanPrompt,
       strategy: d.strategyPreview ?? d.strategy,
     };
   },
@@ -172,6 +174,7 @@ export const aiApi = {
     return {
       reply: d.reply || 'No response',
       conversationId: d.conversationId || '',
+      cleanPrompt: d.cleanPrompt,
       strategy: d.strategyPreview ?? d.strategy,
     };
   },

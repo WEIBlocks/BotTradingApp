@@ -188,6 +188,24 @@ export default function PortfolioScreen() {
   const totalChange24h = providerFilter === 'all' ? (summary?.totalChange24h ?? 0) : filteredChange.change24h;
   const totalChangePercent24h = providerFilter === 'all' ? (summary?.totalChangePercent24h ?? 0) : filteredChange.changePercent;
 
+  // Sort bots: live → paper → shadow → paused → shadow paused → done
+  const sortedBots = useMemo(() => {
+    const priority = (bot: DashActiveBot) => {
+      const d = resolveBotDisplayStatus(bot, shadowSessions);
+      if (d.label === 'LIVE') return 0;
+      if (d.label === 'PAPER') return 1;
+      if (d.label === 'SHADOW') return 2;
+      if (d.label === 'PAUSED') return 3;
+      if (d.label === 'SHADOW PAUSED') return 4;
+      if (d.label === 'SHADOW DONE') return 5;
+      return 6;
+    };
+    return [...activeBots].sort((a, b) => priority(a) - priority(b));
+  }, [activeBots, shadowSessions]);
+  const BOTS_LIMIT = 7;
+  const visibleBots = sortedBots.slice(0, BOTS_LIMIT);
+  const hasMoreBots = sortedBots.length > BOTS_LIMIT;
+
   const isPositive = totalChangePercent24h >= 0;
   const profitColor = isPositive ? '#10B981' : '#EF4444';
   const profitSign = isPositive ? '+' : '';
@@ -384,24 +402,33 @@ export default function PortfolioScreen() {
         {/* Active Bots Section */}
         <View style={styles.section}>
           <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>ACTIVE BOTS</Text>
-            <TouchableOpacity onPress={() => navigation.navigate('BotDetails', {botId: 'bot1'})}>
-              <Text style={styles.sectionAction}>View All</Text>
-            </TouchableOpacity>
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+              <Text style={styles.sectionTitle}>ACTIVE BOTS</Text>
+              {sortedBots.length > 0 && (
+                <View style={{backgroundColor: 'rgba(16,185,129,0.15)', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2, marginBottom: 10}}>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 11, color: '#10B981'}}>{sortedBots.length}</Text>
+                </View>
+              )}
+            </View>
+            {sortedBots.length > 0 && (
+              <TouchableOpacity onPress={() => navigation.navigate('ActiveBots')}>
+                <Text style={styles.sectionAction}>View All</Text>
+              </TouchableOpacity>
+            )}
           </View>
           <View style={styles.botList}>
-            {activeBots.length === 0 && (
+            {sortedBots.length === 0 && (
               <View style={{paddingVertical: 24, alignItems: 'center'}}>
                 <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.35)'}}>No active bots</Text>
               </View>
             )}
-            {activeBots.map((bot: DashActiveBot) => {
+            {visibleBots.map((bot: DashActiveBot) => {
               const returnColor = bot.totalReturn >= 0 ? '#10B981' : '#EF4444';
               const returnSign = bot.totalReturn >= 0 ? '+' : '';
               const display = resolveBotDisplayStatus(bot, shadowSessions);
               return (
                 <TouchableOpacity
-                  key={bot.id}
+                  key={`${bot.id}-${bot.subscriptionId}`}
                   style={[styles.botCard, {borderLeftColor: display.color}]}
                   onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
                   activeOpacity={0.7}>
@@ -448,6 +475,17 @@ export default function PortfolioScreen() {
                 </TouchableOpacity>
               );
             })}
+            {hasMoreBots && (
+              <TouchableOpacity
+                style={styles.viewAllBotsBtn}
+                onPress={() => navigation.navigate('ActiveBots')}
+                activeOpacity={0.7}>
+                <Text style={styles.viewAllBotsBtnText}>View all {sortedBots.length} bots</Text>
+                <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                  <Path d="M9 18l6-6-6-6" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -588,6 +626,13 @@ const styles = StyleSheet.create({
 
   // Bot list
   botList: {gap: 8},
+  viewAllBotsBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    marginTop: 4, paddingVertical: 12,
+    backgroundColor: 'rgba(16,185,129,0.07)', borderRadius: 12,
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.15)',
+  },
+  viewAllBotsBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#10B981'},
   botCard: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#161B22', borderRadius: 14,

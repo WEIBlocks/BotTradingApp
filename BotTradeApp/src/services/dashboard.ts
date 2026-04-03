@@ -2,19 +2,24 @@ import {api} from './api';
 
 // ─── Backend Response Types ─────────────────────────────────────────────────
 
-interface WalletResponse {
-  user: {
-    id: string;
-    email: string;
-    displayName: string;
-  };
+interface WalletExchange {
+  provider: string;
+  assetClass: 'crypto' | 'stocks';
   totalBalance: string;
+  allocatedCapital: string;
+  buyingPower: string;
+  sandbox: boolean;
+  status: string;
+}
+
+interface WalletResponse {
+  user: { id: string; email: string; displayName: string };
+  totalBalance: string;
+  allocatedCapital?: string;
+  buyingPower?: string;
+  exchanges?: WalletExchange[];
   recentActivity: Array<{
-    id: string;
-    type: string;
-    amount: string;
-    description: string;
-    createdAt: string;
+    id: string; type: string; amount: string; description: string; createdAt: string;
   }>;
 }
 
@@ -47,12 +52,23 @@ interface ActiveBotRow {
 
 // ─── Exposed Types ──────────────────────────────────────────────────────────
 
+export interface ExchangePower {
+  provider: string;
+  assetClass: 'crypto' | 'stocks';
+  totalBalance: number;
+  allocatedCapital: number;
+  buyingPower: number;
+  sandbox: boolean;
+  status: string;
+}
+
 export interface DashboardSummary {
   totalBalance: number;
   totalProfitPercent: number;
   totalProfit: number;
   accountBalance: number;
   buyingPower: number;
+  exchanges: ExchangePower[];
 }
 
 export interface ActiveBot {
@@ -92,18 +108,32 @@ export const dashboardApi = {
       api.get<DataWrap<PortfolioSummaryResponse>>('/portfolio/summary').catch(() => null),
     ]);
 
-    const totalBalance = parseFloat(wallet?.totalBalance) || 0;
+    const totalBalance = parseFloat(wallet?.totalBalance ?? '0') || 0;
     const portfolio = portfolioRes?.data;
-    const portfolioValue = parseFloat(portfolio?.totalValue ?? '0') || 0;
     const profitValue = parseFloat(portfolio?.change24h ?? '0') || 0;
     const profitPercent = parseFloat(portfolio?.change24hPercent ?? '0') || 0;
+
+    // Use server-computed buyingPower (total balance minus capital locked in active live bots)
+    // Falls back to totalBalance if backend hasn't returned it yet
+    const buyingPower = parseFloat(wallet?.buyingPower ?? String(totalBalance)) || totalBalance;
+
+    const exchanges: ExchangePower[] = (wallet?.exchanges ?? []).map(e => ({
+      provider: e.provider,
+      assetClass: e.assetClass,
+      totalBalance: parseFloat(e.totalBalance) || 0,
+      allocatedCapital: parseFloat(e.allocatedCapital) || 0,
+      buyingPower: parseFloat(e.buyingPower) || 0,
+      sandbox: e.sandbox,
+      status: e.status,
+    }));
 
     return {
       totalBalance,
       totalProfitPercent: profitPercent,
       totalProfit: profitValue,
       accountBalance: totalBalance,
-      buyingPower: totalBalance - portfolioValue > 0 ? totalBalance - portfolioValue : 0,
+      buyingPower,
+      exchanges,
     };
   },
 

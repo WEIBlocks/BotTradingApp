@@ -32,6 +32,7 @@ import TradingRoomScreen from '../screens/subscription/TradingRoomScreen';
 import PaymentMethodScreen from '../screens/payment/PaymentMethodScreen';
 import CheckoutScreen from '../screens/payment/CheckoutScreen';
 import CreatorStudioScreen from '../screens/creator/CreatorStudioScreen';
+import ActiveBotsScreen from '../screens/bots/ActiveBotsScreen';
 import TrainingUploadScreen from '../screens/training/TrainingUploadScreen';
 import LiveTradesScreen from '../screens/trades/LiveTradesScreen';
 import SettingsScreen from '../screens/settings/SettingsScreen';
@@ -87,6 +88,7 @@ export default function AppNavigator() {
           <Stack.Screen name="BotDetails" component={BotDetailsScreen} />
           <Stack.Screen name="BotPurchase" component={BotPurchaseScreen} />
           <Stack.Screen name="BotLiveFeed" component={BotLiveFeedScreen} />
+          <Stack.Screen name="ActiveBots" component={ActiveBotsScreen} />
           <Stack.Screen name="ShadowMode" component={ShadowModeScreen} />
           <Stack.Screen name="ShadowModeResults" component={ShadowModeResultsScreen} />
           <Stack.Screen name="ArenaSetup" component={ArenaSetupScreen} />

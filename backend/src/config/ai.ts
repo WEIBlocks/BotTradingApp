@@ -76,7 +76,7 @@ function getOpenAIClient(): OpenAI {
 const DEFAULT_MODELS: Record<LLMProvider, string> = {
   anthropic: 'claude-sonnet-4-20250514',
   gemini: 'gemini-2.5-flash',
-  openai: 'gpt-4o-mini',
+  openai: 'gpt-4.1', // Best OpenAI model — primary for all chatbot calls
 };
 
 // ─── Provider Resolution ────────────────────────────────────────────────────
@@ -85,16 +85,51 @@ function resolveProvider(): LLMProvider {
   if (env.AI_PROVIDER !== 'auto') {
     return env.AI_PROVIDER as LLMProvider;
   }
-  // Auto: pick the first provider with a configured key
+  // Auto: OpenAI is always the first choice, Gemini as fallback, Anthropic last
+  if (env.OPENAI_API_KEY) return 'openai';
   if (env.GEMINI_API_KEY) return 'gemini';
   if (env.ANTHROPIC_API_KEY) return 'anthropic';
-  if (env.OPENAI_API_KEY) return 'openai';
 
   throw new AppError(
     503,
-    'No AI provider configured. Set at least one API key: GEMINI_API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY.',
+    'No AI provider configured. Set at least one API key: OPENAI_API_KEY, GEMINI_API_KEY, or ANTHROPIC_API_KEY.',
     'AI_UNAVAILABLE',
   );
+}
+
+// ─── Retry Helper ────────────────────────────────────────────────────────────
+
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 2,
+  baseDelayMs = 2000,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      // Don't retry on hard errors (auth, content policy, etc.)
+      const msg = (err?.message || '').toLowerCase();
+      const isRetryable =
+        msg.includes('timeout') ||
+        msg.includes('timed out') ||
+        msg.includes('network') ||
+        msg.includes('econnreset') ||
+        msg.includes('econnrefused') ||
+        msg.includes('rate limit') ||
+        msg.includes('overloaded') ||
+        msg.includes('503') ||
+        msg.includes('529') ||
+        (err?.status >= 500 && err?.status < 600);
+      if (!isRetryable || attempt === maxRetries) break;
+      const delay = baseDelayMs * Math.pow(2, attempt);
+      console.warn(`[AI] Attempt ${attempt + 1} failed, retrying in ${delay}ms:`, msg);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
 }
 
 function getModelForProvider(provider: LLMProvider): string {
@@ -147,7 +182,7 @@ async function callAnthropic(
 
   const response = await client.messages.create({
     model,
-    max_tokens: opts.maxTokens ?? 2048,
+    max_tokens: opts.maxTokens ?? 4096,
     system: opts.system,
     messages: apiMessages,
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
@@ -201,7 +236,7 @@ async function callGemini(
     contents,
     config: {
       systemInstruction: systemInstruction || undefined,
-      maxOutputTokens: opts.maxTokens ?? 2048,
+      maxOutputTokens: opts.maxTokens ?? 4096,
       temperature: opts.temperature,
     },
   });
@@ -249,7 +284,7 @@ async function callOpenAI(
   const response = await client.chat.completions.create({
     model,
     messages: apiMessages,
-    max_tokens: opts.maxTokens ?? 2048,
+    max_tokens: opts.maxTokens ?? 4096,
     ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
   });
 
@@ -269,24 +304,58 @@ async function callOpenAI(
 
 /**
  * Send a message to the configured LLM provider.
- * Automatically selects provider and model based on env config.
+ * OpenAI is tried first (with retry), then Gemini as fallback, then Anthropic.
+ * Each provider attempt uses the retry wrapper for transient errors.
  */
 export async function llmChat(
   messages: LLMMessage[],
   opts: LLMOptions = {},
 ): Promise<LLMResponse> {
-  const provider = resolveProvider();
-  ensureKeyForProvider(provider);
-  const model = getModelForProvider(provider);
+  const configuredProvider = env.AI_PROVIDER !== 'auto' ? env.AI_PROVIDER as LLMProvider : null;
 
-  switch (provider) {
-    case 'anthropic':
-      return callAnthropic(messages, opts, model);
-    case 'gemini':
-      return callGemini(messages, opts, model);
-    case 'openai':
-      return callOpenAI(messages, opts, model);
+  // If a specific provider is set in env, use it directly (with retry)
+  if (configuredProvider) {
+    ensureKeyForProvider(configuredProvider);
+    const model = getModelForProvider(configuredProvider);
+    return withRetry(() => {
+      switch (configuredProvider) {
+        case 'anthropic': return callAnthropic(messages, opts, model);
+        case 'gemini': return callGemini(messages, opts, model);
+        case 'openai': return callOpenAI(messages, opts, model);
+      }
+    });
   }
+
+  // Auto mode: OpenAI → Gemini → Anthropic waterfall
+  const fallbackChain: Array<{ provider: LLMProvider; key: string }> = (
+    [
+      { provider: 'openai' as LLMProvider, key: env.OPENAI_API_KEY },
+      { provider: 'gemini' as LLMProvider, key: env.GEMINI_API_KEY },
+      { provider: 'anthropic' as LLMProvider, key: env.ANTHROPIC_API_KEY },
+    ] as Array<{ provider: LLMProvider; key: string }>
+  ).filter(p => !!p.key);
+
+  if (fallbackChain.length === 0) {
+    throw new AppError(503, 'No AI provider configured.', 'AI_UNAVAILABLE');
+  }
+
+  let lastErr: unknown;
+  for (const { provider, key: _key } of fallbackChain) {
+    try {
+      const model = getModelForProvider(provider);
+      return await withRetry(() => {
+        switch (provider) {
+          case 'anthropic': return callAnthropic(messages, opts, model);
+          case 'gemini': return callGemini(messages, opts, model);
+          case 'openai': return callOpenAI(messages, opts, model);
+        }
+      });
+    } catch (err: any) {
+      lastErr = err;
+      console.warn(`[AI] Provider "${provider}" failed, trying next:`, err?.message ?? err);
+    }
+  }
+  throw lastErr;
 }
 
 /**

@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 export const chatMessageSchema = z.object({
-  message: z.string().min(1, 'Message is required').max(4000),
+  // Raised from 4000 → 8000 to allow long bot-creation prompts
+  message: z.string().min(1, 'Message is required').max(8000, 'Message is too long (max 8000 characters). Please shorten your prompt.'),
   conversationId: z.string().uuid().optional(),
   attachmentUrl: z.string().optional(),
   botId: z.string().uuid().optional(),

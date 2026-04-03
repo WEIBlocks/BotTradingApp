@@ -291,9 +291,23 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     navigation.navigate('BotPurchase', {botId: bot.id});
   }, [navigation, bot, userBotState.status]);
 
-  const handleViewShadow = useCallback(() => {
-    navigation.navigate('ShadowMode');
-  }, [navigation]);
+  const handleViewShadow = useCallback(async () => {
+    const sessionId = userBotState.shadowSessionId;
+    if (!sessionId) {
+      navigation.navigate('ShadowMode');
+      return;
+    }
+    try {
+      const res: any = await botsService.getShadowResults(sessionId);
+      const d = res?.data ?? res;
+      const profit = Number(d?.totalProfit ?? d?.profit ?? 0);
+      const winRate = Number(d?.winRate ?? 0);
+      navigation.navigate('ShadowModeResults', {botId: route.params.botId, profit, winRate, sessionId});
+    } catch {
+      // fallback: navigate with zeros — ShadowModeResults will fetch its own data
+      navigation.navigate('ShadowModeResults', {botId: route.params.botId, profit: 0, winRate: 0, sessionId});
+    }
+  }, [navigation, userBotState.shadowSessionId, route.params.botId]);
 
   const handlePause = useCallback(() => {
     if (!userBotState.subscriptionId) return;
@@ -935,36 +949,36 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             <ActivityIndicator size="small" color="#10B981" />
           </View>
         ) : userBotState.status === 'none' || userBotState.status === 'stopped' ? (
-          /* No active relationship — show Shadow + Activate */
-          <>
-            <TouchableOpacity style={styles.shadowBtn} onPress={handleStartShadow} activeOpacity={0.8}>
+          /* No active relationship — Shadow (secondary) + Activate (primary) */
+          <View style={styles.footerRow}>
+            <TouchableOpacity style={[styles.shadowBtn, {flex: 1}]} onPress={handleStartShadow} activeOpacity={0.8}>
               <Text style={styles.shadowBtnText}>Shadow Mode</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.activateBtn} onPress={handleActivate} activeOpacity={0.85}>
+            <TouchableOpacity style={[styles.activateBtn, {flex: 2}]} onPress={handleActivate} activeOpacity={0.85}>
               <Text style={styles.activateBtnText}>
                 {bot.price === 0 ? 'Activate Free' : `Activate — $${bot.price}/mo`}
               </Text>
             </TouchableOpacity>
-          </>
+          </View>
         ) : userBotState.status === 'shadow_running' ? (
-          /* Shadow mode running — Pause/Stop + Go Live */
+          /* Shadow running — top row: Pause + Stop (equal); bottom: Go Live (full width) */
           <>
-            <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
+            <View style={styles.footerRow}>
               <TouchableOpacity style={[styles.pauseBtn, {flex: 1}]} onPress={handlePauseShadow} activeOpacity={0.8}>
-                <Text style={styles.pauseBtnText}>Pause</Text>
+                <Text style={styles.pauseBtnText}>Pause Shadow</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.stopBtn, {flex: 1}]} onPress={handleStopShadow} activeOpacity={0.8}>
-                <Text style={styles.stopBtnText}>Stop</Text>
+                <Text style={styles.stopBtnText}>Stop Shadow</Text>
               </TouchableOpacity>
             </View>
             <TouchableOpacity style={styles.goLiveSmallBtn} onPress={handleActivate} activeOpacity={0.85}>
-              <Text style={styles.goLiveSmallText}>Go Live</Text>
+              <Text style={styles.goLiveSmallText}>Go Live Now</Text>
             </TouchableOpacity>
           </>
         ) : userBotState.status === 'shadow_paused' ? (
-          /* Shadow mode paused — Resume/Stop + Go Live */
+          /* Shadow paused — top row: Resume + Stop (equal); bottom: Go Live (full width) */
           <>
-            <View style={{flexDirection: 'row', gap: 10, marginBottom: 10}}>
+            <View style={styles.footerRow}>
               <TouchableOpacity style={[styles.resumeBtn, {flex: 1}]} onPress={handleResumeShadow} activeOpacity={0.8}>
                 <Text style={styles.resumeBtnText}>Resume Shadow</Text>
               </TouchableOpacity>
@@ -973,41 +987,39 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </TouchableOpacity>
             </View>
             <TouchableOpacity style={styles.goLiveSmallBtn} onPress={handleActivate} activeOpacity={0.85}>
-              <Text style={styles.goLiveSmallText}>Go Live</Text>
+              <Text style={styles.goLiveSmallText}>Go Live Now</Text>
             </TouchableOpacity>
           </>
         ) : userBotState.status === 'shadow_completed' ? (
-          /* Shadow mode completed — two-row layout */
-          <View style={styles.shadowCompleteFooter}>
+          /* Shadow completed — banner + two equal buttons */
+          <>
             <View style={styles.shadowCompleteBanner}>
               <View style={styles.shadowCompleteCheck}>
                 <Text style={{fontSize: 14}}>✓</Text>
               </View>
               <Text style={styles.shadowCompleteText}>Shadow Mode Complete</Text>
             </View>
-            <View style={styles.shadowCompleteBtns}>
-              <TouchableOpacity style={styles.shadowCompleteResultsBtn} onPress={handleViewShadow} activeOpacity={0.8}>
+            <View style={styles.footerRow}>
+              <TouchableOpacity style={[styles.shadowCompleteResultsBtn, {flex: 1}]} onPress={handleViewShadow} activeOpacity={0.8}>
                 <Text style={styles.shadowCompleteResultsText}>View Results</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.shadowCompleteGoLiveBtn} onPress={handleActivate} activeOpacity={0.85}>
+              <TouchableOpacity style={[styles.shadowCompleteGoLiveBtn, {flex: 1}]} onPress={handleActivate} activeOpacity={0.85}>
                 <Text style={styles.shadowCompleteGoLiveText}>Go Live</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        ) : userBotState.status === 'active' ? (
-          /* Bot is live — Live Feed accessible from header, show pause/stop */
-          <>
-            <View style={{flexDirection: 'row', gap: 10}}>
-              <TouchableOpacity style={[styles.pauseBtn, {flex: 1}]} onPress={handlePause} activeOpacity={0.8}>
-                <Text style={styles.pauseBtnText}>Pause</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.stopBtn, {flex: 1}]} onPress={handleStop} activeOpacity={0.8}>
-                <Text style={styles.stopBtnText}>Stop</Text>
-              </TouchableOpacity>
-            </View>
           </>
+        ) : userBotState.status === 'active' ? (
+          /* Bot is live — Pause + Stop in one row (both full width equal) */
+          <View style={styles.footerRow}>
+            <TouchableOpacity style={[styles.pauseBtn, {flex: 1}]} onPress={handlePause} activeOpacity={0.8}>
+              <Text style={styles.pauseBtnText}>Pause Bot</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.stopBtn, {flex: 1}]} onPress={handleStop} activeOpacity={0.8}>
+              <Text style={styles.stopBtnText}>Stop Bot</Text>
+            </TouchableOpacity>
+          </View>
         ) : userBotState.status === 'paused' ? (
-          /* Bot is paused — show resume + stop */
+          /* Bot paused — status indicator + Resume (primary, full) + Stop (secondary, full) */
           <>
             <View style={styles.statusCard}>
               <View style={[styles.statusDot, {backgroundColor: '#F97316'}]} />
@@ -1016,12 +1028,14 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 <Text style={styles.statusSub}>No trades being placed</Text>
               </View>
             </View>
-            <TouchableOpacity style={styles.resumeBtn} onPress={handleResume} activeOpacity={0.85}>
-              <Text style={styles.resumeBtnText}>Resume</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.stopBtn} onPress={handleStop} activeOpacity={0.8}>
-              <Text style={styles.stopBtnText}>Stop</Text>
-            </TouchableOpacity>
+            <View style={styles.footerRow}>
+              <TouchableOpacity style={[styles.resumeBtn, {flex: 2}]} onPress={handleResume} activeOpacity={0.85}>
+                <Text style={styles.resumeBtnText}>Resume Bot</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.stopBtn, {flex: 1}]} onPress={handleStop} activeOpacity={0.8}>
+                <Text style={styles.stopBtnText}>Stop</Text>
+              </TouchableOpacity>
+            </View>
           </>
         ) : null}
       </View>
@@ -1148,9 +1162,12 @@ const styles = StyleSheet.create({
 
   // ─── Footer ──────────────────────────────────────────────────────────────
   footer: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
+    flexDirection: 'column', gap: 8,
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32,
     backgroundColor: '#0F1117', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)',
+  },
+  footerRow: {
+    flexDirection: 'row', gap: 10,
   },
   footerLoading: {
     flex: 1, height: 52, alignItems: 'center', justifyContent: 'center',
@@ -1190,7 +1207,7 @@ const styles = StyleSheet.create({
   },
   viewShadowText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#0D7FF2'},
   goLiveSmallBtn: {
-    height: 52, paddingHorizontal: 16, borderRadius: 12,
+    height: 52, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#10B981',
   },
   goLiveSmallText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
@@ -1216,10 +1233,6 @@ const styles = StyleSheet.create({
   },
   resumeBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
 
-  // Shadow completed footer — vertical layout
-  shadowCompleteFooter: {
-    flex: 1, flexDirection: 'column', gap: 10,
-  },
   shadowCompleteBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: 10,
@@ -1233,9 +1246,6 @@ const styles = StyleSheet.create({
   },
   shadowCompleteText: {
     fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#10B981',
-  },
-  shadowCompleteBtns: {
-    flexDirection: 'row', gap: 10,
   },
   shadowCompleteResultsBtn: {
     flex: 1, height: 48, borderRadius: 12,

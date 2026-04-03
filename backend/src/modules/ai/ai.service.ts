@@ -8,6 +8,32 @@ import { retrieveKnowledge, storeKnowledge } from '../../lib/rag.js';
 import { getTopAssets, getPrice, getMarketOverview } from '../../lib/market-scanner.js';
 import { getVideoInfo, getTranscript, extractVideoId } from '../../lib/youtube.js';
 
+// ─── Prompt Cleaning (strips AI markdown so bot prompts are human-readable) ─────
+
+/**
+ * Strips raw AI markdown syntax so the text shown in the BotBuilder prompt
+ * field (and stored in DB) is clean, human-readable prose.
+ * Removes: **bold**, *italic*, __underline__, # headers, ` backtick `,
+ * ```fenced blocks```, leading bullet/dash markers, and excess whitespace.
+ */
+function cleanPromptForDisplay(text: string): string {
+  return text
+    // Remove strategy-json and other fenced code blocks entirely
+    .replace(/```[\w-]*[\s\S]*?```/g, '')
+    // Remove # heading markers
+    .replace(/^#{1,6}\s+/gm, '')
+    // Remove bold/italic markers (**text**, *text*, __text__, _text_)
+    .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
+    .replace(/_{1,2}([^_]+)_{1,2}/g, '$1')
+    // Remove inline backticks
+    .replace(/`([^`]+)`/g, '$1')
+    // Remove leading bullet/dash markers
+    .replace(/^[\s]*[-*•]\s+/gm, '')
+    // Collapse multiple blank lines to one
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // ─── System Prompts ──────────────────────────────────────────────────────────
 
 const TRADING_ASSISTANT_SYSTEM = `You are TradingBot AI, an expert crypto AND stock market trading assistant built into the BotTradeApp platform.
@@ -370,17 +396,30 @@ export async function chat(
   try {
     response = await llmChat(messages, {
       system: enhancedSystemPrompt,
-      maxTokens: 2048,
+      maxTokens: 4096,
       imageUrl: attachmentUrl,
     });
   } catch (err: any) {
     console.error('[AI Chat] LLM call failed:', err.message);
-    // Return a graceful fallback instead of crashing
+    // Map known error patterns to user-friendly messages
+    const msg = (err.message || '').toLowerCase();
+    let friendlyMessage = 'I\'m having trouble connecting to the AI service right now. Please try again in a moment.';
+    if (msg.includes('timeout') || msg.includes('timed out')) {
+      friendlyMessage = 'The request timed out. The AI is taking too long to respond — please try a shorter or simpler question, or try again.';
+    } else if (msg.includes('too long') || msg.includes('max') || msg.includes('token') || msg.includes('context_length') || msg.includes('context length')) {
+      friendlyMessage = 'Your message or context is too long for the AI to process in one go. Try splitting it into smaller parts or shortening your prompt.';
+    } else if (msg.includes('rate limit') || msg.includes('429')) {
+      friendlyMessage = 'The AI service is busy right now (rate limit reached). Please wait a moment and try again.';
+    } else if (msg.includes('unavailable') || msg.includes('503') || msg.includes('529') || msg.includes('overloaded')) {
+      friendlyMessage = 'The AI service is temporarily unavailable. We\'ll fall back to the next provider automatically — please try again.';
+    }
     return {
-      reply: 'I\'m having trouble connecting to the AI service right now. Please try again in a moment.',
+      reply: friendlyMessage,
       conversationId: convId,
       provider: 'none',
       model: 'none',
+      error: 'AI_UNAVAILABLE',
+      errorDetail: err.message,
     };
   }
 
@@ -433,11 +472,18 @@ export async function chat(
     }
   }
 
+  // Clean the reply for storage — so prompts fed into BotBuilder are human-readable
+  const cleanedReplyForStorage = cleanPromptForDisplay(replyText
+    .replace(/```strategy-json[\s\S]*?```/g, '') // remove strategy block
+    .trim(),
+  );
+
   return {
     reply: replyText,
     conversationId: convId,
     provider: response.provider,
     model: response.model,
+    cleanPrompt: cleanedReplyForStorage,
     ...(strategyPreview ? { strategyPreview } : {}),
   };
 }

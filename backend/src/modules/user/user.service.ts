@@ -1,8 +1,9 @@
-import { eq, sql, desc, count } from 'drizzle-orm';
+import { eq, sql, desc, count, and } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { users } from '../../db/schema/users.js';
 import { investorProfiles } from '../../db/schema/investor-profiles.js';
 import { exchangeConnections } from '../../db/schema/exchanges.js';
+import { botSubscriptions } from '../../db/schema/bots.js';
 import { activityLog } from '../../db/schema/training.js';
 import { notificationSettings } from '../../db/schema/notifications.js';
 import { NotFoundError } from '../../lib/errors.js';
@@ -217,13 +218,56 @@ export async function getWallet(userId: string) {
     throw new NotFoundError('User');
   }
 
-  // Sum of exchange balances
-  const [balanceResult] = await db
+  // Per-exchange balances with provider + assetClass
+  const exchangeRows = await db
     .select({
-      totalBalance: sql<string>`COALESCE(SUM(${exchangeConnections.totalBalance}), 0)`,
+      id: exchangeConnections.id,
+      provider: exchangeConnections.provider,
+      assetClass: exchangeConnections.assetClass,
+      totalBalance: exchangeConnections.totalBalance,
+      status: exchangeConnections.status,
+      sandbox: exchangeConnections.sandbox,
     })
     .from(exchangeConnections)
     .where(eq(exchangeConnections.userId, userId));
+
+  // Capital locked per exchange: join subscriptions to their exchange connection
+  const allocatedRows = await db
+    .select({
+      exchangeConnId: botSubscriptions.exchangeConnId,
+      allocated: sql<string>`COALESCE(SUM(${botSubscriptions.allocatedAmount}::numeric), 0)`,
+    })
+    .from(botSubscriptions)
+    .where(
+      and(
+        eq(botSubscriptions.userId, userId),
+        eq(botSubscriptions.status, 'active'),
+        eq(botSubscriptions.mode, 'live'),
+      ),
+    )
+    .groupBy(botSubscriptions.exchangeConnId);
+
+  // Build per-exchange breakdown
+  const allocatedByConn = new Map(allocatedRows.map(r => [r.exchangeConnId, parseFloat(r.allocated)]));
+
+  const exchanges = exchangeRows.map(ex => {
+    const balance = parseFloat(ex.totalBalance || '0');
+    const locked = allocatedByConn.get(ex.id) ?? 0;
+    const bp = Math.max(0, balance - locked);
+    return {
+      provider: ex.provider,
+      assetClass: ex.assetClass,  // 'crypto' | 'stocks'
+      totalBalance: balance.toFixed(2),
+      allocatedCapital: locked.toFixed(2),
+      buyingPower: bp.toFixed(2),
+      sandbox: ex.sandbox ?? false,
+      status: ex.status,
+    };
+  });
+
+  const totalBalance = exchanges.reduce((s, e) => s + parseFloat(e.totalBalance), 0);
+  const totalAllocated = exchanges.reduce((s, e) => s + parseFloat(e.allocatedCapital), 0);
+  const totalBuyingPower = Math.max(0, totalBalance - totalAllocated);
 
   // Recent activity
   const recentActivity = await db
@@ -239,7 +283,10 @@ export async function getWallet(userId: string) {
       name: user.name,
       email: user.email,
     },
-    totalBalance: balanceResult?.totalBalance || '0',
+    totalBalance: totalBalance.toFixed(2),
+    allocatedCapital: totalAllocated.toFixed(2),
+    buyingPower: totalBuyingPower.toFixed(2),
+    exchanges,   // per-exchange breakdown
     recentActivity,
   };
 }
