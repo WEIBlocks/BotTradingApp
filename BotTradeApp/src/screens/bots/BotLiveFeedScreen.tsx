@@ -108,6 +108,8 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
   const lastFetchRef = useRef<string>('');
   // Once we've received at least one decision of the correct mode, never fall back to other modes
   const hasCorrectModeDataRef = useRef(false);
+  // Block WebSocket from setting decisions until the first REST fetch completes (prevents flash)
+  const initialFetchDoneRef = useRef(false);
 
   // Pulse animation for live indicator
   useEffect(() => {
@@ -193,6 +195,7 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
       console.warn('Failed to fetch decisions:', err);
     } finally {
       setLoading(false);
+      initialFetchDoneRef.current = true;
     }
   }, [botId, mode]);
 
@@ -236,18 +239,14 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
         try {
           const msg = JSON.parse(typeof event.data === 'string' ? event.data : '');
 
-          if (msg.type === 'initial_decisions' && Array.isArray(msg.data) && msg.data.length > 0) {
-            // Filter WS initial push to correct mode — prevents shadow data flashing on live feed
-            const feedMode = mode === 'live' ? 'live' : 'paper';
-            const filtered = msg.data.filter((d: BotDecision) => d.mode === feedMode);
-            if (filtered.length > 0) {
-              hasCorrectModeDataRef.current = true;
-              setDecisions(filtered);
-              setLoading(false);
-              setConnected(true);
-            }
+          if (msg.type === 'initial_decisions') {
+            // Ignore WS initial push entirely — REST fetch is the source of truth.
+            // This prevents the flash where unfiltered WS data briefly overrides
+            // the mode-filtered REST data.
           } else if (msg.type === 'bot_decision' && msg.data) {
-            // Only add real-time decisions that match the current feed mode
+            // Only accept real-time pushes AFTER the initial REST fetch has set the baseline.
+            // This prevents WS pushes from racing ahead and showing wrong-mode data.
+            if (!initialFetchDoneRef.current) return;
             const feedMode = mode === 'live' ? 'live' : 'paper';
             if (msg.data.mode !== feedMode) return;
             setDecisions(prev => {
@@ -270,7 +269,7 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
     } catch {
       // WS failed — REST polling will handle it
     }
-  }, [botId]);
+  }, [botId, mode]);
 
   // Setup: fetch data + try WS + start polling
   useFocusEffect(
@@ -288,8 +287,9 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
           clearInterval(pollRef.current);
           pollRef.current = null;
         }
-        // Reset so next visit re-evaluates correct-mode data from scratch
+        // Reset so next visit re-evaluates from scratch
         hasCorrectModeDataRef.current = false;
+        initialFetchDoneRef.current = false;
         lastFetchRef.current = '';
       };
     }, [fetchDecisions, connectWs]),

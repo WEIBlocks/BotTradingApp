@@ -41,8 +41,9 @@ interface UserConfig {
   notificationLevel?: string;
 }
 
-async function processLiveTrades() {
-  console.log('[LiveTrade] Processing active live subscriptions...');
+async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
+  const label = frequencyFilter === 'fast' ? 'aggressive/max' : 'balanced/conservative';
+  console.log(`[LiveTrade] Processing ${label} live subscriptions...`);
 
   try {
     const activeSubscriptions = await db
@@ -56,14 +57,25 @@ async function processLiveTrades() {
         ),
       );
 
-    if (activeSubscriptions.length === 0) {
-      console.log('[LiveTrade] No active live subscriptions');
+    // Filter subscriptions based on frequency tier
+    const fastFrequencies = new Set(['aggressive', 'max']);
+    const filtered = activeSubscriptions.filter(({ bot }) => {
+      const freq = (bot.config as any)?.tradingFrequency as string | undefined;
+      if (frequencyFilter === 'fast') {
+        return fastFrequencies.has(freq ?? '');
+      }
+      // 'normal' or undefined — process conservative, balanced, and unset
+      return !fastFrequencies.has(freq ?? '');
+    });
+
+    if (filtered.length === 0) {
+      console.log(`[LiveTrade] No active ${label} live subscriptions`);
       return;
     }
 
-    console.log(`[LiveTrade] Processing ${activeSubscriptions.length} live subscriptions`);
+    console.log(`[LiveTrade] Processing ${filtered.length} ${label} live subscriptions`);
 
-    for (const { subscription, bot } of activeSubscriptions) {
+    for (const { subscription, bot } of filtered) {
       try {
         // Determine if this is a stock or crypto bot
         const config = (bot.config ?? {}) as BotConfig;
@@ -271,7 +283,9 @@ async function processLiveTrades() {
 }
 
 export async function startLiveTradeJob() {
-  setTimeout(processLiveTrades, 15_000);
-  setInterval(processLiveTrades, 120_000);
-  console.log('[LiveTrade] Job started - runs every 2 minutes (live trading engine)');
+  setTimeout(() => processLiveTrades('fast'), 15_000);
+  setTimeout(() => processLiveTrades('normal'), 15_000);
+  setInterval(() => processLiveTrades('fast'), 30_000);
+  setInterval(() => processLiveTrades('normal'), 120_000);
+  console.log('[LiveTrade] Job started — aggressive/max every 30s, balanced/conservative every 2min');
 }

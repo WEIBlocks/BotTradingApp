@@ -107,7 +107,7 @@ const holdCountCache: Map<string, number> = new Map();
 
 const MAX_PRICE_HISTORY = 100;
 const RULES_TTL_MS = 30 * 60 * 1000;
-const AI_RATE_LIMIT = 10; // max AI calls per bot per hour
+const AI_RATE_LIMIT = 30; // max AI calls per bot per hour
 
 function addPrice(key: string, price: number): number[] {
   if (!priceHistoryBuffer.has(key)) priceHistoryBuffer.set(key, []);
@@ -215,7 +215,7 @@ async function closePosition(positionId: string, exitPrice: number, reasoning: s
   try {
     const { botStatistics } = await import('../db/schema/bots.js');
     const allClosed = await db.select().from(botPositions)
-      .where(and(eq(botPositions.botId, pos.botId), eq(botPositions.status, 'closed')));
+      .where(and(eq(botPositions.botId, pos.botId), eq(botPositions.status, 'closed'), eq(botPositions.isPaper, false)));
 
     const wins = allClosed.filter(p => parseFloat(p.pnl ?? '0') > 0).length;
     const winRate = allClosed.length > 0 ? (wins / allClosed.length) * 100 : 0;
@@ -449,18 +449,36 @@ function evaluateRules(conditions: RuleCondition[], snap: IndicatorSnapshot, pre
 // ─── AI Decision ────────────────────────────────────────────────────────────
 
 const AI_DECISION_SYSTEM = `You are a trading decision engine. Given market data and strategy, decide BUY, SELL, or HOLD.
-Return ONLY valid JSON: {"action":"BUY"|"SELL"|"HOLD","confidence":0-100,"sizePercent":1-100,"reasoning":"Short explanation"}
-Rules: Only BUY/SELL with confidence > 60. Don't buy if already long. Keep reasoning concise.`;
+
+RULES:
+- Only BUY/SELL with confidence > 60
+- Never BUY if already holding a position
+- For scalping: never hold longer than needed, take quick profits
+- For momentum: ride trends but exit on reversal signals
+- Consider correlation: altcoins follow BTC. If BTC is dropping, don't buy altcoins
+- If recent trades show a pattern of losses, be more cautious (lower confidence, smaller size)
+- If recent trades show wins, maintain strategy but don't get greedy
+- For stocks: consider pre-market/after-hours momentum direction
+- Size positions based on confidence: 80%+ = full size, 60-80% = half size
+- Never use more than 40% of balance on any single trade
+
+LEARNING:
+- Review past trade outcomes carefully. If a similar setup lost money before, reduce confidence by 20
+- If the last 3 trades were losses, require confidence > 75 to BUY
+- Track which indicators led to profitable vs unprofitable trades
+
+Return ONLY valid JSON: {"action":"BUY"|"SELL"|"HOLD","confidence":0-100,"sizePercent":1-100,"reasoning":"Short explanation"}`;
 
 async function getAIDecision(
   symbol: string, snap: IndicatorSnapshot, botPrompt: string, strategy: string,
   riskLevel: string, hasPosition: boolean, positionPnlPct: number | null,
   triggerReasons: string[], trainingContext: string, recentDecisions: string,
 ) {
-  const prompt = `${symbol} @ $${snap.currentPrice.toFixed(2)} | RSI: ${snap.rsi?.toFixed(1) ?? 'N/A'} | EMA20: ${snap.ema20?.toFixed(2) ?? 'N/A'} | MACD: ${snap.macd?.histogram.toFixed(4) ?? 'N/A'}
+  const prompt = `Bot Profile: ${strategy} strategy with ${riskLevel} risk level.
+${symbol} @ $${snap.currentPrice.toFixed(2)} | RSI: ${snap.rsi?.toFixed(1) ?? 'N/A'} | EMA20: ${snap.ema20?.toFixed(2) ?? 'N/A'} | MACD: ${snap.macd?.histogram.toFixed(4) ?? 'N/A'}
 BB: ${snap.bollingerBands ? `${snap.bollingerBands.lower.toFixed(2)}-${snap.bollingerBands.upper.toFixed(2)}` : 'N/A'} | 24h: $${snap.high24h.toFixed(2)}/$${snap.low24h.toFixed(2)}
 Position: ${hasPosition ? `LONG P&L:${positionPnlPct?.toFixed(2)}%` : 'None'} | Trigger: ${triggerReasons.join('; ')}
-Strategy: ${strategy} ${riskLevel} | ${botPrompt || 'Standard approach'}
+Instructions: ${botPrompt || 'Standard approach'}
 ${trainingContext ? `Knowledge: ${trainingContext.slice(0, 500)}` : ''}
 ${recentDecisions ? `Recent: ${recentDecisions.slice(0, 300)}` : ''}`;
 
@@ -608,7 +626,10 @@ export async function processSymbol(opts: {
       ? ((priceData.price - parseFloat(existingPos.entryPrice)) / parseFloat(existingPos.entryPrice)) * 100
       : null;
 
-    // 5. Stop-loss / Take-profit (FREE)
+    // 5. Stop-loss / Take-profit (safety net — always fires regardless of aiMode)
+    // In full_ai mode, only hard stop-loss fires as emergency protection.
+    // Take-profit is left to AI so it can ride winners longer when confident.
+    const isFullAI = (opts.aiMode === 'full_ai') && !isRuleOnlyStrategy(strategy);
     if (existingPos && positionPnlPct !== null) {
       if (positionPnlPct <= -rules.stopLossPercent) {
         const closed = await closePosition(existingPos.id, priceData.price, `Stop loss at ${positionPnlPct.toFixed(2)}%`);
@@ -622,7 +643,9 @@ export async function processSymbol(opts: {
         await logDecision(decision, opts);
         return decision;
       }
-      if (positionPnlPct >= rules.takeProfitPercent) {
+      // Take-profit: in full_ai mode, let AI decide exits (it sees the P&L in its prompt).
+      // Only enforce hard TP when it's 2x the target as an absolute safety cap.
+      if (!isFullAI && positionPnlPct >= rules.takeProfitPercent) {
         const closed = await closePosition(existingPos.id, priceData.price, `Take profit at +${positionPnlPct.toFixed(2)}%`);
         const decision: EngineDecision = {
           action: 'SELL', confidence: 100,
@@ -634,19 +657,81 @@ export async function processSymbol(opts: {
         await logDecision(decision, opts);
         return decision;
       }
+      // Hard safety cap: even full_ai gets force-closed at 2x TP target
+      if (isFullAI && positionPnlPct >= rules.takeProfitPercent * 2) {
+        const closed = await closePosition(existingPos.id, priceData.price, `Hard safety TP at +${positionPnlPct.toFixed(2)}%`);
+        const decision: EngineDecision = {
+          action: 'SELL', confidence: 100,
+          reasoning: `Safety take-profit at +${positionPnlPct.toFixed(2)}% (2x target: +${(rules.takeProfitPercent * 2).toFixed(1)}%). AI was riding this winner.`,
+          indicators: formatIndicators(snap), aiCalled: false, tokensCost: 0,
+          price: priceData.price, symbol, sizePercent: 100,
+          pnl: closed?.pnlNum, pnlPercent: closed?.pnlPercentNum,
+        };
+        await logDecision(decision, opts);
+        return decision;
+      }
+
+      // 5b. Trailing stop-loss
+      const trailingKey = `trailing:${existingPos.id}`;
+      try {
+        const storedPeakStr = await redisConnection.get(trailingKey);
+        const storedPeak = storedPeakStr ? parseFloat(storedPeakStr) : positionPnlPct;
+        const peak = Math.max(storedPeak, positionPnlPct);
+        // Always update peak in Redis
+        await redisConnection.set(trailingKey, peak.toFixed(4), 'EX', 86400 * 7);
+
+        // Activate trailing mode once position has reached at least +2%
+        if (peak >= 2) {
+          const drawdownFromPeak = peak - positionPnlPct;
+          const drawdownPct = peak > 0 ? (drawdownFromPeak / peak) * 100 : 0;
+          let trailingTriggered = false;
+          let trailingReason = '';
+
+          // If current P&L drops more than 40% from peak, trigger sell
+          if (drawdownPct >= 40) {
+            trailingTriggered = true;
+            trailingReason = `Trailing stop triggered. Peak: +${peak.toFixed(2)}%, current: +${positionPnlPct.toFixed(2)}%, drawdown from peak: ${drawdownPct.toFixed(0)}%`;
+          }
+          // If peak was > +4% and current drops to < +1%, always sell (protect substantial gains)
+          if (peak > 4 && positionPnlPct < 1) {
+            trailingTriggered = true;
+            trailingReason = `Trailing stop (protect gains). Peak: +${peak.toFixed(2)}%, current: +${positionPnlPct.toFixed(2)}%, protecting substantial gains`;
+          }
+
+          if (trailingTriggered) {
+            const closed = await closePosition(existingPos.id, priceData.price, trailingReason);
+            await redisConnection.del(trailingKey).catch(() => {});
+            const decision: EngineDecision = {
+              action: 'SELL', confidence: 100,
+              reasoning: trailingReason,
+              indicators: formatIndicators(snap), aiCalled: false, tokensCost: 0,
+              price: priceData.price, symbol, sizePercent: 100,
+              pnl: closed?.pnlNum, pnlPercent: closed?.pnlPercentNum,
+            };
+            await logDecision(decision, opts);
+            return decision;
+          }
+        }
+      } catch (err) {
+        console.warn('[BotEngine] Trailing stop Redis error:', (err as Error).message);
+      }
     }
 
-    // 6. Check cooldown
+    // 6. Check cooldown (full_ai bypasses cooldown — AI controls its own pacing via confidence)
     const lastDec = lastDecisionCache.get(cacheKey);
-    if (lastDec && lastDec.action !== 'HOLD' && Date.now() - lastDec.time < rules.cooldownMinutes * 60000) {
+    if (!isFullAI && lastDec && lastDec.action !== 'HOLD' && Date.now() - lastDec.time < rules.cooldownMinutes * 60000) {
       const cooldownDecision: EngineDecision = { action: 'HOLD', confidence: 50, reasoning: `Cooldown active (${rules.cooldownMinutes}min). Last: ${lastDec.action}`, indicators: formatIndicators(snap), aiCalled: false, tokensCost: 0, price: priceData.price, symbol };
       await logDecision(cooldownDecision, opts);
       return cooldownDecision;
     }
 
-    // 7. Evaluate rules (FREE)
-    const entryResult = evaluateRules(rules.entryConditions, snap, prevSnap);
-    const exitResult = existingPos ? evaluateRules(rules.exitConditions, snap, prevSnap) : { matched: false, score: 0, matchedConditions: [] as string[] };
+    // 7. Evaluate rules (FREE — skipped entirely in full_ai mode, AI decides everything)
+    const entryResult = isFullAI
+      ? { matched: false, score: 0, matchedConditions: [] as string[] }
+      : evaluateRules(rules.entryConditions, snap, prevSnap);
+    const exitResult = isFullAI
+      ? { matched: false, score: 0, matchedConditions: [] as string[] }
+      : (existingPos ? evaluateRules(rules.exitConditions, snap, prevSnap) : { matched: false, score: 0, matchedConditions: [] as string[] });
 
     // 8. Decision logic
     const triggerCheck = hasSignificantChange(snap, prevSnap);
@@ -656,7 +741,7 @@ export async function processSymbol(opts: {
     // Determine AI mode
     const aiMode = opts.aiMode ?? 'hybrid';
     const effectiveRuleOnly = ruleOnly || aiMode === 'rules_only';
-    const effectiveFullAI = !ruleOnly && aiMode === 'full_ai';
+    const effectiveFullAI = isFullAI;
 
     // tradingFrequency-based score threshold
     const freqScoreMap: Record<string, number> = { conservative: 0.5, balanced: 0.2, aggressive: 0.1, max: 0.05 };
@@ -680,9 +765,28 @@ export async function processSymbol(opts: {
       if (Number(openRow?.cnt ?? 0) >= opts.maxOpenPositions) atMaxPositions = true;
     }
 
-    const shouldCallAI = !effectiveRuleOnly
-      && (forcedByHoldCount || (triggerCheck.triggered && (effectiveFullAI || entryResult.score > minScore || exitResult.score > minScore)))
-      && checkAIRateLimit(botId);
+    // Portfolio-level exposure check
+    if (!atMaxPositions) {
+      try {
+        const openPositions = await db.select({ entryValue: botPositions.entryValue }).from(botPositions)
+          .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open')));
+        const totalExposure = openPositions.reduce((sum, p) => sum + parseFloat(p.entryValue ?? '0'), 0);
+        const exposurePct = balance > 0 ? (totalExposure / balance) * 100 : 0;
+        if (exposurePct > 80) {
+          atMaxPositions = true;
+          triggerCheck.reasons.push(`Portfolio exposure at ${exposurePct.toFixed(0)}% — waiting for positions to close`);
+        }
+      } catch {}
+    }
+
+    // full_ai: ALWAYS call AI on every tick (rate-limited only).
+    // hybrid: call AI when triggers fire, rules partially match, or forced by hold count.
+    // rules_only: never call AI.
+    const shouldCallAI = effectiveFullAI
+      ? checkAIRateLimit(botId) // full_ai: always, just rate-limited
+      : (!effectiveRuleOnly
+          && (forcedByHoldCount || (triggerCheck.triggered && (entryResult.score > minScore || exitResult.score > minScore)))
+          && checkAIRateLimit(botId));
 
     if (shouldCallAI) {
       // AI call (only for non-DCA/Grid strategies, rate limited)
@@ -698,7 +802,7 @@ export async function processSymbol(opts: {
         .from(botDecisions)
         .where(and(eq(botDecisions.botId, botId), eq(botDecisions.symbol, symbol)))
         .orderBy(desc(botDecisions.createdAt))
-        .limit(5);
+        .limit(20);
       const recentStr = pastOutcomes.map(d => `${d.action}: ${d.reasoning}`).join('\n');
 
       // Get closed position outcomes for learning
@@ -707,12 +811,53 @@ export async function processSymbol(opts: {
         .from(botPositions)
         .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'closed')))
         .orderBy(desc(botPositions.closedAt))
-        .limit(5);
-      const learningStr = closedPositions.length > 0
+        .limit(20);
+      let learningStr = closedPositions.length > 0
         ? '\nPast results: ' + closedPositions.map(p => `P&L:${p.pnlPercent}% (${p.entryReasoning?.slice(0, 40)})`).join('; ')
         : '';
 
-      const aiResult = await getAIDecision(symbol, snap, botPrompt, strategy, riskLevel, !!existingPos, positionPnlPct, triggerCheck.reasons, trainingContext, recentStr + learningStr);
+      // Build performance summary from closed positions
+      if (closedPositions.length > 0) {
+        const wins = closedPositions.filter(p => parseFloat(p.pnl ?? '0') > 0);
+        const losses = closedPositions.filter(p => parseFloat(p.pnl ?? '0') <= 0);
+        const avgWin = wins.length > 0 ? wins.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / wins.length : 0;
+        const avgLoss = losses.length > 0 ? losses.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / losses.length : 0;
+
+        // Extract most common indicator keywords from reasoning
+        const extractIndicator = (reasoning: string | null): string => {
+          if (!reasoning) return 'unknown';
+          const lower = reasoning.toLowerCase();
+          const indicators = ['rsi', 'ema', 'macd', 'bollinger', 'momentum', 'trend', 'volume', 'support', 'resistance'];
+          for (const ind of indicators) {
+            if (lower.includes(ind)) return ind;
+          }
+          return 'mixed';
+        };
+
+        const winIndicators: Record<string, number> = {};
+        const lossIndicators: Record<string, number> = {};
+        for (const w of wins) {
+          const ind = extractIndicator(w.entryReasoning);
+          winIndicators[ind] = (winIndicators[ind] ?? 0) + 1;
+        }
+        for (const l of losses) {
+          const ind = extractIndicator(l.entryReasoning);
+          lossIndicators[ind] = (lossIndicators[ind] ?? 0) + 1;
+        }
+
+        const bestSetup = Object.entries(winIndicators).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'N/A';
+        const worstSetup = Object.entries(lossIndicators).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'N/A';
+
+        learningStr += `\nPerformance: ${wins.length}W/${losses.length}L, avgWin:${avgWin >= 0 ? '+' : ''}${avgWin.toFixed(1)}%, avgLoss:${avgLoss.toFixed(1)}%. Best setups: ${bestSetup}. Worst: ${worstSetup}.`;
+      }
+
+      // Fetch cross-session learnings from Redis
+      let sessionLearnings = '';
+      try {
+        sessionLearnings = await redisConnection.get(`bot:learnings:${botId}`) ?? '';
+      } catch {}
+
+      const aiResult = await getAIDecision(symbol, snap, botPrompt, strategy, riskLevel, !!existingPos, positionPnlPct, triggerCheck.reasons, trainingContext + (sessionLearnings ? `\nSession learnings: ${sessionLearnings}` : ''), recentStr + learningStr);
 
       let finalAction = aiResult.action;
       if (finalAction === 'BUY' && existingPos) finalAction = 'HOLD';
@@ -730,6 +875,17 @@ export async function processSymbol(opts: {
       }
 
       decision = { action: finalAction, confidence: aiResult.confidence, reasoning: aiResult.reasoning, indicators: formatIndicators(snap), aiCalled: true, tokensCost: aiResult.tokens, price: priceData.price, symbol, sizePercent: aiResult.sizePercent };
+    } else if (effectiveFullAI) {
+      // full_ai mode but AI rate-limited — HOLD, never fall through to rules.
+      // AI is the sole decision maker in this mode.
+      const reason = existingPos
+        ? `AI holding position. P&L: ${positionPnlPct?.toFixed(2)}%. AI rate limit reached — waiting for next slot.`
+        : `AI monitoring market. RSI: ${snap.rsi?.toFixed(1) ?? 'N/A'}. AI rate limit reached — waiting for next slot.`;
+      const holdDecision: EngineDecision = { action: 'HOLD', confidence: 50, reasoning: reason, indicators: formatIndicators(snap), aiCalled: false, tokensCost: 0, price: priceData.price, symbol };
+      holdCountCache.set(cacheKey, (holdCountCache.get(cacheKey) ?? 0) + 1);
+      lastDecisionCache.set(cacheKey, { action: 'HOLD', time: Date.now() });
+      await logDecision(holdDecision, opts);
+      return holdDecision;
     } else if (entryResult.matched && !existingPos && !atMaxPositions && tradeDirection !== 'sell') {
       holdCountCache.set(cacheKey, 0);
       decision = { action: 'BUY', confidence: Math.round(entryResult.score * 100), reasoning: `Rule entry: ${entryResult.matchedConditions.join(', ')}`, indicators: formatIndicators(snap), aiCalled: false, tokensCost: 0, price: priceData.price, symbol, sizePercent: rules.maxPositionPercent };
@@ -931,6 +1087,75 @@ export async function executeLiveTrade(
 
 export function invalidateRulesCache(botId: string) {
   rulesCache.delete(`rules:${botId}`);
+}
+
+// ─── Cross-Session Learning Summary ─────────────────────────────────────────
+
+export async function summarizeSessionLearnings(botId: string): Promise<string> {
+  const allClosed = await db
+    .select({ pnl: botPositions.pnl, pnlPercent: botPositions.pnlPercent, entryReasoning: botPositions.entryReasoning, closedAt: botPositions.closedAt })
+    .from(botPositions)
+    .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'closed')))
+    .orderBy(desc(botPositions.closedAt));
+
+  if (allClosed.length === 0) {
+    const summary = 'No closed trades yet.';
+    await redisConnection.set(`bot:learnings:${botId}`, summary, 'EX', 86400);
+    return summary;
+  }
+
+  const wins = allClosed.filter(p => parseFloat(p.pnl ?? '0') > 0);
+  const losses = allClosed.filter(p => parseFloat(p.pnl ?? '0') <= 0);
+  const winRate = (wins.length / allClosed.length) * 100;
+  const avgWin = wins.length > 0 ? wins.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / wins.length : 0;
+  const avgLoss = losses.length > 0 ? losses.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / losses.length : 0;
+
+  // Extract indicators from reasoning
+  const indicatorKeywords = ['rsi', 'ema', 'macd', 'bollinger', 'momentum', 'trend', 'volume', 'support', 'resistance', 'oversold', 'overbought'];
+  const extractIndicators = (reasoning: string | null): string[] => {
+    if (!reasoning) return [];
+    const lower = reasoning.toLowerCase();
+    return indicatorKeywords.filter(ind => lower.includes(ind));
+  };
+
+  const winIndicators: Record<string, number> = {};
+  const lossIndicators: Record<string, number> = {};
+  for (const w of wins) {
+    for (const ind of extractIndicators(w.entryReasoning)) {
+      winIndicators[ind] = (winIndicators[ind] ?? 0) + 1;
+    }
+  }
+  for (const l of losses) {
+    for (const ind of extractIndicators(l.entryReasoning)) {
+      lossIndicators[ind] = (lossIndicators[ind] ?? 0) + 1;
+    }
+  }
+
+  const bestIndicator = Object.entries(winIndicators).sort((a, b) => b[1] - a[1])[0];
+  const worstIndicator = Object.entries(lossIndicators).sort((a, b) => b[1] - a[1])[0];
+
+  // Profitable hours analysis
+  const hourBuckets: Record<number, { wins: number; total: number }> = {};
+  for (const p of allClosed) {
+    if (p.closedAt) {
+      const hour = new Date(p.closedAt).getUTCHours();
+      if (!hourBuckets[hour]) hourBuckets[hour] = { wins: 0, total: 0 };
+      hourBuckets[hour].total++;
+      if (parseFloat(p.pnl ?? '0') > 0) hourBuckets[hour].wins++;
+    }
+  }
+  const profitableHours = Object.entries(hourBuckets)
+    .filter(([, v]) => v.total >= 3 && (v.wins / v.total) > 0.6)
+    .map(([h]) => parseInt(h))
+    .sort((a, b) => a - b);
+  const hoursStr = profitableHours.length > 0
+    ? `Profitable hours: ${profitableHours[0]}-${profitableHours[profitableHours.length - 1]} UTC.`
+    : '';
+
+  const summary = `Total: ${allClosed.length} trades, ${wins.length}W/${losses.length}L (${winRate.toFixed(0)}% win rate). Avg win: ${avgWin >= 0 ? '+' : ''}${avgWin.toFixed(1)}%, Avg loss: ${avgLoss.toFixed(1)}%. Best indicator: ${bestIndicator ? `${bestIndicator[0]} (${bestIndicator[1]} wins)` : 'N/A'}. Worst: ${worstIndicator ? `${worstIndicator[0]} (${worstIndicator[1]} losses)` : 'N/A'}. ${hoursStr}`;
+
+  await redisConnection.set(`bot:learnings:${botId}`, summary, 'EX', 86400);
+  return summary;
 }
 
 function formatIndicators(snap: IndicatorSnapshot): Record<string, number | string | null> {
