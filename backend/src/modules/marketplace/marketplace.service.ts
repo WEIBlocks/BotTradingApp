@@ -242,7 +242,12 @@ export async function getBotById(botId: string) {
         executedAt: trades.executedAt,
       })
       .from(trades)
-      .where(inArray(trades.botSubscriptionId, subIdList))
+      .where(
+        and(
+          inArray(trades.botSubscriptionId, subIdList),
+          eq(trades.isPaper, false),   // never expose shadow/paper trades to other users
+        ),
+      )
       .orderBy(desc(trades.executedAt))
       .limit(5);
   }
@@ -257,7 +262,7 @@ export async function getBotById(botId: string) {
     timestamp: t.executedAt ?? new Date(),
   }));
 
-  // Aggregate real stats from ALL users' positions for this bot
+  // Aggregate stats from LIVE positions only (exclude shadow/paper from public view)
   const positionStats: any = await db.execute(sql`
     SELECT
       count(*)::int as total_positions,
@@ -267,14 +272,14 @@ export async function getBotById(botId: string) {
       COALESCE(sum(pnl::numeric) FILTER (WHERE status = 'closed'), 0) as total_pnl,
       COALESCE(avg(pnl_percent::numeric) FILTER (WHERE status = 'closed'), 0) as avg_pnl_percent,
       count(DISTINCT user_id)::int as total_users
-    FROM bot_positions WHERE bot_id = ${botId}
+    FROM bot_positions WHERE bot_id = ${botId} AND is_paper = false
   `);
   const ps = (positionStats as any[])?.[0] || {};
 
-  // Get total trade count across all users
+  // Get total LIVE trade count across all users (exclude shadow decisions)
   const tradeStats: any = await db.execute(sql`
     SELECT count(*)::int as total_trades
-    FROM bot_decisions WHERE bot_id = ${botId} AND action != 'HOLD'
+    FROM bot_decisions WHERE bot_id = ${botId} AND action != 'HOLD' AND mode = 'live'
   `);
   const ts = (tradeStats as any[])?.[0] || {};
 

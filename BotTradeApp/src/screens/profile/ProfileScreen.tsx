@@ -90,12 +90,22 @@ function BotMenuIcon({size = 18, color = 'rgba(255,255,255,0.6)'}: {size?: numbe
   );
 }
 
+function TradingRoomIcon({size = 18, color = 'rgba(255,255,255,0.6)'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M8 10h8M8 13h5" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
 const SETTINGS = [
   {icon: BellIcon, label: 'Notifications', screen: 'Notifications'},
   {icon: WalletIcon, label: 'Wallet & Funds', screen: 'WalletFunds'},
   {icon: ExchangeMenuIcon, label: 'Connected Exchanges', screen: 'ExchangeManage'},
   {icon: ShadowMenuIcon, label: 'Shadow Mode', screen: 'ShadowMode'},
   {icon: BotMenuIcon, label: 'Creator Studio', screen: 'CreatorStudio'},
+  {icon: TradingRoomIcon, label: 'Trading Room', screen: 'TradingRoom'},
   {icon: SwordsMenuIcon, label: 'Battle Arena', screen: 'ArenaHistory'},
   {icon: GearIcon, label: 'Settings', screen: 'Settings'},
 ];

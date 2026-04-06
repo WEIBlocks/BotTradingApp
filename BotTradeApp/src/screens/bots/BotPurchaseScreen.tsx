@@ -111,6 +111,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const validateAmount = useCallback((val: string): string => {
     const num = parseFloat(val);
     if (!val || isNaN(num) || num <= 0) return 'Enter a valid amount greater than 0';
+    if (availableBalance <= 0) return `No funds available in your ${requiredAssetClass} exchange`;
     if (num > availableBalance) {
       return `Exceeds available ${requiredAssetClass === 'stocks' ? 'stock' : 'crypto'} balance ($${availableBalance.toLocaleString()})`;
     }
@@ -137,6 +138,10 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
     if (!matchingExchange) {
       const label = requiredAssetClass === 'stocks' ? 'stock (Alpaca)' : 'crypto';
       showAlert('No Exchange Connected', `This bot requires a connected ${label} exchange. Please connect one first.`);
+      return;
+    }
+    if (availableBalance <= 0) {
+      showAlert('No Funds Available', `Your ${matchingExchange.provider} account has no available balance. Please deposit funds before activating live trading.`);
       return;
     }
 
@@ -222,7 +227,9 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const isStockBot = requiredAssetClass === 'stocks';
   const assetColor = isStockBot ? '#3B82F6' : '#F59E0B';
   const assetLabel = isStockBot ? 'Stock' : 'Crypto';
-  const canActivate = !amountError && parsedAmount > 0 && !!matchingExchange;
+  // Exchange connected but no funds = cannot activate (applies to all users including admin)
+  const hasInsufficientBalance = !!matchingExchange && availableBalance <= 0;
+  const canActivate = !amountError && parsedAmount > 0 && !!matchingExchange && !hasInsufficientBalance;
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -265,19 +272,34 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
         <Text style={styles.sectionLabel}>TRADING CAPITAL</Text>
 
         {matchingExchange ? (
-          <View style={[styles.exchangeCard, {borderColor: `${assetColor}30`}]}>
-            <View style={styles.exchangeRow}>
-              <View style={[styles.exchangeDot, {backgroundColor: assetColor}]} />
-              <Text style={styles.exchangeName}>{matchingExchange.provider}</Text>
-              {matchingExchange.sandbox && (
-                <View style={styles.sandboxBadge}>
-                  <Text style={styles.sandboxText}>TEST</Text>
-                </View>
-              )}
-              <Text style={styles.exchangeBalance}>${availableBalance.toLocaleString(undefined, {maximumFractionDigits: 2})}</Text>
+          <>
+            <View style={[styles.exchangeCard, {borderColor: hasInsufficientBalance ? 'rgba(239,68,68,0.3)' : `${assetColor}30`}]}>
+              <View style={styles.exchangeRow}>
+                <View style={[styles.exchangeDot, {backgroundColor: hasInsufficientBalance ? '#EF4444' : assetColor}]} />
+                <Text style={styles.exchangeName}>{matchingExchange.provider}</Text>
+                {matchingExchange.sandbox && (
+                  <View style={styles.sandboxBadge}>
+                    <Text style={styles.sandboxText}>TEST</Text>
+                  </View>
+                )}
+                <Text style={[styles.exchangeBalance, hasInsufficientBalance && {color: '#EF4444'}]}>
+                  ${availableBalance.toLocaleString(undefined, {maximumFractionDigits: 2})}
+                </Text>
+              </View>
+              <Text style={styles.exchangeSub}>Available {assetLabel} balance</Text>
             </View>
-            <Text style={styles.exchangeSub}>Available {assetLabel} balance</Text>
-          </View>
+            {hasInsufficientBalance && (
+              <View style={styles.noExchangeCard}>
+                <WarningIcon size={18} />
+                <View style={{flex: 1}}>
+                  <Text style={styles.noExchangeTitle}>No Funds Available</Text>
+                  <Text style={styles.noExchangeSub}>
+                    Your {matchingExchange.provider} account has $0 balance. Deposit funds to activate live trading.
+                  </Text>
+                </View>
+              </View>
+            )}
+          </>
         ) : (
           <View style={styles.noExchangeCard}>
             <WarningIcon size={18} />

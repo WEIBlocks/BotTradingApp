@@ -295,15 +295,22 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
 
     const availableBalance = parseFloat(matchingConn.totalBalance ?? '0');
 
-    // Validate requested amount against this exchange's balance
-    if (requestedAmount !== undefined) {
-      if (requestedAmount > availableBalance) {
-        throw new ValidationError(`Allocated amount ($${requestedAmount}) exceeds available ${requiredAssetClass} balance ($${availableBalance.toFixed(2)}).`);
-      }
-      allocatedAmount = String(requestedAmount);
-    } else {
-      allocatedAmount = matchingConn.totalBalance ?? '1000';
+    // Mandatory balance check — applies to ALL users including admins.
+    // An exchange must have funds before a bot can trade live.
+    if (availableBalance <= 0) {
+      const label = requiredAssetClass === 'stocks' ? 'stock (Alpaca)' : 'crypto';
+      throw new AppError(400, `Your connected ${label} exchange has no available balance ($0). Please deposit funds before activating live trading.`);
     }
+
+    // Validate requested amount against this exchange's balance.
+    // requestedAmount must be > 0 and <= availableBalance.
+    if (requestedAmount === undefined || requestedAmount <= 0) {
+      throw new ValidationError(`Enter an amount to allocate for live trading (must be greater than $0).`);
+    }
+    if (requestedAmount > availableBalance) {
+      throw new ValidationError(`Allocated amount ($${requestedAmount}) exceeds available ${requiredAssetClass} balance ($${availableBalance.toFixed(2)}).`);
+    }
+    allocatedAmount = String(requestedAmount);
 
     exchangeConnId = matchingConn.id;
   }
@@ -872,6 +879,22 @@ export async function activateLiveMode(
     throw new AppError(400, 'Exchange connection not found or not connected. Please connect your exchange first.');
   }
 
+  // Mandatory balance check — applies to ALL users including admins
+  const connBalance = parseFloat(conn.totalBalance ?? '0');
+  if (connBalance <= 0) {
+    throw new AppError(400, `Your connected ${conn.provider} exchange has no available balance ($0). Please deposit funds before activating live trading.`);
+  }
+
+  // Validate allocated amount
+  if (allocatedAmount !== undefined) {
+    if (allocatedAmount <= 0) {
+      throw new ValidationError('Allocated amount must be greater than $0.');
+    }
+    if (allocatedAmount > connBalance) {
+      throw new ValidationError(`Allocated amount ($${allocatedAmount}) exceeds available balance ($${connBalance.toFixed(2)}).`);
+    }
+  }
+
   // Check for existing subscription
   const [existingSub] = await db
     .select()
@@ -896,13 +919,13 @@ export async function activateLiveMode(
         status: 'active',
         mode: 'live',
         exchangeConnId,
-        allocatedAmount: allocatedAmount ? String(allocatedAmount) : conn.totalBalance ?? '0',
+        allocatedAmount: String(allocatedAmount ?? connBalance),
         updatedAt: new Date(),
       })
       .where(eq(botSubscriptions.id, existingSub.id))
       .returning();
 
-    await logActivity(userId, 'purchase', 'Live Mode Activated', `Bot activated with ${conn.provider} exchange`, allocatedAmount?.toString() ?? '0');
+    await logActivity(userId, 'purchase', 'Live Mode Activated', `Bot activated with ${conn.provider} exchange`, allocatedAmount?.toString() ?? String(connBalance));
 
     return updated;
   }
@@ -916,7 +939,7 @@ export async function activateLiveMode(
       status: 'active',
       mode: 'live',
       exchangeConnId,
-      allocatedAmount: allocatedAmount ? String(allocatedAmount) : conn.totalBalance ?? '0',
+      allocatedAmount: String(allocatedAmount ?? connBalance),
     })
     .returning();
 

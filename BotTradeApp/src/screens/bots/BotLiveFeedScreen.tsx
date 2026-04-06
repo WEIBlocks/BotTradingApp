@@ -106,6 +106,8 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const lastFetchRef = useRef<string>('');
+  // Once we've received at least one decision of the correct mode, never fall back to other modes
+  const hasCorrectModeDataRef = useRef(false);
 
   // Pulse animation for live indicator
   useEffect(() => {
@@ -149,26 +151,32 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
     return () => clearInterval(interval);
   }, [isStockBot]);
 
-  // Fetch decisions via REST (primary data source)
-  // Strategy: try mode-specific first; if empty, fall back to all decisions so
-  // shadow users who navigate via a "live feed" button still see their data.
+  // Fetch decisions — strictly mode-filtered.
+  // For live mode: NEVER fall back to paper/shadow data (causes the flash).
+  // For shadow mode: always fetch paper.
+  // Fallback to no-filter only for shadow mode users who open via a "live" nav context
+  // AND we have never yet seen correct-mode data for this session.
   const fetchDecisions = useCallback(async () => {
     try {
       const feedMode = mode === 'live' ? 'live' : 'paper';
-      let res: any = await botsService.getDecisions(botId, 50, 0, feedMode as 'paper' | 'live');
+      const res: any = await botsService.getDecisions(botId, 50, 0, feedMode as 'paper' | 'live');
       let items: BotDecision[] = Array.isArray(res?.data?.decisions) ? res.data.decisions
         : Array.isArray(res?.data) ? res.data : [];
 
-      // If mode-filtered query returned nothing, retry without mode filter so
-      // shadow decisions show even when the screen was opened in "live" context.
-      if (items.length === 0) {
-        res = await botsService.getDecisions(botId, 50, 0, undefined);
-        items = Array.isArray(res?.data?.decisions) ? res.data.decisions
-          : Array.isArray(res?.data) ? res.data : [];
+      if (items.length > 0) {
+        // We have correct-mode data — lock in so we never fall back
+        hasCorrectModeDataRef.current = true;
+      } else if (!hasCorrectModeDataRef.current && feedMode === 'paper') {
+        // Shadow context opened via a "live" button: one-time fallback to unfiltered
+        // Only for paper/shadow — never do this for live (prevents flash)
+        const fallback: any = await botsService.getDecisions(botId, 50, 0, undefined);
+        const fallbackItems: BotDecision[] = Array.isArray(fallback?.data?.decisions)
+          ? fallback.data.decisions : Array.isArray(fallback?.data) ? fallback.data : [];
+        // Only use fallback if it doesn't mix in live decisions
+        items = fallbackItems.filter((d: BotDecision) => d.mode !== 'live');
       }
 
       const pagination = res?.data?.pagination;
-
       const key = items.map((d: BotDecision) => d.id || d.createdAt).join(',');
       if (key !== lastFetchRef.current) {
         lastFetchRef.current = key;
@@ -178,11 +186,8 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
         setTotalCount(pagination.total);
         setHasMore(pagination.hasMore);
       }
-      // Use server-side stats for accurate counts across ALL decisions
       const stats = res?.data?.stats;
-      if (stats) {
-        setApiStats(stats);
-      }
+      if (stats) setApiStats(stats);
       setConnected(true);
     } catch (err) {
       console.warn('Failed to fetch decisions:', err);
@@ -232,16 +237,24 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
           const msg = JSON.parse(typeof event.data === 'string' ? event.data : '');
 
           if (msg.type === 'initial_decisions' && Array.isArray(msg.data) && msg.data.length > 0) {
-            setDecisions(msg.data);
-            setLoading(false);
-            setConnected(true);
+            // Filter WS initial push to correct mode — prevents shadow data flashing on live feed
+            const feedMode = mode === 'live' ? 'live' : 'paper';
+            const filtered = msg.data.filter((d: BotDecision) => d.mode === feedMode);
+            if (filtered.length > 0) {
+              hasCorrectModeDataRef.current = true;
+              setDecisions(filtered);
+              setLoading(false);
+              setConnected(true);
+            }
           } else if (msg.type === 'bot_decision' && msg.data) {
-            // Add new real-time decision to the top
+            // Only add real-time decisions that match the current feed mode
+            const feedMode = mode === 'live' ? 'live' : 'paper';
+            if (msg.data.mode !== feedMode) return;
             setDecisions(prev => {
               const newItem = msg.data;
-              // Deduplicate by id or timestamp
               const exists = prev.some(d => d.id === newItem.id || (d.timestamp && d.timestamp === newItem.timestamp));
               if (exists) return prev;
+              hasCorrectModeDataRef.current = true;
               return [newItem, ...prev].slice(0, 100);
             });
           } else if (msg.type === 'connected') {
@@ -275,6 +288,9 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
           clearInterval(pollRef.current);
           pollRef.current = null;
         }
+        // Reset so next visit re-evaluates correct-mode data from scratch
+        hasCorrectModeDataRef.current = false;
+        lastFetchRef.current = '';
       };
     }, [fetchDecisions, connectWs]),
   );

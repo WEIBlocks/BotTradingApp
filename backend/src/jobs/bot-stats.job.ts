@@ -20,29 +20,30 @@ async function calculateBotStats() {
 
     for (const bot of allBots) {
       try {
-        // Get ALL positions (open + closed)
+        // Get LIVE positions only (exclude shadow/paper from public stats)
         const allPositions = await db.select().from(botPositions)
-          .where(eq(botPositions.botId, bot.id)).orderBy(botPositions.openedAt);
+          .where(and(eq(botPositions.botId, bot.id), eq(botPositions.isPaper, false)))
+          .orderBy(botPositions.openedAt);
 
         // Get closed positions
         const closedPositions = allPositions.filter(p => p.status === 'closed');
         const openPositions = allPositions.filter(p => p.status === 'open');
 
-        // Get trades count from trades table (captures trades not tracked as positions)
+        // Get LIVE trades count only (exclude shadow/paper from public stats)
         const [tradeCount]: any = await db.execute(sql`
           SELECT count(*)::int as cnt FROM trades
-          WHERE bot_subscription_id IN (SELECT id FROM bot_subscriptions WHERE bot_id = ${bot.id})
-             OR shadow_session_id IN (SELECT id FROM shadow_sessions WHERE bot_id = ${bot.id})
+          WHERE is_paper = false
+            AND bot_subscription_id IN (SELECT id FROM bot_subscriptions WHERE bot_id = ${bot.id})
         `);
         const totalTradesFromTable = tradeCount?.cnt ?? 0;
 
-        // Get decision counts
+        // Get LIVE decision counts only (exclude shadow/paper)
         const [decCount]: any = await db.execute(sql`
           SELECT
             count(*)::int as total,
             count(*) FILTER (WHERE action = 'BUY')::int as buys,
             count(*) FILTER (WHERE action = 'SELL')::int as sells
-          FROM bot_decisions WHERE bot_id = ${bot.id}
+          FROM bot_decisions WHERE bot_id = ${bot.id} AND mode = 'live'
         `);
         const totalBuys = decCount?.buys ?? 0;
         const totalSells = decCount?.sells ?? 0;
