@@ -39,6 +39,14 @@ interface CreateBotData {
   orderType?: 'market' | 'limit';
   creatorFeePercent?: number;
   prompt?: string;
+  tradingFrequency?: 'conservative' | 'balanced' | 'aggressive' | 'max';
+  maxHoldsBeforeAI?: number;
+  aiConfidenceThreshold?: number;
+  aiMode?: 'rules_only' | 'hybrid' | 'full_ai';
+  customEntryConditions?: any[];
+  customExitConditions?: any[];
+  maxOpenPositions?: number;
+  tradingSchedule?: string;
 }
 
 export async function createBot(userId: string, data: CreateBotData) {
@@ -51,6 +59,14 @@ export async function createBot(userId: string, data: CreateBotData) {
     tradeDirection: data.tradeDirection ?? 'both',
     dailyLossLimit: data.dailyLossLimit ?? 0,
     orderType: data.orderType ?? 'market',
+    tradingFrequency: data.tradingFrequency,
+    maxHoldsBeforeAI: data.maxHoldsBeforeAI,
+    aiConfidenceThreshold: data.aiConfidenceThreshold,
+    aiMode: data.aiMode,
+    customEntryConditions: data.customEntryConditions,
+    customExitConditions: data.customExitConditions,
+    maxOpenPositions: data.maxOpenPositions,
+    tradingSchedule: data.tradingSchedule,
   };
 
   const [bot] = await db
@@ -100,6 +116,14 @@ interface UpdateBotData {
   maxPositionSize?: number;
   creatorFeePercent?: number;
   prompt?: string;
+  tradingFrequency?: 'conservative' | 'balanced' | 'aggressive' | 'max';
+  maxHoldsBeforeAI?: number;
+  aiConfidenceThreshold?: number;
+  aiMode?: 'rules_only' | 'hybrid' | 'full_ai';
+  customEntryConditions?: any[];
+  customExitConditions?: any[];
+  maxOpenPositions?: number;
+  tradingSchedule?: string;
 }
 
 export async function updateBot(userId: string, botId: string, data: UpdateBotData) {
@@ -129,6 +153,14 @@ export async function updateBot(userId: string, botId: string, data: UpdateBotDa
   if (data.stopLoss !== undefined) configUpdates.stopLoss = data.stopLoss;
   if (data.takeProfit !== undefined) configUpdates.takeProfit = data.takeProfit;
   if (data.maxPositionSize !== undefined) configUpdates.maxPositionSize = data.maxPositionSize;
+  if (data.tradingFrequency !== undefined) configUpdates.tradingFrequency = data.tradingFrequency;
+  if (data.maxHoldsBeforeAI !== undefined) configUpdates.maxHoldsBeforeAI = data.maxHoldsBeforeAI;
+  if (data.aiConfidenceThreshold !== undefined) configUpdates.aiConfidenceThreshold = data.aiConfidenceThreshold;
+  if (data.aiMode !== undefined) configUpdates.aiMode = data.aiMode;
+  if (data.customEntryConditions !== undefined) configUpdates.customEntryConditions = data.customEntryConditions;
+  if (data.customExitConditions !== undefined) configUpdates.customExitConditions = data.customExitConditions;
+  if (data.maxOpenPositions !== undefined) configUpdates.maxOpenPositions = data.maxOpenPositions;
+  if (data.tradingSchedule !== undefined) configUpdates.tradingSchedule = data.tradingSchedule;
   updates.config = configUpdates;
 
   const [updated] = await db
@@ -574,8 +606,10 @@ export async function getUserShadowSessions(userId: string) {
       session: shadowSessions,
       botName: bots.name,
       botStrategy: bots.strategy,
+      botCategory: bots.category,
       botAvatarLetter: bots.avatarLetter,
       botAvatarColor: bots.avatarColor,
+      botConfig: bots.config,
     })
     .from(shadowSessions)
     .leftJoin(bots, eq(shadowSessions.botId, bots.id))
@@ -1113,4 +1147,34 @@ export async function getBotTradeMarkers(botId: string, symbol: string, days: nu
     reasoning: m.reasoning,
     timestamp: m.timestamp?.getTime() ?? 0,
   }));
+}
+
+export async function updateUserConfig(userId: string, subscriptionId: string, data: Record<string, any>) {
+  const [sub] = await db
+    .select()
+    .from(botSubscriptions)
+    .where(and(eq(botSubscriptions.id, subscriptionId), eq(botSubscriptions.userId, userId)));
+
+  if (!sub) throw new NotFoundError('Bot subscription');
+
+  const existing = (sub.userConfig as Record<string, any>) ?? {};
+  const merged = { ...existing, ...data };
+
+  const [updated] = await db
+    .update(botSubscriptions)
+    .set({ userConfig: merged, updatedAt: new Date() })
+    .where(eq(botSubscriptions.id, subscriptionId))
+    .returning();
+
+  return updated;
+}
+
+export async function getSubscription(userId: string, subscriptionId: string) {
+  const [sub] = await db
+    .select()
+    .from(botSubscriptions)
+    .where(and(eq(botSubscriptions.id, subscriptionId), eq(botSubscriptions.userId, userId)));
+
+  if (!sub) throw new NotFoundError('Subscription');
+  return sub;
 }

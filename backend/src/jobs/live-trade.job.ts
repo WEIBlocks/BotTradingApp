@@ -7,6 +7,7 @@ import { eq, and, sql } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import { bots, botSubscriptions } from '../db/schema/bots';
 import { exchangeConnections } from '../db/schema/exchanges';
+import { botDecisions } from '../db/schema/decisions';
 import { processSymbol, executeLiveTrade } from '../lib/bot-engine.js';
 import { sendNotification } from '../lib/notify.js';
 import { refreshUserPortfolio } from './portfolio-update.job.js';
@@ -20,6 +21,24 @@ interface BotConfig {
   tradeDirection?: 'buy' | 'sell' | 'both';
   dailyLossLimit?: number;
   orderType?: 'market' | 'limit';
+  tradingFrequency?: 'conservative' | 'balanced' | 'aggressive' | 'max';
+  maxHoldsBeforeAI?: number;
+  aiConfidenceThreshold?: number;
+  aiMode?: 'rules_only' | 'hybrid' | 'full_ai';
+  customEntryConditions?: any[];
+  customExitConditions?: any[];
+  maxOpenPositions?: number;
+  tradingSchedule?: string;
+}
+
+interface UserConfig {
+  riskMultiplier?: number;
+  maxDailyLoss?: number;
+  autoStopBalance?: number;
+  autoStopDays?: number;
+  autoStopLossPercent?: number;
+  compoundProfits?: boolean;
+  notificationLevel?: string;
 }
 
 async function processLiveTrades() {
@@ -48,6 +67,7 @@ async function processLiveTrades() {
       try {
         // Determine if this is a stock or crypto bot
         const config = (bot.config ?? {}) as BotConfig;
+        const userConfig = (subscription.userConfig ?? {}) as UserConfig;
         const pairs = config.pairs?.length ? config.pairs : ['BTC/USDT'];
         const isStockBot = bot.category === 'Stocks' || pairs.some(p => p.endsWith('/USD') && !p.endsWith('/USDT'));
 
@@ -94,6 +114,24 @@ async function processLiveTrades() {
           continue;
         }
 
+        const allocatedAmount = parseFloat(subscription.allocatedAmount ?? '0');
+
+        // autoStopBalance check (vs allocatedAmount)
+        if (userConfig.autoStopBalance !== undefined && allocatedAmount > 0 && allocatedAmount < userConfig.autoStopBalance) {
+          await db.update(botSubscriptions).set({ status: 'stopped', updatedAt: new Date() }).where(eq(botSubscriptions.id, subscription.id));
+          console.log(`[LiveTrade] Subscription ${subscription.id} stopped — balance below autoStop`);
+          continue;
+        }
+        // autoStopDays
+        if (userConfig.autoStopDays !== undefined) {
+          const daysSinceStart = (Date.now() - new Date(subscription.startedAt ?? Date.now()).getTime()) / (1000 * 60 * 60 * 24);
+          if (daysSinceStart >= userConfig.autoStopDays) {
+            await db.update(botSubscriptions).set({ status: 'stopped', updatedAt: new Date() }).where(eq(botSubscriptions.id, subscription.id));
+            console.log(`[LiveTrade] Subscription ${subscription.id} stopped — autoStopDays reached`);
+            continue;
+          }
+        }
+
         // Verify exchange exists and isn't disconnected/errored
         const [conn] = await db
           .select()
@@ -122,13 +160,34 @@ async function processLiveTrades() {
           continue;
         }
 
-        const allocatedAmount = parseFloat(subscription.allocatedAmount ?? '0');
-
-        // Skip stock bots when US market is closed
+        // Skip stock bots when US market is closed — but log a HOLD so the live feed isn't empty
         if (isStockBot) {
           const marketOpen = await isUSMarketOpen();
           if (!marketOpen) {
             console.log(`[LiveTrade] Skipping ${bot.name} — US stock market closed`);
+            // Log a "market closed" HOLD at most once every 30 min per subscription (avoid feed flooding)
+            const { redisConnection } = await import('../config/queue.js');
+            const throttleKey = `market_closed_log:live:${subscription.id}`;
+            const alreadyLogged = await redisConnection.get(throttleKey).catch(() => null);
+            if (!alreadyLogged) {
+              const firstPair = pairs[0] ?? 'NVDA';
+              const priceData = await getPrice(firstPair).catch(() => null);
+              await db.insert(botDecisions).values({
+                botId: bot.id,
+                userId: subscription.userId,
+                subscriptionId: subscription.id,
+                symbol: firstPair,
+                action: 'HOLD',
+                confidence: 0,
+                reasoning: 'US stock market is currently closed (9:30 AM – 4:00 PM ET on weekdays). Bot will resume when market opens.',
+                indicators: {},
+                price: priceData ? priceData.price.toFixed(4) : '0',
+                aiCalled: false,
+                tokensCost: 0,
+                mode: 'live',
+              }).catch(() => {});
+              await redisConnection.set(throttleKey, '1', 'EX', 1800).catch(() => {});
+            }
             continue;
           }
         }
@@ -151,17 +210,25 @@ async function processLiveTrades() {
             balance: allocatedAmount > 0 ? allocatedAmount : parseFloat(conn.totalBalance ?? '0'),
             stopLoss: config.stopLoss,
             takeProfit: config.takeProfit,
-            maxPositionPct: config.maxPositionSize ? config.maxPositionSize / 100 : 10,
+            maxPositionPct: config.maxPositionSize ?? 10,
             tradeDirection: config.tradeDirection ?? 'both',
-            dailyLossLimit: config.dailyLossLimit ?? 0,
+            dailyLossLimit: userConfig.maxDailyLoss ?? config.dailyLossLimit ?? 0,
             orderType: config.orderType ?? 'market',
             mode: 'live',
             exchangeConnId: exchangeConnId,
             subscriptionId: subscription.id,
+            aiMode: config.aiMode,
+            aiConfidenceThreshold: config.aiConfidenceThreshold,
+            maxHoldsBeforeAI: config.maxHoldsBeforeAI,
+            tradingFrequency: config.tradingFrequency,
+            customEntryConditions: config.customEntryConditions,
+            customExitConditions: config.customExitConditions,
+            maxOpenPositions: config.maxOpenPositions,
+            riskMultiplier: userConfig.riskMultiplier,
           });
 
           // Execute real trade if BUY/SELL with high confidence
-          if (decision.action !== 'HOLD' && decision.confidence >= 60) {
+          if (decision.action !== 'HOLD' && decision.confidence >= (config.aiConfidenceThreshold ?? 60)) {
             console.log(`[LiveTrade] Executing ${decision.action} for ${pair} (confidence: ${decision.confidence}%)`);
 
             const result = await executeLiveTrade(

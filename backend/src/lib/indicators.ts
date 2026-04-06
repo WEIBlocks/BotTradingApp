@@ -191,7 +191,7 @@ export function hasSignificantChange(
   current: IndicatorSnapshot,
   previous: IndicatorSnapshot | null,
   thresholds = {
-    priceChangePct: 0.5,      // 0.5% price move
+    priceChangePct: 0.15,     // 0.15% price move (enough for scalpers)
     rsiCrossLevels: [30, 70], // RSI crossing oversold/overbought
     macdCrossover: true,       // MACD line crossing signal line
     bollingerTouch: true,      // Price touching Bollinger bands

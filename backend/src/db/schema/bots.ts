@@ -145,6 +145,7 @@ export const botSubscriptions = pgTable(
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    userConfig: jsonb("user_config"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({

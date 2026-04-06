@@ -47,6 +47,19 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const [customDays, setCustomDays] = useState('');
   const [virtualBalance, setVirtualBalance] = useState('10000');
 
+  // Subscriber customization
+  const [subUserConfig, setSubUserConfig] = useState<{
+    riskMultiplier?: number;
+    maxDailyLoss?: string;
+    autoStopBalance?: string;
+    autoStopDays?: string;
+    autoStopLossPercent?: string;
+    compoundProfits?: boolean;
+    notificationLevel?: string;
+  }>({riskMultiplier: 1, notificationLevel: 'all'});
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [configPanelExpanded, setConfigPanelExpanded] = useState(false);
+
   // Equity curve (line chart from real P&L)
   const [equityCurve, setEquityCurve] = useState<number[]>([]);
   const [equityDates, setEquityDates] = useState<(string | Date)[]>([]);
@@ -133,6 +146,23 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       const shadowPaused = shadowSessions.find(
         (s: any) => s.botId === botId && s.status === 'paused',
       );
+
+      // Load subscriber userConfig if they have a subscription
+      if (sub) {
+        const subId = sub.subscriptionId || sub.id;
+        botsService.getSubscription(subId).then((res: any) => {
+          const uc = res?.data?.userConfig ?? {};
+          setSubUserConfig({
+            riskMultiplier: uc.riskMultiplier ?? 1,
+            maxDailyLoss: uc.maxDailyLoss !== undefined ? String(uc.maxDailyLoss) : '',
+            autoStopBalance: uc.autoStopBalance !== undefined ? String(uc.autoStopBalance) : '',
+            autoStopDays: uc.autoStopDays !== undefined ? String(uc.autoStopDays) : '',
+            autoStopLossPercent: uc.autoStopLossPercent !== undefined ? String(uc.autoStopLossPercent) : '',
+            compoundProfits: uc.compoundProfits ?? false,
+            notificationLevel: uc.notificationLevel ?? 'all',
+          });
+        }).catch(() => {});
+      }
 
       if (sub && (sub.subscriptionStatus === 'active' || sub.status === 'active')) {
         setUserBotState({status: 'active', subscriptionId: sub.subscriptionId || sub.id, mode: sub.subscriptionMode || sub.mode});
@@ -392,6 +422,28 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       .catch(() => showAlert('Error', 'Failed to resume shadow session.'))
       .finally(() => setActionLoading(false));
   }, [userBotState.shadowSessionId, fetchData]);
+
+  const handleSaveUserConfig = useCallback(async () => {
+    const subId = userBotState.subscriptionId;
+    if (!subId) return;
+    setSavingConfig(true);
+    try {
+      await botsService.updateUserConfig(subId, {
+        riskMultiplier: subUserConfig.riskMultiplier as any,
+        maxDailyLoss: subUserConfig.maxDailyLoss ? parseFloat(subUserConfig.maxDailyLoss) : undefined,
+        autoStopBalance: subUserConfig.autoStopBalance ? parseFloat(subUserConfig.autoStopBalance) : undefined,
+        autoStopDays: subUserConfig.autoStopDays ? parseInt(subUserConfig.autoStopDays, 10) : undefined,
+        autoStopLossPercent: subUserConfig.autoStopLossPercent ? parseFloat(subUserConfig.autoStopLossPercent) : undefined,
+        compoundProfits: subUserConfig.compoundProfits,
+        notificationLevel: subUserConfig.notificationLevel as any,
+      });
+      showAlert('Settings Saved', 'Your customizations have been applied to this bot.');
+    } catch {
+      showAlert('Error', 'Failed to save settings.');
+    } finally {
+      setSavingConfig(false);
+    }
+  }, [userBotState.subscriptionId, subUserConfig]);
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
@@ -700,13 +752,228 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </View>
             )}
             {bot.config?.orderType && (
-              <View style={[styles.metricRow, {borderBottomWidth: 0}]}>
+              <View style={styles.metricRow}>
                 <Text style={styles.metricLabel}>Order Type</Text>
                 <Text style={styles.metricValue}>{bot.config.orderType === 'limit' ? 'Limit' : 'Market'}</Text>
               </View>
             )}
+            {bot.config?.tradingFrequency && (
+              <View style={styles.metricRow}>
+                <Text style={styles.metricLabel}>Trading Frequency</Text>
+                <Text style={[styles.metricValue, {color: bot.config.tradingFrequency === 'max' || bot.config.tradingFrequency === 'aggressive' ? '#EF4444' : '#10B981'}]}>
+                  {bot.config.tradingFrequency.charAt(0).toUpperCase() + bot.config.tradingFrequency.slice(1)}
+                </Text>
+              </View>
+            )}
+            {bot.config?.aiMode && (
+              <View style={styles.metricRow}>
+                <Text style={styles.metricLabel}>AI Mode</Text>
+                <Text style={[styles.metricValue, {color: '#8B5CF6'}]}>
+                  {bot.config.aiMode === 'rules_only' ? 'Rules Only' : bot.config.aiMode === 'full_ai' ? 'Full AI' : 'Hybrid'}
+                </Text>
+              </View>
+            )}
+            {bot.config?.maxOpenPositions !== undefined && (
+              <View style={styles.metricRow}>
+                <Text style={styles.metricLabel}>Max Open Positions</Text>
+                <Text style={styles.metricValue}>{bot.config.maxOpenPositions}</Text>
+              </View>
+            )}
+            {bot.config?.tradingSchedule && (
+              <View style={[styles.metricRow, {borderBottomWidth: 0}]}>
+                <Text style={styles.metricLabel}>Trading Schedule</Text>
+                <Text style={styles.metricValue}>
+                  {bot.config.tradingSchedule === '24_7' ? '24/7' : bot.config.tradingSchedule === 'us_hours' ? 'US Market Hours' : 'Custom'}
+                </Text>
+              </View>
+            )}
           </View>
         </View>
+
+        {/* ── Subscriber Customization Panel ───────────────────── */}
+        {(userBotState.status === 'active' || userBotState.status === 'paused' || userBotState.status === 'shadow_running' || userBotState.status === 'shadow_paused') && (
+          <View style={styles.section}>
+            <TouchableOpacity
+              style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: configPanelExpanded ? 14 : 0}}
+              activeOpacity={0.7}
+              onPress={() => setConfigPanelExpanded(v => !v)}>
+              <Text style={styles.sectionLabel}>MY SETTINGS</Text>
+              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                <Path
+                  d={configPanelExpanded ? 'M18 15l-6-6-6 6' : 'M6 9l6 6 6-6'}
+                  stroke="rgba(255,255,255,0.4)"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </Svg>
+            </TouchableOpacity>
+
+            {configPanelExpanded && (
+              <View style={styles.metricsCard}>
+                {/* Risk Multiplier */}
+                <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
+                  <Text style={styles.metricLabel}>RISK MULTIPLIER</Text>
+                  <View style={{flexDirection: 'row', gap: 8}}>
+                    {([0.5, 1, 1.5, 2] as const).map(v => (
+                      <TouchableOpacity
+                        key={v}
+                        activeOpacity={0.7}
+                        style={{
+                          paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10,
+                          backgroundColor: subUserConfig.riskMultiplier === v ? 'rgba(16,185,129,0.18)' : '#1C2333',
+                          borderWidth: 1,
+                          borderColor: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.08)',
+                        }}
+                        onPress={() => setSubUserConfig(c => ({...c, riskMultiplier: v}))}>
+                        <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.5)'}}>
+                          {v}x
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)'}}>
+                    Scales the bot's SL/TP/position size
+                  </Text>
+                </View>
+
+                {/* Notification Level */}
+                <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
+                  <Text style={styles.metricLabel}>NOTIFICATIONS</Text>
+                  <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+                    {(['all', 'wins_only', 'losses_only', 'summary'] as const).map(n => (
+                      <TouchableOpacity
+                        key={n}
+                        activeOpacity={0.7}
+                        style={{
+                          paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10,
+                          backgroundColor: subUserConfig.notificationLevel === n ? 'rgba(59,130,246,0.18)' : '#1C2333',
+                          borderWidth: 1,
+                          borderColor: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.08)',
+                        }}
+                        onPress={() => setSubUserConfig(c => ({...c, notificationLevel: n}))}>
+                        <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.5)'}}>
+                          {n === 'all' ? 'All' : n === 'wins_only' ? 'Wins Only' : n === 'losses_only' ? 'Losses Only' : 'Summary'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                {/* Max Daily Loss % */}
+                <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
+                  <View style={{flex: 1}}>
+                    <Text style={styles.metricLabel}>MAX DAILY LOSS</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Pause bot if daily loss exceeds this %</Text>
+                  </View>
+                  <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
+                    <TextInput
+                      style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}}
+                      keyboardType="decimal-pad"
+                      value={subUserConfig.maxDailyLoss ?? ''}
+                      onChangeText={v => setSubUserConfig(c => ({...c, maxDailyLoss: v}))}
+                      placeholder="—"
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                    />
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 2}}>%</Text>
+                  </View>
+                </View>
+
+                {/* Auto-Stop Loss % */}
+                <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
+                  <View style={{flex: 1}}>
+                    <Text style={styles.metricLabel}>AUTO-STOP LOSS %</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Stop bot if total loss exceeds this %</Text>
+                  </View>
+                  <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
+                    <TextInput
+                      style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}}
+                      keyboardType="decimal-pad"
+                      value={subUserConfig.autoStopLossPercent ?? ''}
+                      onChangeText={v => setSubUserConfig(c => ({...c, autoStopLossPercent: v}))}
+                      placeholder="—"
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                    />
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 2}}>%</Text>
+                  </View>
+                </View>
+
+                {/* Auto-Stop Balance */}
+                <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
+                  <View style={{flex: 1}}>
+                    <Text style={styles.metricLabel}>AUTO-STOP BALANCE</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Stop bot if balance falls below this</Text>
+                  </View>
+                  <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginRight: 2}}>$</Text>
+                    <TextInput
+                      style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}}
+                      keyboardType="decimal-pad"
+                      value={subUserConfig.autoStopBalance ?? ''}
+                      onChangeText={v => setSubUserConfig(c => ({...c, autoStopBalance: v}))}
+                      placeholder="—"
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                    />
+                  </View>
+                </View>
+
+                {/* Auto-Stop Days */}
+                <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
+                  <View style={{flex: 1}}>
+                    <Text style={styles.metricLabel}>AUTO-STOP DAYS</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Stop bot after this many days</Text>
+                  </View>
+                  <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
+                    <TextInput
+                      style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}}
+                      keyboardType="number-pad"
+                      value={subUserConfig.autoStopDays ?? ''}
+                      onChangeText={v => setSubUserConfig(c => ({...c, autoStopDays: v}))}
+                      placeholder="—"
+                      placeholderTextColor="rgba(255,255,255,0.3)"
+                    />
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>days</Text>
+                  </View>
+                </View>
+
+                {/* Compound Profits */}
+                <View style={[styles.metricRow, {alignItems: 'center', paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)'}]}>
+                  <View style={{flex: 1}}>
+                    <Text style={styles.metricLabel}>COMPOUND PROFITS</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Reinvest profits into position sizes</Text>
+                  </View>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    style={{
+                      width: 48, height: 26, borderRadius: 13,
+                      backgroundColor: subUserConfig.compoundProfits ? '#10B981' : '#2D3748',
+                      justifyContent: 'center',
+                      paddingHorizontal: 3,
+                    }}
+                    onPress={() => setSubUserConfig(c => ({...c, compoundProfits: !c.compoundProfits}))}>
+                    <View style={{
+                      width: 20, height: 20, borderRadius: 10,
+                      backgroundColor: '#FFFFFF',
+                      alignSelf: subUserConfig.compoundProfits ? 'flex-end' : 'flex-start',
+                    }} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Save Button */}
+                <TouchableOpacity
+                  style={{marginTop: 14, backgroundColor: '#10B981', borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: savingConfig ? 0.6 : 1}}
+                  activeOpacity={0.8}
+                  disabled={savingConfig}
+                  onPress={handleSaveUserConfig}>
+                  {savingConfig
+                    ? <ActivityIndicator size="small" color="#FFFFFF" />
+                    : <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF'}}>Save My Settings</Text>
+                  }
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
 
         {/* Aggregate Stats (all users) */}
         {bot.aggregateStats && (

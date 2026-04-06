@@ -52,9 +52,12 @@ Your capabilities:
 Behavioral guidelines:
 - Be concise but thorough. Prioritize actionable insights.
 - Always caveat that you are not providing financial advice; users should do their own research.
-- When a user asks you to create a bot strategy, respond normally with your explanation AND include a JSON block fenced with \`\`\`strategy-json ... \`\`\` containing: { "name": string, "strategy": string, "assetClass": "crypto" | "stocks", "pairs": string[], "riskLevel": "Very Low"|"Low"|"Med"|"High"|"Very High", "stopLoss": number (percentage), "takeProfit": number (percentage), "backtestEstimate": { "return30d": number, "winRate": number, "maxDrawdown": number } }
+- When a user asks you to create a bot strategy, respond normally with your explanation AND include a JSON block fenced with \`\`\`strategy-json ... \`\`\` containing: { "name": string, "strategy": string, "assetClass": "crypto" | "stocks", "pairs": string[], "riskLevel": "Very Low"|"Low"|"Med"|"High"|"Very High", "stopLoss": number (percentage), "takeProfit": number (percentage), "tradingFrequency": "conservative"|"balanced"|"aggressive"|"max", "aiMode": "rules_only"|"hybrid"|"full_ai", "maxOpenPositions": number (1-5), "tradingSchedule": "24_7"|"us_hours" (use "us_hours" ONLY for stock strategies), "backtestEstimate": { "return30d": number, "winRate": number, "maxDrawdown": number } }
 - IMPORTANT: For crypto pairs, use slash format: ["BTC/USDT", "ETH/USDT"]. For stock symbols, use plain tickers: ["AAPL", "MSFT", "TSLA"]. NEVER mix formats.
 - Auto-detect asset class from user's request: if they mention stock tickers (AAPL, TSLA, SPY) or "stocks", set assetClass to "stocks". If they mention crypto (BTC, ETH) or "crypto", set assetClass to "crypto".
+- For tradingFrequency: scalping/high-frequency strategies → "aggressive" or "max"; swing/trend strategies → "conservative" or "balanced"; DCA/grid → "conservative".
+- For aiMode: pure rules-based strategies (Grid, DCA) → "rules_only"; AI-enhanced → "hybrid"; fully autonomous → "full_ai".
+- For stock strategies ALWAYS set tradingSchedule to "us_hours". For crypto ALWAYS set tradingSchedule to "24_7".
 - Use clear formatting with bullet points and headers when appropriate.
 - If an image is attached, analyze it as a trading chart and identify patterns, support/resistance levels, and potential trade setups.
 
@@ -100,11 +103,16 @@ You MUST respond with valid JSON only. The JSON schema is:
   "name": string (catchy, memorable name for the strategy),
   "description": string (2-3 sentence summary of how the strategy works),
   "strategy": "Momentum" | "Scalping" | "Grid" | "DCA" | "Mean Reversion" | "Arbitrage" | "Breakout" | "Trend Following",
-  "pairs": string[] (e.g., ["BTC/USDT", "ETH/USDT"]),
+  "assetClass": "crypto" | "stocks",
+  "pairs": string[] (crypto: ["BTC/USDT", "ETH/USDT"], stocks: ["AAPL", "TSLA"]),
   "riskLevel": "Very Low" | "Low" | "Med" | "High" | "Very High",
   "stopLoss": number (percentage, e.g., 3.5 means 3.5%),
   "takeProfit": number (percentage),
   "maxPositionSize": number (percentage of portfolio, e.g., 10 means 10%),
+  "tradingFrequency": "conservative" | "balanced" | "aggressive" | "max",
+  "aiMode": "rules_only" | "hybrid" | "full_ai",
+  "maxOpenPositions": number (1-5),
+  "tradingSchedule": "24_7" | "us_hours",
   "indicators": string[] (technical indicators used, e.g., ["RSI(14)", "EMA(21)", "MACD(12,26,9)"]),
   "backtestEstimate": {
     "return30d": number (estimated 30-day return percentage, be realistic: -5 to 25),
@@ -124,7 +132,12 @@ Guidelines:
 - Very High risk: return30d 10-35%, winRate 40-55%, maxDrawdown 25-50%
 - Choose appropriate indicators for the strategy type.
 - If pairs are not specified, suggest appropriate ones based on the strategy.
-- If riskLevel is not specified, infer it from the description.`;
+- If riskLevel is not specified, infer it from the description.
+- tradingFrequency: Scalping → "max"; Momentum/Breakout high risk → "aggressive"; Momentum/Trend balanced → "balanced"; DCA/Grid/Swing → "conservative".
+- aiMode: Grid/DCA → "rules_only"; most strategies → "hybrid"; explicitly AI-driven requests → "full_ai".
+- tradingSchedule: stocks ALWAYS "us_hours"; crypto ALWAYS "24_7".
+- maxOpenPositions: scalping → 1-2; diversified → 3-5; DCA/grid → 1.
+- IMPORTANT: For crypto pairs use slash format ["BTC/USDT"]. For stocks use plain tickers ["AAPL"]. NEVER mix.`;
 
 const CREATOR_SUGGESTIONS_SYSTEM = `You are a trading bot performance analyst for the BotTradeApp platform. Analyze the creator's bot portfolio and generate specific, actionable improvement suggestions.
 

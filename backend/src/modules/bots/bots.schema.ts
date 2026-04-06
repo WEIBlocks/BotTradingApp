@@ -19,6 +19,24 @@ export const createBotBodySchema = z.object({
   orderType: z.enum(['market', 'limit']).optional().default('market'),
   creatorFeePercent: z.number().min(0).max(50).optional(),
   prompt: z.string().max(2000).optional(),
+  tradingFrequency: z.enum(['conservative', 'balanced', 'aggressive', 'max']).optional(),
+  maxHoldsBeforeAI: z.number().int().min(1).max(10).optional(),
+  aiConfidenceThreshold: z.number().min(50).max(90).optional(),
+  aiMode: z.enum(['rules_only', 'hybrid', 'full_ai']).optional(),
+  customEntryConditions: z.array(z.object({
+    indicator: z.string(),
+    operator: z.enum(['<', '>', '<=', '>=', 'crosses_above', 'crosses_below']),
+    value: z.number(),
+    weight: z.number().min(0).max(1),
+  })).max(5).optional(),
+  customExitConditions: z.array(z.object({
+    indicator: z.string(),
+    operator: z.enum(['<', '>', '<=', '>=', 'crosses_above', 'crosses_below']),
+    value: z.number(),
+    weight: z.number().min(0).max(1),
+  })).max(5).optional(),
+  maxOpenPositions: z.number().int().min(1).max(5).optional(),
+  tradingSchedule: z.enum(['24_7', 'us_hours', 'custom']).optional(),
 });
 
 export const updateBotBodySchema = z.object({
@@ -35,6 +53,24 @@ export const updateBotBodySchema = z.object({
   orderType: z.enum(['market', 'limit']).optional(),
   creatorFeePercent: z.number().min(0).max(50).optional(),
   prompt: z.string().max(2000).optional(),
+  tradingFrequency: z.enum(['conservative', 'balanced', 'aggressive', 'max']).optional(),
+  maxHoldsBeforeAI: z.number().int().min(1).max(10).optional(),
+  aiConfidenceThreshold: z.number().min(50).max(90).optional(),
+  aiMode: z.enum(['rules_only', 'hybrid', 'full_ai']).optional(),
+  customEntryConditions: z.array(z.object({
+    indicator: z.string(),
+    operator: z.enum(['<', '>', '<=', '>=', 'crosses_above', 'crosses_below']),
+    value: z.number(),
+    weight: z.number().min(0).max(1),
+  })).max(5).optional(),
+  customExitConditions: z.array(z.object({
+    indicator: z.string(),
+    operator: z.enum(['<', '>', '<=', '>=', 'crosses_above', 'crosses_below']),
+    value: z.number(),
+    weight: z.number().min(0).max(1),
+  })).max(5).optional(),
+  maxOpenPositions: z.number().int().min(1).max(5).optional(),
+  tradingSchedule: z.enum(['24_7', 'us_hours', 'custom']).optional(),
 });
 
 export const purchaseBotBodySchema = z.object({
@@ -69,4 +105,18 @@ export const paperTradingSetupBodySchema = z.object({
 
 export const dataResponseSchema = z.object({
   data: z.any(),
+});
+
+export const updateUserConfigBodySchema = z.object({
+  riskMultiplier: z.union([z.literal(0.5), z.literal(1), z.literal(1.5), z.literal(2)]).optional(),
+  maxDailyLoss: z.number().min(0).max(100).optional(),
+  autoStopBalance: z.number().min(0).optional(),
+  autoStopDays: z.number().int().min(1).optional(),
+  autoStopLossPercent: z.number().min(0).max(100).optional(),
+  compoundProfits: z.boolean().optional(),
+  notificationLevel: z.enum(['all', 'wins_only', 'losses_only', 'summary']).optional(),
+});
+
+export const subscriptionIdParamsSchema = z.object({
+  subscriptionId: z.string().uuid(),
 });

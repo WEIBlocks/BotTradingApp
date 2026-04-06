@@ -205,14 +205,9 @@ async function main() {
       tags: [b.category, 'Very High Risk', 'High Frequency', b.strategy],
     }).returning();
 
-    // Seed statistics
+    // Insert blank statistics row — will be populated by real trades
     await db.insert(botStatistics).values({
       botId: inserted.id,
-      return30d: (Math.random() * 60 - 10).toFixed(2),   // -10% to +50%
-      winRate: (45 + Math.random() * 20).toFixed(2),      // 45–65%
-      maxDrawdown: (10 + Math.random() * 20).toFixed(2),  // 10–30%
-      sharpeRatio: (0.8 + Math.random() * 1.5).toFixed(2),
-      activeUsers: Math.floor(Math.random() * 30) + 5,
     }).onConflictDoNothing();
 
     console.log(`  ✅ "${b.name}" inserted (${b.category} | ${b.strategy} | Very High)`);

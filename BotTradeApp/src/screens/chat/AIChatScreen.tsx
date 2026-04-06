@@ -437,6 +437,10 @@ export default function AIChatScreen() {
                       stopLoss: (item.strategyData as any)?.stopLoss,
                       takeProfit: (item.strategyData as any)?.takeProfit,
                       prompt: item.cleanPrompt || item.text,
+                      tradingFrequency: (item.strategyData as any)?.tradingFrequency,
+                      aiMode: (item.strategyData as any)?.aiMode,
+                      maxOpenPositions: (item.strategyData as any)?.maxOpenPositions,
+                      tradingSchedule: (item.strategyData as any)?.tradingSchedule,
                     },
                   })}
                   activeOpacity={0.8}>

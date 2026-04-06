@@ -907,9 +907,9 @@ const styles = StyleSheet.create({
 
   // Buying Power dropdown
   bpDropdown: {
-    marginTop: -6, marginBottom: 16, paddingTop: 14, paddingBottom: 4,
+    marginTop: 8, marginBottom: 16, paddingTop: 14, paddingBottom: 4,
     paddingHorizontal: 12, backgroundColor: '#161B22',
-    borderBottomLeftRadius: 14, borderBottomRightRadius: 14,
+    borderBottomLeftRadius: 14, borderRadius: 14,
     borderWidth: 1, borderTopWidth: 0, borderColor: 'rgba(255,255,255,0.07)',
   },
   bpExBox: {

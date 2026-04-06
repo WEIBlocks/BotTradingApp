@@ -27,6 +27,8 @@ import {
   stopCopyTrading,
   getBotEquityCurve,
   getBotTradeMarkers,
+  updateUserConfig,
+  getSubscription,
 } from './bots.service.js';
 import {
   botIdParamsSchema,
@@ -38,6 +40,8 @@ import {
   backtestBodySchema,
   paperTradingSetupBodySchema,
   dataResponseSchema,
+  updateUserConfigBodySchema,
+  subscriptionIdParamsSchema,
 } from './bots.schema.js';
 
 export async function botsRoutes(app: FastifyInstance) {
@@ -389,5 +393,32 @@ export async function botsRoutes(app: FastifyInstance) {
         message: 'Paper trading environment ready. Start a shadow mode on any bot to begin trading.',
       },
     });
+  });
+
+  // GET /subscriptions/:subscriptionId
+  zApp.get('/subscriptions/:subscriptionId', {
+    schema: {
+      params: subscriptionIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { subscriptionId } = request.params;
+    const result = await getSubscription(request.user.userId, subscriptionId);
+    return { data: result };
+  });
+
+  // PATCH /subscriptions/:subscriptionId/user-config
+  zApp.patch('/subscriptions/:subscriptionId/user-config', {
+    schema: {
+      params: subscriptionIdParamsSchema,
+      body: updateUserConfigBodySchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { subscriptionId } = request.params;
+    const result = await updateUserConfig(request.user.userId, subscriptionId, request.body as Record<string, any>);
+    return { data: result };
   });
 }

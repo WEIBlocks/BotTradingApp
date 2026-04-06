@@ -149,17 +149,27 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
     return () => clearInterval(interval);
   }, [isStockBot]);
 
-  // Fetch decisions via REST (primary data source, filtered by mode)
+  // Fetch decisions via REST (primary data source)
+  // Strategy: try mode-specific first; if empty, fall back to all decisions so
+  // shadow users who navigate via a "live feed" button still see their data.
   const fetchDecisions = useCallback(async () => {
     try {
       const feedMode = mode === 'live' ? 'live' : 'paper';
-      const res: any = await botsService.getDecisions(botId, 50, 0, feedMode as 'paper' | 'live');
-      // Handle both old format (array) and new format ({decisions, pagination})
-      const items: BotDecision[] = Array.isArray(res?.data?.decisions) ? res.data.decisions
+      let res: any = await botsService.getDecisions(botId, 50, 0, feedMode as 'paper' | 'live');
+      let items: BotDecision[] = Array.isArray(res?.data?.decisions) ? res.data.decisions
         : Array.isArray(res?.data) ? res.data : [];
+
+      // If mode-filtered query returned nothing, retry without mode filter so
+      // shadow decisions show even when the screen was opened in "live" context.
+      if (items.length === 0) {
+        res = await botsService.getDecisions(botId, 50, 0, undefined);
+        items = Array.isArray(res?.data?.decisions) ? res.data.decisions
+          : Array.isArray(res?.data) ? res.data : [];
+      }
+
       const pagination = res?.data?.pagination;
 
-      const key = items.map(d => d.id || d.createdAt).join(',');
+      const key = items.map((d: BotDecision) => d.id || d.createdAt).join(',');
       if (key !== lastFetchRef.current) {
         lastFetchRef.current = key;
         setDecisions(items);
@@ -179,15 +189,15 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
     } finally {
       setLoading(false);
     }
-  }, [botId]);
+  }, [botId, mode]);
 
   // Load more decisions (pagination)
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
-      const feedMode = mode === 'live' ? 'live' : 'paper';
-      const res: any = await botsService.getDecisions(botId, 50, decisions.length, feedMode as 'paper' | 'live');
+      // No mode filter on paginated loads — show all decisions regardless of mode
+      const res: any = await botsService.getDecisions(botId, 50, decisions.length, undefined);
       const items: BotDecision[] = Array.isArray(res?.data?.decisions) ? res.data.decisions
         : Array.isArray(res?.data) ? res.data : [];
       const pagination = res?.data?.pagination;
@@ -207,7 +217,7 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
   // Connect WebSocket for real-time push updates (enhancement, not required)
   const connectWs = useCallback(async () => {
     try {
-      const token = await storage.getItem('accessToken');
+      const token = await storage.getAccessToken();
       if (!token) return;
 
       const wsUrl = API_BASE_URL.replace('http', 'ws');

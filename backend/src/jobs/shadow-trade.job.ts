@@ -1,8 +1,9 @@
-import { eq, sql } from 'drizzle-orm';
+import { eq, sql, and } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { shadowSessions, bots } from '../db/schema/bots';
+import { shadowSessions, bots, botSubscriptions } from '../db/schema/bots';
 import { trades } from '../db/schema/trades';
 import { activityLog } from '../db/schema/training';
+import { botDecisions } from '../db/schema/decisions';
 import { getPrice, isUSMarketOpen } from './price-sync.job.js';
 import { processSymbol } from '../lib/bot-engine.js';
 
@@ -15,6 +16,24 @@ interface BotConfig {
   tradeDirection?: 'buy' | 'sell' | 'both';
   dailyLossLimit?: number;
   orderType?: 'market' | 'limit';
+  tradingFrequency?: 'conservative' | 'balanced' | 'aggressive' | 'max';
+  maxHoldsBeforeAI?: number;
+  aiConfidenceThreshold?: number;
+  aiMode?: 'rules_only' | 'hybrid' | 'full_ai';
+  customEntryConditions?: any[];
+  customExitConditions?: any[];
+  maxOpenPositions?: number;
+  tradingSchedule?: string;
+}
+
+interface UserConfig {
+  riskMultiplier?: number;
+  maxDailyLoss?: number;
+  autoStopBalance?: number;
+  autoStopDays?: number;
+  autoStopLossPercent?: number;
+  compoundProfits?: boolean;
+  notificationLevel?: string;
 }
 
 async function processShadowTrades() {
@@ -44,19 +63,88 @@ async function processShadowTrades() {
         }
 
         const config = (bot.config ?? {}) as BotConfig;
+
+        // Fetch subscriber overrides
+        const [subRow] = await db
+          .select({ userConfig: botSubscriptions.userConfig })
+          .from(botSubscriptions)
+          .where(and(
+            eq(botSubscriptions.userId, session.userId),
+            eq(botSubscriptions.botId, session.botId!),
+          ))
+          .limit(1);
+        const userConfig = (subRow?.userConfig ?? {}) as UserConfig;
+
         const isStockBot = bot.category === 'Stocks';
         const defaultPairs = isStockBot ? ['AAPL'] : ['BTC/USDT', 'ETH/USDT'];
         const pairs = config.pairs?.length ? config.pairs : defaultPairs;
 
-        // Skip stock bots when US market is closed
+        // Skip stock bots when US market is closed — but log a HOLD so the live feed isn't empty
         if (isStockBot) {
           const marketOpen = await isUSMarketOpen();
           if (!marketOpen) {
             console.log(`[ShadowTrade] Skipping ${bot.name} — US stock market closed`);
+            // Log a "market closed" HOLD at most once every 30 min per session (avoid feed flooding)
+            const { redisConnection } = await import('../config/queue.js');
+            const throttleKey = `market_closed_log:shadow:${session.id}`;
+            const alreadyLogged = await redisConnection.get(throttleKey).catch(() => null);
+            if (!alreadyLogged) {
+              const firstPair = pairs[0] ?? 'AAPL';
+              const priceData = await getPrice(firstPair).catch(() => null);
+              await db.insert(botDecisions).values({
+                botId: bot.id,
+                userId: session.userId,
+                shadowSessionId: session.id,
+                symbol: firstPair,
+                action: 'HOLD',
+                confidence: 0,
+                reasoning: 'US stock market is currently closed (9:30 AM – 4:00 PM ET on weekdays). Bot will resume when market opens.',
+                indicators: {},
+                price: priceData ? priceData.price.toFixed(4) : '0',
+                aiCalled: false,
+                tokensCost: 0,
+                mode: 'paper',
+              }).catch(() => {});
+              await redisConnection.set(throttleKey, '1', 'EX', 1800).catch(() => {});
+            }
             continue;
           }
         }
         const currentBalance = parseFloat(session.currentBalance ?? session.virtualBalance);
+
+        // autoStopBalance
+        if (userConfig.autoStopBalance !== undefined && currentBalance < userConfig.autoStopBalance) {
+          await db.update(shadowSessions).set({ status: 'completed' }).where(eq(shadowSessions.id, session.id));
+          console.log(`[ShadowTrade] Session ${session.id} stopped — balance below autoStop $${userConfig.autoStopBalance}`);
+          continue;
+        }
+        // autoStopLossPercent
+        if (userConfig.autoStopLossPercent !== undefined && userConfig.autoStopLossPercent > 0) {
+          const startBalance = parseFloat(session.virtualBalance);
+          const lossPercent = ((startBalance - currentBalance) / startBalance) * 100;
+          if (lossPercent >= userConfig.autoStopLossPercent) {
+            await db.update(shadowSessions).set({ status: 'completed' }).where(eq(shadowSessions.id, session.id));
+            console.log(`[ShadowTrade] Session ${session.id} stopped — total loss ${lossPercent.toFixed(2)}% exceeds limit`);
+            continue;
+          }
+        }
+        // autoStopDays
+        if (userConfig.autoStopDays !== undefined) {
+          const daysSinceStart = (Date.now() - new Date(session.startedAt ?? Date.now()).getTime()) / (1000 * 60 * 60 * 24);
+          if (daysSinceStart >= userConfig.autoStopDays) {
+            await db.update(shadowSessions).set({ status: 'completed' }).where(eq(shadowSessions.id, session.id));
+            console.log(`[ShadowTrade] Session ${session.id} stopped — autoStopDays reached`);
+            continue;
+          }
+        }
+        // tradingSchedule: us_hours for non-stock bots (stock bots handled above)
+        if (config.tradingSchedule === 'us_hours' && !isStockBot) {
+          const marketOpen = await isUSMarketOpen();
+          if (!marketOpen) {
+            console.log(`[ShadowTrade] Skipping ${bot.name} — tradingSchedule=us_hours`);
+            continue;
+          }
+        }
         const feeRate = session.enableRealisticFees ? 0.001 : 0;
 
         // Pre-fetch fresh prices for all pairs (ensures cache is warm)
@@ -84,11 +172,19 @@ async function processShadowTrades() {
             balance: currentBalance,
             stopLoss: config.stopLoss,
             takeProfit: config.takeProfit,
-            maxPositionPct: config.maxPositionSize ? config.maxPositionSize / 100 : 20,
+            maxPositionPct: config.maxPositionSize ?? 20,
             tradeDirection: config.tradeDirection ?? 'both',
-            dailyLossLimit: config.dailyLossLimit ?? 0,
+            dailyLossLimit: userConfig.maxDailyLoss ?? config.dailyLossLimit ?? 0,
             mode: 'paper',
             shadowSessionId: session.id,
+            aiMode: config.aiMode,
+            aiConfidenceThreshold: config.aiConfidenceThreshold,
+            maxHoldsBeforeAI: config.maxHoldsBeforeAI,
+            tradingFrequency: config.tradingFrequency,
+            customEntryConditions: config.customEntryConditions,
+            customExitConditions: config.customExitConditions,
+            maxOpenPositions: config.maxOpenPositions,
+            riskMultiplier: userConfig.riskMultiplier,
           });
 
           if (decision.action === 'HOLD') continue;
@@ -178,8 +274,8 @@ async function processShadowTrades() {
 
 export async function startShadowTradeJob() {
   // Run once immediately after a short delay (let prices sync first)
-  setTimeout(processShadowTrades, 10_000);
-  // Then every 2 minutes
-  setInterval(processShadowTrades, 120_000);
-  console.log('[ShadowTrade] Job started - runs every 2 minutes (AI-powered hybrid engine)');
+  setTimeout(processShadowTrades, 5_000);
+  // Then every 30 seconds
+  setInterval(processShadowTrades, 30_000);
+  console.log('[ShadowTrade] Job started - runs every 30 seconds (AI-powered hybrid engine)');
 }

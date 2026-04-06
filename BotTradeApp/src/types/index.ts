@@ -59,6 +59,10 @@ export type RootStackParamList = {
       stopLoss?: number;
       takeProfit?: number;
       prompt?: string;
+      tradingFrequency?: string;
+      aiMode?: string;
+      maxOpenPositions?: number;
+      tradingSchedule?: string;
     };
   };
   BotLiveFeed: {botId: string; botName: string; mode: string};
@@ -91,6 +95,26 @@ export type BotStatus = 'live' | 'paper' | 'paused' | 'inactive';
 export type TradeSide = 'BUY' | 'SELL';
 export type NotificationType = 'trade' | 'system' | 'alert';
 export type ActivityType = 'purchase' | 'withdrawal' | 'profit' | 'deposit' | 'fee';
+export type TradingFrequency = 'conservative' | 'balanced' | 'aggressive' | 'max';
+export type AiMode = 'rules_only' | 'hybrid' | 'full_ai';
+export type NotificationLevel = 'all' | 'wins_only' | 'losses_only' | 'summary';
+
+export interface RuleCondition {
+  indicator: string;
+  operator: '<' | '>' | '<=' | '>=' | 'crosses_above' | 'crosses_below';
+  value: number;
+  weight: number;
+}
+
+export interface SubscriberUserConfig {
+  riskMultiplier?: 0.5 | 1 | 1.5 | 2;
+  maxDailyLoss?: number;
+  autoStopBalance?: number;
+  autoStopDays?: number;
+  autoStopLossPercent?: number;
+  compoundProfits?: boolean;
+  notificationLevel?: NotificationLevel;
+}
 
 export interface Bot {
   id: string;
@@ -127,6 +151,14 @@ export interface Bot {
     tradeDirection?: 'buy' | 'sell' | 'both';
     dailyLossLimit?: number;
     orderType?: 'market' | 'limit';
+    tradingFrequency?: TradingFrequency;
+    maxHoldsBeforeAI?: number;
+    aiConfidenceThreshold?: number;
+    aiMode?: AiMode;
+    customEntryConditions?: RuleCondition[];
+    customExitConditions?: RuleCondition[];
+    maxOpenPositions?: number;
+    tradingSchedule?: '24_7' | 'us_hours' | 'custom';
   } | null;
   aggregateStats?: {
     totalUsers: number;

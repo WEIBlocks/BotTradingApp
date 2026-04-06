@@ -134,6 +134,22 @@ export default function BotBuilderScreen() {
   const [deploying, setDeploying] = useState(false);
   const [loadingBot, setLoadingBot] = useState(false);
 
+  // Advanced AI / Trading Settings — pre-fill from AI chat strategyData if available
+  const [tradingFrequency, setTradingFrequency] = useState<'conservative' | 'balanced' | 'aggressive' | 'max'>(
+    ((strategyData as any)?.tradingFrequency as any) || 'balanced',
+  );
+  const [aiMode, setAiMode] = useState<'rules_only' | 'hybrid' | 'full_ai'>(
+    ((strategyData as any)?.aiMode as any) || 'hybrid',
+  );
+  const [maxHoldsBeforeAI, setMaxHoldsBeforeAI] = useState('4');
+  const [aiConfidenceThreshold, setAiConfidenceThreshold] = useState('60');
+  const [maxOpenPositions, setMaxOpenPositions] = useState(
+    (strategyData as any)?.maxOpenPositions ? String((strategyData as any).maxOpenPositions) : '3',
+  );
+  const [tradingSchedule, setTradingSchedule] = useState<'24_7' | 'us_hours' | 'custom'>(
+    ((strategyData as any)?.tradingSchedule as any) || (initialCategory === 'Stocks' ? 'us_hours' : '24_7'),
+  );
+
   // Platform config fetch (no longer overrides local lists)
   useEffect(() => {
     configApi.getPlatformConfig().catch(() => {});
@@ -161,6 +177,12 @@ export default function BotBuilderScreen() {
           if (bot.category === 'Stocks') setCategory('Stocks');
           if (bot.creatorFeePercent) setCreatorFee(String(bot.creatorFeePercent));
           if (bot.prompt) setPrompt(bot.prompt);
+          if (config?.tradingFrequency) setTradingFrequency(config.tradingFrequency);
+          if (config?.aiMode) setAiMode(config.aiMode);
+          if (config?.maxHoldsBeforeAI) setMaxHoldsBeforeAI(String(config.maxHoldsBeforeAI));
+          if (config?.aiConfidenceThreshold) setAiConfidenceThreshold(String(config.aiConfidenceThreshold));
+          if (config?.maxOpenPositions) setMaxOpenPositions(String(config.maxOpenPositions));
+          if (config?.tradingSchedule) setTradingSchedule(config.tradingSchedule);
         }
       })
       .catch(() => showAlert('Error', 'Could not load bot data.'))
@@ -221,6 +243,12 @@ export default function BotBuilderScreen() {
     orderType,
     creatorFeePercent: creatorFee ? parseFloat(creatorFee) : 10,
     prompt: prompt.trim() || undefined,
+    tradingFrequency,
+    aiMode,
+    maxHoldsBeforeAI: maxHoldsBeforeAI ? parseInt(maxHoldsBeforeAI, 10) : undefined,
+    aiConfidenceThreshold: aiConfidenceThreshold ? parseFloat(aiConfidenceThreshold) : undefined,
+    maxOpenPositions: maxOpenPositions ? parseInt(maxOpenPositions, 10) : undefined,
+    tradingSchedule,
   });
 
   const handleDeploy = async () => {
@@ -247,6 +275,12 @@ export default function BotBuilderScreen() {
           maxPositionSize: maxPosition ? parseFloat(maxPosition) : undefined,
           creatorFeePercent: creatorFee ? parseFloat(creatorFee) : 10,
           prompt: prompt.trim() || undefined,
+          tradingFrequency,
+          aiMode,
+          maxHoldsBeforeAI: maxHoldsBeforeAI ? parseInt(maxHoldsBeforeAI, 10) : undefined,
+          aiConfidenceThreshold: aiConfidenceThreshold ? parseFloat(aiConfidenceThreshold) : undefined,
+          maxOpenPositions: maxOpenPositions ? parseInt(maxOpenPositions, 10) : undefined,
+          tradingSchedule,
         });
         showAlert('Bot Updated!', `${botName} has been updated.`);
         navigation.goBack();
@@ -277,6 +311,12 @@ export default function BotBuilderScreen() {
           stopLoss: stopLoss ? parseFloat(stopLoss) : undefined,
           takeProfit: takeProfit ? parseFloat(takeProfit) : undefined,
           maxPositionSize: maxPosition ? parseFloat(maxPosition) : undefined,
+          tradingFrequency,
+          aiMode,
+          maxHoldsBeforeAI: maxHoldsBeforeAI ? parseInt(maxHoldsBeforeAI, 10) : undefined,
+          aiConfidenceThreshold: aiConfidenceThreshold ? parseFloat(aiConfidenceThreshold) : undefined,
+          maxOpenPositions: maxOpenPositions ? parseInt(maxOpenPositions, 10) : undefined,
+          tradingSchedule,
         });
         showAlert('Bot Updated!', `${botName} has been saved.`);
         navigation.goBack();
@@ -325,6 +365,7 @@ export default function BotBuilderScreen() {
               setCategory('Crypto');
               setSelectedPairs(['BTC/USDT']);
               setSelectedStrategy('');
+              setTradingSchedule('24_7');
             }}>
             <Text style={[styles.categoryBtnText, category === 'Crypto' && styles.categoryBtnTextActive]}>Crypto</Text>
           </TouchableOpacity>
@@ -335,6 +376,7 @@ export default function BotBuilderScreen() {
               setCategory('Stocks');
               setSelectedPairs(['AAPL']);
               setSelectedStrategy('');
+              setTradingSchedule('us_hours');
             }}>
             <Text style={[styles.categoryBtnText, category === 'Stocks' && styles.categoryBtnTextActive]}>Stocks</Text>
           </TouchableOpacity>
@@ -577,6 +619,108 @@ export default function BotBuilderScreen() {
           onChangeText={setDailyLossLimit}
           keyboardType="decimal-pad"
         />
+
+        {/* ── Advanced AI & Trading Settings ────────────────────── */}
+        <Text style={styles.label}>TRADING FREQUENCY</Text>
+        <View style={styles.modeRow}>
+          {(['conservative', 'balanced', 'aggressive', 'max'] as const).map(f => (
+            <TouchableOpacity
+              key={f}
+              style={[styles.modeBtn, tradingFrequency === f && styles.modeBtnSelected]}
+              onPress={() => setTradingFrequency(f)}>
+              <Text style={[styles.modeBtnText, tradingFrequency === f && styles.modeBtnTextSelected]}>
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 14, marginTop: -6}}>
+          {tradingFrequency === 'conservative' ? 'Long cooldowns, fewer trades, lower frequency'
+            : tradingFrequency === 'balanced' ? 'Balanced trade rate (default)'
+            : tradingFrequency === 'aggressive' ? 'Short cooldowns, more active trading'
+            : 'Maximum frequency — trade as fast as signals allow'}
+        </Text>
+
+        <Text style={styles.label}>AI MODE</Text>
+        <View style={styles.modeRow}>
+          {([['rules_only', 'Rules Only'], ['hybrid', 'Hybrid'], ['full_ai', 'Full AI']] as const).map(([val, lbl]) => (
+            <TouchableOpacity
+              key={val}
+              style={[styles.modeBtn, aiMode === val && styles.modeBtnSelected]}
+              onPress={() => setAiMode(val)}>
+              <Text style={[styles.modeBtnText, aiMode === val && styles.modeBtnTextSelected]}>{lbl}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 14, marginTop: -6}}>
+          {aiMode === 'rules_only' ? 'Pure indicator rules, no AI calls (fastest)'
+            : aiMode === 'hybrid' ? 'Rules first, AI validates on significant signals'
+            : 'AI makes all decisions based on your prompt'}
+        </Text>
+
+        {aiMode !== 'rules_only' && (
+          <>
+            <View style={styles.paramCard}>
+              <Text style={styles.paramLabel}>Force AI After N HOLDs</Text>
+              <View style={styles.paramInputRow}>
+                <TextInput
+                  style={styles.paramInput}
+                  placeholder="4"
+                  placeholderTextColor="rgba(255,255,255,0.25)"
+                  keyboardType="number-pad"
+                  value={maxHoldsBeforeAI}
+                  onChangeText={setMaxHoldsBeforeAI}
+                />
+                <Text style={styles.paramSuffix}>holds</Text>
+              </View>
+            </View>
+            <View style={styles.paramCard}>
+              <Text style={styles.paramLabel}>AI Confidence Threshold</Text>
+              <View style={styles.paramInputRow}>
+                <TextInput
+                  style={styles.paramInput}
+                  placeholder="60"
+                  placeholderTextColor="rgba(255,255,255,0.25)"
+                  keyboardType="decimal-pad"
+                  value={aiConfidenceThreshold}
+                  onChangeText={setAiConfidenceThreshold}
+                />
+                <Text style={styles.paramSuffix}>%</Text>
+              </View>
+            </View>
+          </>
+        )}
+
+        <View style={styles.paramCard}>
+          <Text style={styles.paramLabel}>Max Open Positions</Text>
+          <View style={styles.paramInputRow}>
+            <TextInput
+              style={styles.paramInput}
+              placeholder="3"
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              keyboardType="number-pad"
+              value={maxOpenPositions}
+              onChangeText={setMaxOpenPositions}
+            />
+            <Text style={styles.paramSuffix}>positions</Text>
+          </View>
+        </View>
+
+        {category !== 'Stocks' && (
+          <>
+            <Text style={styles.label}>TRADING SCHEDULE</Text>
+            <View style={styles.modeRow}>
+              {([['24_7', '24/7'], ['us_hours', 'US Hours'], ['custom', 'Custom']] as const).map(([val, lbl]) => (
+                <TouchableOpacity
+                  key={val}
+                  style={[styles.modeBtn, tradingSchedule === val && styles.modeBtnSelected]}
+                  onPress={() => setTradingSchedule(val)}>
+                  <Text style={[styles.modeBtnText, tradingSchedule === val && styles.modeBtnTextSelected]}>{lbl}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        )}
 
         {/* How it works info */}
         <View style={{backgroundColor: '#111827', borderRadius: 10, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: '#1F2937'}}>

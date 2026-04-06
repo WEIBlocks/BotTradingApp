@@ -7,7 +7,7 @@ import { eq, sql } from 'drizzle-orm';
 
 // Base symbols always tracked
 const BASE_CRYPTO_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'];
-const BASE_STOCK_SYMBOLS = ['AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL'];
+const BASE_STOCK_SYMBOLS = ['AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL', 'NVDA', 'META', 'AMD'];
 
 const STABLECOINS = new Set(['USDT', 'USDC', 'USD', 'BUSD', 'DAI', 'TUSD', 'FDUSD']);
 
@@ -263,25 +263,29 @@ export async function getPrice(symbol: string): Promise<{
   }
 }
 
-/** Check if US stock market is currently open (cached) */
 /** Check if US stock market is currently open */
 export async function isUSMarketOpen(): Promise<boolean> {
-  // 1. Check Redis cache (set by price sync from Alpaca clock)
-  const cached = await redisConnection.get('market:us:open').catch(() => null);
-  if (cached !== null) return cached === '1';
+  // 1. Time-based check is always computed — it is the primary source of truth
+  const timeBasedResult = isMarketOpenByTime();
 
-  // 2. Try Alpaca clock API
+  // 2. If time says closed (weekend / clearly outside hours), trust it — no API needed
+  if (!timeBasedResult) return false;
+
+  // 3. Time says OPEN — also try Alpaca clock for holiday detection (e.g. market holiday)
+  //    But only trust Alpaca's "closed" response if it was cached within the last 5 minutes
   try {
     const alpaca = await getAlpacaClient();
     if (alpaca) {
       const clock = await alpaca.getClock();
-      await redisConnection.set('market:us:open', clock.is_open ? '1' : '0', 'EX', 60).catch(() => {});
-      return clock.is_open;
+      const result = clock.is_open as boolean;
+      await redisConnection.set('market:us:open', result ? '1' : '0', 'EX', 300).catch(() => {});
+      return result;
     }
-  } catch {}
+  } catch {
+    // Alpaca unavailable — fall back to time-based
+  }
 
-  // 3. Fallback: pure time-based calculation (no API needed)
-  return isMarketOpenByTime();
+  return timeBasedResult;
 }
 
 /** Pure time-based US market hours check (no API dependency) */

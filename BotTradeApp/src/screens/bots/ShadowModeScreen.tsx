@@ -18,6 +18,7 @@ interface ShadowSession {
   botId: string;
   botName: string;
   botStrategy: string;
+  botCategory?: string;
   botAvatarLetter: string;
   botAvatarColor: string;
   virtualBalance: string;
@@ -30,6 +31,14 @@ interface ShadowSession {
   winCount: number;
   totalReturn: string;
   dailyPerformance?: Record<string, {trades: number; pnl: number; balance: number}>;
+  botConfig?: {
+    tradingFrequency?: string;
+    aiMode?: string;
+    maxOpenPositions?: number;
+    tradingSchedule?: string;
+    stopLoss?: number;
+    takeProfit?: number;
+  } | null;
 }
 
 const POLL_INTERVAL = 15000; // 15 seconds
@@ -309,6 +318,65 @@ export default function ShadowModeScreen({navigation}: Props) {
                   <Text style={styles.shadowStatLabel}>Trades</Text>
                 </View>
               </View>
+
+              {/* Config summary chips */}
+              {session.botConfig && (
+                <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10}}>
+                  {session.botConfig.tradingFrequency && (
+                    <View style={{
+                      backgroundColor: session.botConfig.tradingFrequency === 'max' || session.botConfig.tradingFrequency === 'aggressive'
+                        ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.1)',
+                      borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4,
+                      borderWidth: 1,
+                      borderColor: session.botConfig.tradingFrequency === 'max' || session.botConfig.tradingFrequency === 'aggressive'
+                        ? 'rgba(239,68,68,0.3)' : 'rgba(16,185,129,0.25)',
+                    }}>
+                      <Text style={{
+                        fontFamily: 'Inter-SemiBold', fontSize: 10,
+                        color: session.botConfig.tradingFrequency === 'max' || session.botConfig.tradingFrequency === 'aggressive'
+                          ? '#EF4444' : '#10B981',
+                      }}>
+                        {session.botConfig.tradingFrequency.toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                  {session.botConfig.aiMode && (
+                    <View style={{backgroundColor: 'rgba(139,92,246,0.1)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: 'rgba(139,92,246,0.25)'}}>
+                      <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#8B5CF6'}}>
+                        {session.botConfig.aiMode === 'rules_only' ? 'RULES ONLY' : session.botConfig.aiMode === 'full_ai' ? 'FULL AI' : 'HYBRID AI'}
+                      </Text>
+                    </View>
+                  )}
+                  {session.botConfig.tradingSchedule && (
+                    <View style={{backgroundColor: 'rgba(59,130,246,0.1)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: 'rgba(59,130,246,0.2)'}}>
+                      <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#3B82F6'}}>
+                        {session.botConfig.tradingSchedule === 'us_hours' ? 'US HOURS' : '24/7'}
+                      </Text>
+                    </View>
+                  )}
+                  {session.botConfig.maxOpenPositions !== undefined && (
+                    <View style={{backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)'}}>
+                      <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: 'rgba(255,255,255,0.5)'}}>
+                        MAX {session.botConfig.maxOpenPositions} POS
+                      </Text>
+                    </View>
+                  )}
+                  {session.botConfig.stopLoss !== undefined && (
+                    <View style={{backgroundColor: 'rgba(239,68,68,0.08)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: 'rgba(239,68,68,0.2)'}}>
+                      <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#EF4444'}}>
+                        SL {session.botConfig.stopLoss}%
+                      </Text>
+                    </View>
+                  )}
+                  {session.botConfig.takeProfit !== undefined && (
+                    <View style={{backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: 'rgba(16,185,129,0.2)'}}>
+                      <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#10B981'}}>
+                        TP {session.botConfig.takeProfit}%
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
 
               {/* Win rate bar */}
               {session.totalTrades > 0 && (

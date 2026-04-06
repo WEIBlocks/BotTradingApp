@@ -103,6 +103,7 @@ const indicatorCache: Map<string, IndicatorSnapshot> = new Map();
 const rulesCache: Map<string, { rules: TradingRules; generatedAt: number }> = new Map();
 const lastDecisionCache: Map<string, { action: string; time: number }> = new Map();
 const aiCallCount: Map<string, { count: number; windowStart: number }> = new Map();
+const holdCountCache: Map<string, number> = new Map();
 
 const MAX_PRICE_HISTORY = 100;
 const RULES_TTL_MS = 30 * 60 * 1000;
@@ -124,9 +125,10 @@ function seedPriceHistory(key: string, currentPrice: number, count = 30): number
   }
   const prices: number[] = [];
   let p = currentPrice;
-  // Build backwards from current price with small random walk
+  // Build backwards with a realistic random walk — enough variation so
+  // RSI/BB/MACD reach tradeable zones from cycle 1
   for (let i = count; i > 0; i--) {
-    p = currentPrice + (Math.random() - 0.5) * currentPrice * 0.005; // ±0.25% noise
+    p = p * (1 + (Math.random() - 0.5) * 0.03); // ±1.5% per bar
     prices.push(p);
   }
   prices.push(currentPrice); // end with actual current price
@@ -349,9 +351,15 @@ function getDefaultRules(strategy: string, riskLevel: string, sl?: number, tp?: 
 
   if (strat.includes('scalp')) {
     rules = {
-      entryConditions: [{ indicator: 'price_vs_bb_lower', operator: '<', value: 1.005, weight: 0.7 }, { indicator: 'rsi', operator: '<', value: 40, weight: 0.5 }],
-      exitConditions: [{ indicator: 'price_vs_bb_upper', operator: '>', value: 0.995, weight: 0.7 }],
-      stopLossPercent: Math.min(stopLoss, 2), takeProfitPercent: Math.min(takeProfit, 3), maxPositionPercent: maxPos, cooldownMinutes: 3,
+      entryConditions: [
+        { indicator: 'rsi', operator: '<', value: 48, weight: 0.6 },
+        { indicator: 'price_vs_bb_lower', operator: '<', value: 1.02, weight: 0.5 },
+      ],
+      exitConditions: [
+        { indicator: 'rsi', operator: '>', value: 55, weight: 0.6 },
+        { indicator: 'price_vs_bb_upper', operator: '>', value: 0.98, weight: 0.5 },
+      ],
+      stopLossPercent: Math.min(stopLoss, 4), takeProfitPercent: Math.min(takeProfit, 6), maxPositionPercent: maxPos, cooldownMinutes: 1,
     };
   } else if (strat.includes('grid')) {
     rules = {
@@ -502,6 +510,14 @@ export async function processSymbol(opts: {
   exchangeConnId?: string;
   subscriptionId?: string;
   shadowSessionId?: string;
+  aiMode?: 'rules_only' | 'hybrid' | 'full_ai';
+  aiConfidenceThreshold?: number;
+  maxHoldsBeforeAI?: number;
+  tradingFrequency?: 'conservative' | 'balanced' | 'aggressive' | 'max';
+  customEntryConditions?: RuleCondition[];
+  customExitConditions?: RuleCondition[];
+  maxOpenPositions?: number;
+  riskMultiplier?: number;
 }): Promise<EngineDecision> {
   const { sessionKey, symbol, botId, userId, botPrompt, strategy, riskLevel, balance, stopLoss, takeProfit, maxPositionPct, mode } = opts;
   const tradeDirection = opts.tradeDirection ?? 'both';
@@ -561,6 +577,31 @@ export async function processSymbol(opts: {
     }
     const rules = cachedRules.rules;
 
+    // Apply subscriber riskMultiplier to SL/TP
+    const multiplier = opts.riskMultiplier ?? 1;
+    if (multiplier !== 1) {
+      rules.stopLossPercent = Math.round(rules.stopLossPercent * multiplier * 10) / 10;
+      rules.takeProfitPercent = Math.round(rules.takeProfitPercent * multiplier * 10) / 10;
+    }
+
+    // Apply custom conditions from creator config (override AI-generated rules)
+    if (opts.customEntryConditions?.length) {
+      rules.entryConditions = opts.customEntryConditions;
+    }
+    if (opts.customExitConditions?.length) {
+      rules.exitConditions = opts.customExitConditions;
+    }
+
+    // Apply tradingFrequency cooldown multiplier
+    const freqCooldownMap: Record<string, number> = {
+      conservative: 3,
+      balanced: 1,
+      aggressive: 0.4,
+      max: 0.1,
+    };
+    const freqMult = freqCooldownMap[opts.tradingFrequency ?? 'balanced'] ?? 1;
+    rules.cooldownMinutes = Math.max(1, Math.round(rules.cooldownMinutes * freqMult));
+
     // 4. Get position from DB (persistent, survives restarts)
     const existingPos = await getOpenPosition(botId, symbol, sessionKey);
     const positionPnlPct = existingPos
@@ -612,7 +653,38 @@ export async function processSymbol(opts: {
     const ruleOnly = isRuleOnlyStrategy(strategy);
     let decision: EngineDecision;
 
-    if (!ruleOnly && triggerCheck.triggered && (entryResult.score > 0.3 || exitResult.score > 0.3) && checkAIRateLimit(botId)) {
+    // Determine AI mode
+    const aiMode = opts.aiMode ?? 'hybrid';
+    const effectiveRuleOnly = ruleOnly || aiMode === 'rules_only';
+    const effectiveFullAI = !ruleOnly && aiMode === 'full_ai';
+
+    // tradingFrequency-based score threshold
+    const freqScoreMap: Record<string, number> = { conservative: 0.5, balanced: 0.2, aggressive: 0.1, max: 0.05 };
+    const minScore = freqScoreMap[opts.tradingFrequency ?? 'balanced'] ?? 0.2;
+
+    // holdCount tracking
+    const currentHolds = holdCountCache.get(cacheKey) ?? 0;
+    const maxHolds = opts.maxHoldsBeforeAI;
+    const forcedByHoldCount = maxHolds !== undefined && currentHolds >= maxHolds && !effectiveRuleOnly && checkAIRateLimit(botId);
+    if (forcedByHoldCount) {
+      triggerCheck.reasons.push(`Forced AI after ${currentHolds} consecutive HOLDs`);
+    }
+
+    // maxOpenPositions check for BUY
+    let atMaxPositions = false;
+    if (opts.maxOpenPositions !== undefined) {
+      const [openRow] = await db
+        .select({ cnt: sql<number>`COUNT(*)::int` })
+        .from(botPositions)
+        .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open')));
+      if (Number(openRow?.cnt ?? 0) >= opts.maxOpenPositions) atMaxPositions = true;
+    }
+
+    const shouldCallAI = !effectiveRuleOnly
+      && (forcedByHoldCount || (triggerCheck.triggered && (effectiveFullAI || entryResult.score > minScore || exitResult.score > minScore)))
+      && checkAIRateLimit(botId);
+
+    if (shouldCallAI) {
       // AI call (only for non-DCA/Grid strategies, rate limited)
       let trainingContext = '';
       try {
@@ -647,19 +719,29 @@ export async function processSymbol(opts: {
       if (finalAction === 'BUY' && tradeDirection === 'sell') finalAction = 'HOLD';
       if (finalAction === 'SELL' && tradeDirection === 'buy') finalAction = 'HOLD';
       if (finalAction === 'SELL' && !existingPos) finalAction = 'HOLD';
-      if (finalAction === 'BUY' && aiResult.confidence < 60) finalAction = 'HOLD';
-      if (finalAction === 'SELL' && aiResult.confidence < 60) finalAction = 'HOLD';
+      const confThreshold = opts.aiConfidenceThreshold ?? 60;
+      if (finalAction === 'BUY' && aiResult.confidence < confThreshold) finalAction = 'HOLD';
+      if (finalAction === 'SELL' && aiResult.confidence < confThreshold) finalAction = 'HOLD';
+
+      if (finalAction !== 'HOLD') {
+        holdCountCache.set(cacheKey, 0);
+      } else {
+        holdCountCache.set(cacheKey, (holdCountCache.get(cacheKey) ?? 0) + 1);
+      }
 
       decision = { action: finalAction, confidence: aiResult.confidence, reasoning: aiResult.reasoning, indicators: formatIndicators(snap), aiCalled: true, tokensCost: aiResult.tokens, price: priceData.price, symbol, sizePercent: aiResult.sizePercent };
-    } else if (entryResult.matched && !existingPos && tradeDirection !== 'sell') {
+    } else if (entryResult.matched && !existingPos && !atMaxPositions && tradeDirection !== 'sell') {
+      holdCountCache.set(cacheKey, 0);
       decision = { action: 'BUY', confidence: Math.round(entryResult.score * 100), reasoning: `Rule entry: ${entryResult.matchedConditions.join(', ')}`, indicators: formatIndicators(snap), aiCalled: false, tokensCost: 0, price: priceData.price, symbol, sizePercent: rules.maxPositionPercent };
     } else if (exitResult.matched && existingPos && tradeDirection !== 'buy') {
+      holdCountCache.set(cacheKey, 0);
       decision = { action: 'SELL', confidence: Math.round(exitResult.score * 100), reasoning: `Rule exit: ${exitResult.matchedConditions.join(', ')}`, indicators: formatIndicators(snap), aiCalled: false, tokensCost: 0, price: priceData.price, symbol, sizePercent: 100 };
     } else {
       const reason = existingPos
         ? `Holding position. P&L: ${positionPnlPct?.toFixed(2)}%. No exit signal.`
         : `Monitoring market. Entry score: ${(entryResult.score * 100).toFixed(0)}%. RSI: ${snap.rsi?.toFixed(1) ?? 'N/A'}. Waiting for entry signal.`;
       const holdDecision: EngineDecision = { action: 'HOLD', confidence: 50, reasoning: reason, indicators: formatIndicators(snap), aiCalled: false, tokensCost: 0, price: priceData.price, symbol };
+      holdCountCache.set(cacheKey, (holdCountCache.get(cacheKey) ?? 0) + 1);
       lastDecisionCache.set(cacheKey, { action: 'HOLD', time: Date.now() });
       await logDecision(holdDecision, opts);
       return holdDecision;

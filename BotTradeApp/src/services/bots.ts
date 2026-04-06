@@ -127,6 +127,14 @@ export const botsService = {
     orderType?: 'market' | 'limit';
     creatorFeePercent?: number;
     prompt?: string;
+    tradingFrequency?: 'conservative' | 'balanced' | 'aggressive' | 'max';
+    maxHoldsBeforeAI?: number;
+    aiConfidenceThreshold?: number;
+    aiMode?: 'rules_only' | 'hybrid' | 'full_ai';
+    customEntryConditions?: {indicator: string; operator: string; value: number; weight: number}[];
+    customExitConditions?: {indicator: string; operator: string; value: number; weight: number}[];
+    maxOpenPositions?: number;
+    tradingSchedule?: '24_7' | 'us_hours' | 'custom';
   }) {
     return api.post<{data: any}>('/bots/create', data as Record<string, unknown>);
   },
@@ -143,6 +151,14 @@ export const botsService = {
     maxPositionSize?: number;
     creatorFeePercent?: number;
     prompt?: string;
+    tradingFrequency?: 'conservative' | 'balanced' | 'aggressive' | 'max';
+    maxHoldsBeforeAI?: number;
+    aiConfidenceThreshold?: number;
+    aiMode?: 'rules_only' | 'hybrid' | 'full_ai';
+    customEntryConditions?: {indicator: string; operator: string; value: number; weight: number}[];
+    customExitConditions?: {indicator: string; operator: string; value: number; weight: number}[];
+    maxOpenPositions?: number;
+    tradingSchedule?: '24_7' | 'us_hours' | 'custom';
   }) {
     return api.put<{data: any}>(`/bots/${botId}`, data as Record<string, unknown>);
   },
@@ -150,6 +166,24 @@ export const botsService = {
   /** Get bot data for editing (creator only) */
   getBotForEdit(botId: string) {
     return api.get<{data: any}>(`/bots/${botId}/edit`);
+  },
+
+  /** Get a subscription by ID (includes userConfig overrides) */
+  getSubscription(subscriptionId: string) {
+    return api.get<{data: any}>(`/bots/subscriptions/${subscriptionId}`);
+  },
+
+  /** Update subscriber-level customization for a subscription */
+  updateUserConfig(subscriptionId: string, config: {
+    riskMultiplier?: 0.5 | 1 | 1.5 | 2;
+    maxDailyLoss?: number;
+    autoStopBalance?: number;
+    autoStopDays?: number;
+    autoStopLossPercent?: number;
+    compoundProfits?: boolean;
+    notificationLevel?: 'all' | 'wins_only' | 'losses_only' | 'summary';
+  }) {
+    return api.patch<{data: any}>(`/bots/subscriptions/${subscriptionId}/user-config`, config as Record<string, unknown>);
   },
 
   /** Activate live trading mode with exchange connection */
