@@ -29,6 +29,7 @@ import {
   getBotTradeMarkers,
   updateUserConfig,
   getSubscription,
+  getBotFeedStats,
 } from './bots.service.js';
 import {
   botIdParamsSchema,
@@ -294,6 +295,20 @@ export async function botsRoutes(app: FastifyInstance) {
     const { id } = request.params;
     const { limit, offset, mode } = request.query as { limit?: number; offset?: number; mode?: string };
     const result = await getBotDecisions(request.user.userId, id, limit, offset, mode as 'paper' | 'live' | undefined);
+    return { data: result };
+  });
+
+  // GET /:id/feed-stats - Get comprehensive feed stats for live feed screen
+  zApp.get('/:id/feed-stats', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const { mode } = request.query as { mode?: string };
+    const result = await getBotFeedStats(request.user.userId, id, mode as 'paper' | 'live' | undefined);
     return { data: result };
   });
 

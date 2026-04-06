@@ -1201,3 +1201,135 @@ export async function getSubscription(userId: string, subscriptionId: string) {
   if (!sub) throw new NotFoundError('Subscription');
   return sub;
 }
+
+// ─── Bot Feed Stats ────────────────────────────────────────────────────────
+
+export async function getBotFeedStats(userId: string, botId: string, mode?: 'paper' | 'live') {
+  // Determine paper mode based on mode parameter
+  const isPaper = mode === 'paper';
+
+  // Build position filter
+  const posConditions = [
+    eq(botPositions.botId, botId),
+    eq(botPositions.userId, userId),
+  ];
+  // For shadow mode, only show paper positions; for live, only show live positions
+  if (mode) {
+    posConditions.push(eq(botPositions.isPaper, isPaper));
+  }
+
+  // Get all positions for this user+bot (filtered by mode)
+  const positions = await db.select().from(botPositions)
+    .where(and(...posConditions))
+    .orderBy(desc(botPositions.openedAt));
+
+  const openPositions = positions.filter(p => p.status === 'open');
+  const closedPositions = positions.filter(p => p.status === 'closed');
+
+  // Calculate P&L
+  const realizedPnl = closedPositions.reduce((sum, p) => sum + parseFloat(p.pnl ?? '0'), 0);
+  const wins = closedPositions.filter(p => parseFloat(p.pnl ?? '0') > 0);
+  const losses = closedPositions.filter(p => parseFloat(p.pnl ?? '0') <= 0);
+  const winRate = closedPositions.length > 0 ? (wins.length / closedPositions.length) * 100 : 0;
+  const avgWin = wins.length > 0 ? wins.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / wins.length : 0;
+  const avgLoss = losses.length > 0 ? losses.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / losses.length : 0;
+
+  // Open positions with unrealized P&L (we'll need current prices)
+  const openPosData = [];
+  let unrealizedPnl = 0;
+  let totalInTrade = 0;
+  for (const pos of openPositions) {
+    const entryPrice = parseFloat(pos.entryPrice);
+    const entryValue = parseFloat(pos.entryValue ?? '0');
+    totalInTrade += entryValue;
+    // We don't have live price here, but we can compute from entry — the frontend will show this
+    openPosData.push({
+      id: pos.id,
+      symbol: pos.symbol,
+      side: pos.side,
+      entryPrice,
+      amount: parseFloat(pos.amount),
+      entryValue,
+      stopLoss: pos.stopLoss ? parseFloat(pos.stopLoss) : null,
+      takeProfit: pos.takeProfit ? parseFloat(pos.takeProfit) : null,
+      reasoning: pos.entryReasoning,
+      openedAt: pos.openedAt,
+    });
+  }
+
+  // Get starting balance
+  // For shadow mode: from shadow_sessions virtual_balance
+  // For live mode: from bot_subscriptions allocated_amount
+  let startingBalance = 0;
+  if (mode === 'paper') {
+    const [session] = await db.select({ balance: shadowSessions.virtualBalance, current: shadowSessions.currentBalance })
+      .from(shadowSessions)
+      .where(and(eq(shadowSessions.botId, botId), eq(shadowSessions.userId, userId), eq(shadowSessions.status, 'running')))
+      .orderBy(desc(shadowSessions.startedAt))
+      .limit(1);
+    startingBalance = parseFloat(session?.balance ?? '10000');
+    // Use current balance if available
+    const currentBal = parseFloat(session?.current ?? '0');
+    if (currentBal > 0) startingBalance = parseFloat(session?.balance ?? '10000');
+  } else {
+    const [sub] = await db.select({ amount: botSubscriptions.allocatedAmount })
+      .from(botSubscriptions)
+      .where(and(eq(botSubscriptions.botId, botId), eq(botSubscriptions.userId, userId), eq(botSubscriptions.status, 'active')))
+      .limit(1);
+    startingBalance = parseFloat(sub?.amount ?? '0');
+  }
+
+  const currentBalance = startingBalance + realizedPnl;
+  const totalReturn = startingBalance > 0 ? ((currentBalance - startingBalance) / startingBalance) * 100 : 0;
+
+  // Closed trades list (most recent first, limit 50)
+  const closedTrades = closedPositions.slice(0, 50).map(p => ({
+    id: p.id,
+    symbol: p.symbol,
+    side: p.side,
+    entryPrice: parseFloat(p.entryPrice),
+    exitPrice: p.exitPrice ? parseFloat(p.exitPrice) : null,
+    amount: parseFloat(p.amount),
+    entryValue: parseFloat(p.entryValue ?? '0'),
+    exitValue: p.exitValue ? parseFloat(p.exitValue) : null,
+    pnl: parseFloat(p.pnl ?? '0'),
+    pnlPercent: parseFloat(p.pnlPercent ?? '0'),
+    entryReasoning: p.entryReasoning,
+    exitReasoning: p.exitReasoning,
+    openedAt: p.openedAt,
+    closedAt: p.closedAt,
+  }));
+
+  // Max drawdown
+  let peak = 0, maxDrawdown = 0, cum = 0;
+  for (const p of closedPositions) {
+    cum += parseFloat(p.pnlPercent ?? '0');
+    if (cum > peak) peak = cum;
+    if (peak - cum > maxDrawdown) maxDrawdown = peak - cum;
+  }
+
+  // Best and worst trade
+  const bestTrade = closedPositions.length > 0 ? closedPositions.reduce((best, p) => parseFloat(p.pnlPercent ?? '0') > parseFloat(best.pnlPercent ?? '0') ? p : best) : null;
+  const worstTrade = closedPositions.length > 0 ? closedPositions.reduce((worst, p) => parseFloat(p.pnlPercent ?? '0') < parseFloat(worst.pnlPercent ?? '0') ? p : worst) : null;
+
+  return {
+    startingBalance,
+    currentBalance,
+    totalReturn,
+    realizedPnl,
+    unrealizedPnl,
+    totalInTrade,
+    availableBalance: currentBalance - totalInTrade,
+    totalTrades: closedPositions.length,
+    winRate,
+    wins: wins.length,
+    losses: losses.length,
+    avgWinPercent: avgWin,
+    avgLossPercent: avgLoss,
+    maxDrawdown,
+    bestTrade: bestTrade ? { symbol: bestTrade.symbol, pnlPercent: parseFloat(bestTrade.pnlPercent ?? '0'), pnl: parseFloat(bestTrade.pnl ?? '0') } : null,
+    worstTrade: worstTrade ? { symbol: worstTrade.symbol, pnlPercent: parseFloat(worstTrade.pnlPercent ?? '0'), pnl: parseFloat(worstTrade.pnl ?? '0') } : null,
+    openPositions: openPosData,
+    closedTrades,
+  };
+}

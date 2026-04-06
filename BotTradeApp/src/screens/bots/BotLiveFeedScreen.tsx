@@ -102,6 +102,9 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
   const [hasMore, setHasMore] = useState(true);
   const [totalCount, setTotalCount] = useState(0);
   const [apiStats, setApiStats] = useState<{totalBuys: number; totalSells: number; totalHolds: number; totalAiCalls: number; totalTokens: number} | null>(null);
+  const [feedStats, setFeedStats] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'feed' | 'trades' | 'positions'>('feed');
+  const [statsExpanded, setStatsExpanded] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -152,6 +155,15 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
     const interval = setInterval(checkMarket, 30000);
     return () => clearInterval(interval);
   }, [isStockBot]);
+
+  // Fetch feed stats (P&L, positions, trades)
+  const fetchFeedStats = useCallback(async () => {
+    try {
+      const feedMode = mode === 'live' ? 'live' : 'paper';
+      const res: any = await botsService.getFeedStats(botId, feedMode as 'paper' | 'live');
+      if (res?.data) setFeedStats(res.data);
+    } catch {}
+  }, [botId, mode]);
 
   // Fetch decisions — strictly mode-filtered.
   // For live mode: NEVER fall back to paper/shadow data (causes the flash).
@@ -275,8 +287,12 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
   useFocusEffect(
     useCallback(() => {
       fetchDecisions();
+      fetchFeedStats();
       connectWs();
-      pollRef.current = setInterval(fetchDecisions, POLL_INTERVAL);
+      pollRef.current = setInterval(() => {
+        fetchDecisions();
+        fetchFeedStats();
+      }, POLL_INTERVAL);
 
       return () => {
         if (wsRef.current) {
@@ -292,7 +308,7 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
         initialFetchDoneRef.current = false;
         lastFetchRef.current = '';
       };
-    }, [fetchDecisions, connectWs]),
+    }, [fetchDecisions, fetchFeedStats, connectWs]),
   );
 
   // Handle app state changes
@@ -303,8 +319,12 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
         if (wsRef.current) wsRef.current.close();
       } else if (state === 'active') {
         fetchDecisions();
+        fetchFeedStats();
         connectWs();
-        pollRef.current = setInterval(fetchDecisions, POLL_INTERVAL);
+        pollRef.current = setInterval(() => {
+          fetchDecisions();
+          fetchFeedStats();
+        }, POLL_INTERVAL);
       }
     });
     return () => sub.remove();
@@ -312,9 +332,9 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
 
   const getActionIcon = (action: string) => {
     switch (action) {
-      case 'BUY': return '🟢';
-      case 'SELL': return '🔴';
-      default: return '⏸';
+      case 'BUY': return '\u{1F7E2}';
+      case 'SELL': return '\u{1F534}';
+      default: return '\u23F8';
     }
   };
 
@@ -335,6 +355,15 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
     }
   };
 
+  const formatTimeShort = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit', hour12: true});
+    } catch {
+      return '--:--';
+    }
+  };
+
   const formatPrice = (price: string | number) => {
     const p = typeof price === 'string' ? parseFloat(price) : price;
     if (isNaN(p)) return '$0.00';
@@ -348,6 +377,14 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
   const totalHolds = apiStats?.totalHolds ?? decisions.filter(d => d.action === 'HOLD').length;
   const aiCalls = apiStats?.totalAiCalls ?? decisions.filter(d => d.aiCalled).length;
   const totalTokens = apiStats?.totalTokens ?? decisions.reduce((sum, d) => sum + (d.tokensCost || 0), 0);
+
+  // P&L derived values
+  const startingBalance = feedStats?.startingBalance ?? 10000;
+  const currentBalance = feedStats?.currentBalance ?? startingBalance;
+  const pnlAmount = currentBalance - startingBalance;
+  const pnlPercent = startingBalance > 0 ? (pnlAmount / startingBalance) * 100 : 0;
+  const isPositive = pnlAmount >= 0;
+  const pnlColor = isPositive ? '#00C851' : '#FF4444';
 
   const renderDecision = ({item}: {item: BotDecision}) => (
     <View style={styles.decisionCard}>
@@ -417,6 +454,71 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
     </View>
   );
 
+  const renderTradeCard = ({item}: {item: any}) => {
+    const tradePnl = item.pnl ?? 0;
+    const tradePnlPercent = item.pnlPercent ?? 0;
+    const isWin = tradePnl >= 0;
+    const borderColor = isWin ? '#00C851' : '#FF4444';
+
+    return (
+      <View style={[styles.tradeCard, {borderColor}]}>
+        <View style={styles.tradeHeader}>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+            <Text style={{fontSize: 12}}>{isWin ? '\u{1F7E2}' : '\u{1F534}'}</Text>
+            <Text style={{color: '#9CA3AF', fontSize: 12, fontFamily: 'Inter-Medium'}}>BUY \u2192 SELL</Text>
+            <Text style={styles.tradeSymbol}>{item.symbol}</Text>
+          </View>
+          <Text style={[styles.tradePnl, {color: borderColor}]}>
+            {isWin ? '+' : ''}{formatPrice(tradePnl)}
+          </Text>
+        </View>
+        <Text style={styles.tradeDetail}>
+          Entry: {formatPrice(item.entryPrice)}   Exit: {formatPrice(item.exitPrice)}
+        </Text>
+        <Text style={styles.tradeDetail}>
+          Size: {formatPrice(item.entryValue ?? 0)}   P&L: {isWin ? '+' : ''}{tradePnlPercent.toFixed(2)}%
+        </Text>
+        {(item.entryReasoning || item.exitReasoning) ? (
+          <Text style={styles.tradeReasoning} numberOfLines={2}>
+            "{item.entryReasoning ? item.entryReasoning.slice(0, 60) : ''}{item.exitReasoning ? ' → ' + item.exitReasoning.slice(0, 60) : ''}"
+          </Text>
+        ) : null}
+        <Text style={styles.tradeTime}>
+          Opened: {formatTimeShort(item.openedAt || '')}   Closed: {formatTimeShort(item.closedAt || '')}
+        </Text>
+      </View>
+    );
+  };
+
+  const renderPositionCard = ({item}: {item: any}) => {
+    const side = item.side === 'short' ? 'SHORT' : 'LONG';
+    return (
+      <View style={[styles.tradeCard, {borderColor: '#3B82F6'}]}>
+        <View style={styles.tradeHeader}>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+            <Text style={{fontSize: 12}}>{side === 'LONG' ? '\u{1F4C8}' : '\u{1F4C9}'}</Text>
+            <Text style={{color: '#3B82F6', fontSize: 12, fontFamily: 'Inter-Bold'}}>{side}</Text>
+            <Text style={styles.tradeSymbol}>{item.symbol}</Text>
+          </View>
+        </View>
+        <Text style={styles.tradeDetail}>
+          Entry: {formatPrice(item.entryPrice)}   Amount: {item.amount ?? '—'}
+        </Text>
+        <Text style={styles.tradeDetail}>
+          Value: {formatPrice(item.entryValue ?? 0)}   SL: {item.stopLoss ? formatPrice(item.stopLoss) : '—'}
+        </Text>
+        {item.reasoning ? (
+          <Text style={styles.tradeReasoning} numberOfLines={2}>
+            "{item.reasoning}"
+          </Text>
+        ) : null}
+        <Text style={styles.tradeTime}>
+          Opened: {formatTimeShort(item.openedAt || '')}
+        </Text>
+      </View>
+    );
+  };
+
   // Status text
   const statusText = wsConnected ? 'LIVE' : connected ? 'ACTIVE' : 'CONNECTING';
   const statusColor = wsConnected ? '#00C851' : connected ? '#3B82F6' : '#FF4444';
@@ -443,33 +545,114 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
         <View style={{width: 40}} />
       </View>
 
-      {/* Stats Bar */}
-      <View style={styles.statsBar}>
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{totalBuys}</Text>
-          <Text style={[styles.statLabel, {color: '#00C851'}]}>Buys</Text>
+      {/* Compact P&L Strip — always visible, tap to expand */}
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => setStatsExpanded(prev => !prev)}
+        style={styles.pnlStrip}>
+        {feedStats === null ? (
+          <ActivityIndicator size="small" color="#6B7280" />
+        ) : (
+          <>
+            <Text style={[styles.pnlStripAmount, {color: pnlColor}]}>
+              {isPositive ? '+' : ''}{formatPrice(pnlAmount)}
+            </Text>
+            <Text style={[styles.pnlStripPct, {color: pnlColor}]}>
+              {isPositive ? '+' : ''}{pnlPercent.toFixed(2)}%
+            </Text>
+            <View style={styles.pnlStripDivider} />
+            <Text style={styles.pnlStripStat}>{feedStats?.wins ?? 0}W/{feedStats?.losses ?? 0}L</Text>
+            <View style={styles.pnlStripDivider} />
+            <Text style={styles.pnlStripStat}>{(feedStats?.winRate ?? 0).toFixed(0)}%</Text>
+            <View style={{flex: 1}} />
+            <Text style={styles.pnlStripChevron}>{statsExpanded ? '▲' : '▼'}</Text>
+          </>
+        )}
+      </TouchableOpacity>
+
+      {/* Expanded Stats Panel */}
+      {statsExpanded && feedStats !== null && (
+        <View style={styles.statsPanel}>
+          {/* Balance row */}
+          <View style={styles.statsPanelRow}>
+            <View style={styles.statsPanelCell}>
+              <Text style={styles.statsPanelLabel}>Starting</Text>
+              <Text style={styles.statsPanelValue}>{formatPrice(startingBalance)}</Text>
+            </View>
+            <View style={styles.statsPanelCell}>
+              <Text style={styles.statsPanelLabel}>Current</Text>
+              <Text style={[styles.statsPanelValue, {color: pnlColor}]}>{formatPrice(currentBalance)}</Text>
+            </View>
+            <View style={styles.statsPanelCell}>
+              <Text style={styles.statsPanelLabel}>In Trade</Text>
+              <Text style={styles.statsPanelValue}>{formatPrice(feedStats?.totalInTrade ?? 0)}</Text>
+            </View>
+            <View style={styles.statsPanelCell}>
+              <Text style={styles.statsPanelLabel}>Available</Text>
+              <Text style={styles.statsPanelValue}>{formatPrice(feedStats?.availableBalance ?? 0)}</Text>
+            </View>
+          </View>
+          {/* Performance row */}
+          <View style={styles.statsPanelRow}>
+            <View style={styles.statsPanelCell}>
+              <Text style={styles.statsPanelLabel}>Trades</Text>
+              <Text style={styles.statsPanelValue}>{feedStats?.totalTrades ?? 0}</Text>
+            </View>
+            <View style={styles.statsPanelCell}>
+              <Text style={styles.statsPanelLabel}>Win Rate</Text>
+              <Text style={[styles.statsPanelValue, {color: '#00C851'}]}>{(feedStats?.winRate ?? 0).toFixed(1)}%</Text>
+            </View>
+            <View style={styles.statsPanelCell}>
+              <Text style={styles.statsPanelLabel}>Avg Win</Text>
+              <Text style={[styles.statsPanelValue, {color: '#00C851'}]}>{feedStats?.avgWinPercent != null ? `+${feedStats.avgWinPercent.toFixed(1)}%` : '—'}</Text>
+            </View>
+            <View style={styles.statsPanelCell}>
+              <Text style={styles.statsPanelLabel}>Max DD</Text>
+              <Text style={[styles.statsPanelValue, {color: '#FF4444'}]}>-{(feedStats?.maxDrawdown ?? 0).toFixed(1)}%</Text>
+            </View>
+          </View>
+          {/* Decisions row */}
+          <View style={styles.statsPanelRow}>
+            <View style={styles.statsPanelCell}>
+              <Text style={[styles.statsPanelLabel, {color: '#00C851'}]}>Buys</Text>
+              <Text style={styles.statsPanelValue}>{totalBuys}</Text>
+            </View>
+            <View style={styles.statsPanelCell}>
+              <Text style={[styles.statsPanelLabel, {color: '#FF4444'}]}>Sells</Text>
+              <Text style={styles.statsPanelValue}>{totalSells}</Text>
+            </View>
+            <View style={styles.statsPanelCell}>
+              <Text style={[styles.statsPanelLabel, {color: '#8B5CF6'}]}>AI Calls</Text>
+              <Text style={styles.statsPanelValue}>{aiCalls}</Text>
+            </View>
+            <View style={styles.statsPanelCell}>
+              <Text style={[styles.statsPanelLabel, {color: '#6B7280'}]}>Holds</Text>
+              <Text style={styles.statsPanelValue}>{totalHolds}</Text>
+            </View>
+          </View>
+          {/* Best / Worst trade */}
+          {(feedStats?.bestTrade || feedStats?.worstTrade) && (
+            <View style={styles.statsPanelRow}>
+              {feedStats.bestTrade && (
+                <View style={[styles.statsPanelCell, {flex: 2}]}>
+                  <Text style={styles.statsPanelLabel}>Best Trade</Text>
+                  <Text style={[styles.statsPanelValue, {color: '#00C851', fontSize: 11}]}>
+                    {feedStats.bestTrade.symbol} +{feedStats.bestTrade.pnlPercent?.toFixed(1)}%
+                  </Text>
+                </View>
+              )}
+              {feedStats.worstTrade && (
+                <View style={[styles.statsPanelCell, {flex: 2}]}>
+                  <Text style={styles.statsPanelLabel}>Worst Trade</Text>
+                  <Text style={[styles.statsPanelValue, {color: '#FF4444', fontSize: 11}]}>
+                    {feedStats.worstTrade.symbol} {feedStats.worstTrade.pnlPercent?.toFixed(1)}%
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
         </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{totalSells}</Text>
-          <Text style={[styles.statLabel, {color: '#FF4444'}]}>Sells</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{totalHolds}</Text>
-          <Text style={[styles.statLabel, {color: '#6B7280'}]}>Holds</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{aiCalls}</Text>
-          <Text style={[styles.statLabel, {color: '#8B5CF6'}]}>AI Calls</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={styles.statValue}>{totalTokens}</Text>
-          <Text style={[styles.statLabel, {color: '#F59E0B'}]}>Tokens</Text>
-        </View>
-      </View>
+      )}
 
       {/* Market Status Banner (stock bots only) */}
       {isStockBot && marketOpen !== null && (
@@ -486,54 +669,118 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
         </View>
       )}
 
-      {/* Decision Feed */}
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#00C851" />
-          <Text style={styles.loadingText}>Connecting to bot engine...</Text>
-        </View>
-      ) : decisions.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Text style={styles.emptyIcon}>🤖</Text>
-          <Text style={styles.emptyTitle}>Waiting for Decisions</Text>
-          <Text style={styles.emptySubtitle}>
-            {isStockBot && marketOpen === false
-              ? 'US stock market is closed. The bot will start\nmaking decisions when market opens (9:30 AM ET).'
-              : mode === 'live'
-                ? 'The bot engine analyzes markets every 2 minutes.\nLive decisions will appear here once the bot acts.'
-                : 'The bot engine analyzes markets every 2 minutes.\nMake sure you have an active shadow session running.'}
-          </Text>
+      {/* Tab Bar */}
+      <View style={styles.tabBar}>
+        {(['feed', 'trades', 'positions'] as const).map(tab => (
           <TouchableOpacity
-            style={styles.refreshBtn}
-            onPress={fetchDecisions}
-            activeOpacity={0.7}>
-            <Text style={styles.refreshBtnText}>Refresh</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <FlatList
-          data={decisions}
-          renderItem={renderDecision}
-          keyExtractor={(item, index) => item.id || `${item.createdAt}-${index}`}
-          contentContainerStyle={styles.feedContainer}
-          showsVerticalScrollIndicator={false}
-          onEndReached={loadMore}
-          onEndReachedThreshold={0.3}
-          ListHeaderComponent={totalCount > 0 ? (
-            <Text style={{color: '#6B7280', fontSize: 11, fontFamily: 'Inter-Regular', textAlign: 'center', marginBottom: 8}}>
-              Showing {decisions.length} of {totalCount} decisions
+            key={tab}
+            style={[styles.tab, activeTab === tab && styles.tabActive]}
+            onPress={() => setActiveTab(tab)}>
+            <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
+              {tab === 'feed' ? `Feed (${totalCount || decisions.length})`
+               : tab === 'trades' ? `Trades (${feedStats?.totalTrades ?? 0})`
+               : `Open (${feedStats?.openPositions?.length ?? 0})`}
             </Text>
-          ) : null}
-          ListFooterComponent={loadingMore ? (
-            <ActivityIndicator size="small" color="#00C851" style={{marginVertical: 16}} />
-          ) : hasMore && decisions.length > 0 ? (
-            <TouchableOpacity onPress={loadMore} style={{alignItems: 'center', paddingVertical: 16}}>
-              <Text style={{color: '#3B82F6', fontSize: 13, fontFamily: 'Inter-Medium'}}>Load More</Text>
-            </TouchableOpacity>
-          ) : decisions.length > 0 ? (
-            <Text style={{color: '#4B5563', fontSize: 11, fontFamily: 'Inter-Regular', textAlign: 'center', paddingVertical: 12}}>All decisions loaded</Text>
-          ) : null}
-        />
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* Tab Content */}
+      {activeTab === 'feed' && (
+        <>
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#00C851" />
+              <Text style={styles.loadingText}>Connecting to bot engine...</Text>
+            </View>
+          ) : decisions.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>{'\u{1F916}'}</Text>
+              <Text style={styles.emptyTitle}>Waiting for Decisions</Text>
+              <Text style={styles.emptySubtitle}>
+                {isStockBot && marketOpen === false
+                  ? 'US stock market is closed. The bot will start\nmaking decisions when market opens (9:30 AM ET).'
+                  : mode === 'live'
+                    ? 'The bot engine analyzes markets every 2 minutes.\nLive decisions will appear here once the bot acts.'
+                    : 'The bot engine analyzes markets every 2 minutes.\nMake sure you have an active shadow session running.'}
+              </Text>
+              <TouchableOpacity
+                style={styles.refreshBtn}
+                onPress={fetchDecisions}
+                activeOpacity={0.7}>
+                <Text style={styles.refreshBtnText}>Refresh</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <FlatList
+              data={decisions}
+              renderItem={renderDecision}
+              keyExtractor={(item, index) => item.id || `${item.createdAt}-${index}`}
+              contentContainerStyle={styles.feedContainer}
+              showsVerticalScrollIndicator={false}
+              onEndReached={loadMore}
+              onEndReachedThreshold={0.3}
+              ListHeaderComponent={totalCount > 0 ? (
+                <Text style={{color: '#6B7280', fontSize: 11, fontFamily: 'Inter-Regular', textAlign: 'center', marginBottom: 8}}>
+                  Showing {decisions.length} of {totalCount} decisions
+                </Text>
+              ) : null}
+              ListFooterComponent={loadingMore ? (
+                <ActivityIndicator size="small" color="#00C851" style={{marginVertical: 16}} />
+              ) : hasMore && decisions.length > 0 ? (
+                <TouchableOpacity onPress={loadMore} style={{alignItems: 'center', paddingVertical: 16}}>
+                  <Text style={{color: '#3B82F6', fontSize: 13, fontFamily: 'Inter-Medium'}}>Load More</Text>
+                </TouchableOpacity>
+              ) : decisions.length > 0 ? (
+                <Text style={{color: '#4B5563', fontSize: 11, fontFamily: 'Inter-Regular', textAlign: 'center', paddingVertical: 12}}>All decisions loaded</Text>
+              ) : null}
+            />
+          )}
+        </>
+      )}
+
+      {activeTab === 'trades' && (
+        <>
+          {feedStats?.closedTrades && feedStats.closedTrades.length > 0 ? (
+            <FlatList
+              data={feedStats.closedTrades}
+              renderItem={renderTradeCard}
+              keyExtractor={(item: any, index: number) => item.id || `trade-${index}`}
+              contentContainerStyle={styles.feedContainer}
+              showsVerticalScrollIndicator={false}
+            />
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>{'\u{1F4CA}'}</Text>
+              <Text style={styles.emptyTitle}>No Closed Trades</Text>
+              <Text style={styles.emptySubtitle}>
+                Completed trades will appear here once the bot closes positions.
+              </Text>
+            </View>
+          )}
+        </>
+      )}
+
+      {activeTab === 'positions' && (
+        <>
+          {feedStats?.openPositions && feedStats.openPositions.length > 0 ? (
+            <FlatList
+              data={feedStats.openPositions}
+              renderItem={renderPositionCard}
+              keyExtractor={(item: any, index: number) => item.id || `pos-${index}`}
+              contentContainerStyle={styles.feedContainer}
+              showsVerticalScrollIndicator={false}
+            />
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>{'\u{1F4AD}'}</Text>
+              <Text style={styles.emptyTitle}>No Open Positions</Text>
+              <Text style={styles.emptySubtitle}>
+                Active positions will appear here when the bot enters a trade.
+              </Text>
+            </View>
+          )}
+        </>
       )}
     </View>
   );
@@ -560,12 +807,151 @@ const styles = StyleSheet.create({
   modeBadge: {paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4},
   modeBadgeText: {fontSize: 9, fontFamily: 'Inter-Bold', letterSpacing: 0.5},
 
+  // Compact P&L Strip (always visible)
+  pnlStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#111827',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    gap: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1A1F2E',
+  },
+  pnlStripAmount: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 17,
+  },
+  pnlStripPct: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    opacity: 0.7,
+  },
+  pnlStripDivider: {
+    width: 1,
+    height: 16,
+    backgroundColor: '#1F2937',
+  },
+  pnlStripStat: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 12,
+    color: '#9CA3AF',
+  },
+  pnlStripChevron: {
+    fontSize: 10,
+    color: '#6B7280',
+  },
+  // Expandable Stats Panel
+  statsPanel: {
+    backgroundColor: '#0D1117',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1A1F2E',
+    gap: 6,
+  },
+  statsPanelRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  statsPanelCell: {
+    flex: 1,
+    backgroundColor: '#111827',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+  },
+  statsPanelLabel: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 9,
+    color: 'rgba(255,255,255,0.35)',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  statsPanelValue: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 12,
+    color: '#FFFFFF',
+    marginTop: 1,
+  },
+
+  // Tab Bar
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#0D1117',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1F2937',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: {
+    borderBottomColor: '#00C851',
+  },
+  tabText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  tabTextActive: {
+    color: '#FFFFFF',
+  },
+
+  // Trade & Position Cards
+  tradeCard: {
+    backgroundColor: '#111827',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+    borderWidth: 1,
+  },
+  tradeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  tradeSymbol: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 14,
+    color: '#FFFFFF',
+  },
+  tradePnl: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 14,
+  },
+  tradeDetail: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: '#9CA3AF',
+    marginBottom: 2,
+  },
+  tradeReasoning: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: '#6B7280',
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  tradeTime: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 10,
+    color: '#4B5563',
+    marginTop: 4,
+  },
+
+  // Existing styles
   marketBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 8,
+    marginHorizontal: 12,
+    marginTop: 6,
+    marginBottom: 4,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 10,
@@ -574,19 +960,7 @@ const styles = StyleSheet.create({
   },
   marketDot: {width: 8, height: 16, borderRadius: 4},
   marketText: {fontFamily: 'Inter-Medium', fontSize: 12, flex: 1},
-  statsBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: '#111827',
-    borderBottomWidth: 1,
-    borderBottomColor: '#1A1F2E',
-  },
-  statItem: {flex: 1, alignItems: 'center'},
-  statValue: {color: '#FFFFFF', fontSize: 16, fontFamily: 'Inter-Bold'},
-  statLabel: {fontSize: 10, fontFamily: 'Inter-Medium', marginTop: 2},
-  statDivider: {width: 1, height: 24, backgroundColor: '#1F2937'},
+  // (old statsBar removed — folded into expandable panel)
 
   loadingContainer: {flex: 1, justifyContent: 'center', alignItems: 'center'},
   loadingText: {color: '#6B7280', fontSize: 14, fontFamily: 'Inter-Regular', marginTop: 12},

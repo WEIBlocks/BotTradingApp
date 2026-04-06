@@ -196,4 +196,10 @@ export const botsService = {
     const modeParam = mode ? `&mode=${mode}` : '';
     return api.get<{data: {decisions: any[]; pagination: {total: number; hasMore: boolean}}}>(`/bots/${botId}/decisions?limit=${limit}&offset=${offset}${modeParam}`);
   },
+
+  /** Get comprehensive feed stats (P&L, positions, trades) */
+  getFeedStats(botId: string, mode?: 'paper' | 'live') {
+    const modeParam = mode ? `?mode=${mode}` : '';
+    return api.get<{data: any}>(`/bots/${botId}/feed-stats${modeParam}`);
+  },
 };
