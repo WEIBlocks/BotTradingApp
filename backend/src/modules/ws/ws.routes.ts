@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { handleTradesWs, handleArenaWs, handleBotDecisionsWs, handleNotificationsWs } from './ws.handler.js';
+import { handleTradesWs, handleArenaWs, handleBotDecisionsWs, handleNotificationsWs, handleAppWs } from './ws.handler.js';
 
 export async function wsRoutes(app: FastifyInstance) {
   // Live trades feed
@@ -24,5 +24,11 @@ export async function wsRoutes(app: FastifyInstance) {
   app.get('/notifications', { websocket: true }, (socket: any, request: any) => {
     const ws = socket.socket ?? socket;
     handleNotificationsWs(ws, request);
+  });
+
+  // Unified app feed — single multiplexed WS for mobile (equity, trades, notifications)
+  app.get('/app', { websocket: true }, (socket: any, request: any) => {
+    const ws = socket.socket ?? socket;
+    handleAppWs(ws, request);
   });
 }

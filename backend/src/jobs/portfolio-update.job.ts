@@ -257,16 +257,39 @@ export async function startPortfolioUpdateJob() {
 
 /**
  * Trigger immediate portfolio refresh for a specific user (called after every live trade).
- * Fetches real balances from the exchange so the portfolio reflects actual post-trade state.
+ * Fetches real balances, saves snapshot, then publishes a portfolio_update event to Redis
+ * so the /ws/app WebSocket can push it to the mobile client instantly.
  */
 export async function refreshUserPortfolio(userId: string) {
   try {
     const connections = await db.select().from(exchangeConnections)
       .where(and(eq(exchangeConnections.userId, userId), eq(exchangeConnections.status, 'connected')));
 
+    let totalValue = 0;
     for (const conn of connections) {
-      await syncConnectionBalances(conn);
+      totalValue += await syncConnectionBalances(conn);
     }
+
+    // Fetch the last 30 equity snapshots to send as the updated curve
+    const snapshots = await db
+      .select({ totalValue: portfolioSnapshots.totalValue })
+      .from(portfolioSnapshots)
+      .where(eq(portfolioSnapshots.userId, userId))
+      .orderBy(portfolioSnapshots.date)
+      .limit(30);
+
+    const equityData = snapshots.map(s => parseFloat(s.totalValue));
+    // Append current live value as the last point
+    equityData.push(totalValue);
+
+    // Publish to Redis so /ws/app handler fan-outs to the mobile client
+    const { publishMessage } = await import('../config/redis.js');
+    await publishMessage(`portfolio:equity:${userId}`, {
+      equityData,
+      newPoint:   totalValue,
+      totalValue,
+    });
+
   } catch (err: any) {
     console.warn('[PortfolioUpdate] refreshUserPortfolio error:', err.message);
   }

@@ -19,6 +19,8 @@ import ShareIcon from '../../components/icons/ShareIcon';
 import StarIcon from '../../components/icons/StarIcon';
 import XIcon from '../../components/icons/XIcon';
 import {useToast} from '../../context/ToastContext';
+import {useBinanceKline} from '../../hooks/useBinanceKline';
+import {useLiveEquity} from '../../hooks/useLiveEquity';
 
 const {width} = Dimensions.get('window');
 const CHART_W = width - 40;
@@ -60,19 +62,32 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const [savingConfig, setSavingConfig] = useState(false);
   const [configPanelExpanded, setConfigPanelExpanded] = useState(false);
 
-  // Equity curve (line chart from real P&L)
-  const [equityCurve, setEquityCurve] = useState<number[]>([]);
-  const [equityDates, setEquityDates] = useState<(string | Date)[]>([]);
-  const [equityLoading, setEquityLoading] = useState(false);
-  const [equityPnl, setEquityPnl] = useState(0);
+  // Equity curve (line chart from real P&L) — REST seed
+  const [equityCurveRest, setEquityCurveRest] = useState<number[]>([]);
+  const [equityDates, setEquityDates]          = useState<(string | Date)[]>([]);
+  const [equityLoading, setEquityLoading]      = useState(false);
+  const [equityPnlRest, setEquityPnlRest]      = useState(0);
 
-  // Candlestick per trading pair
+  // Candlestick per trading pair — pair/TF selection only (no data state here)
   const [selectedPair, setSelectedPair] = useState<string | null>(null);
-  const [candleData, setCandleData] = useState<any[]>([]);
-  const [candleTF, setCandleTF] = useState('4h');
-  const [candleLoading, setCandleLoading] = useState(false);
+  const [candleTF, setCandleTF]         = useState('4h');
   const [tradeMarkers, setTradeMarkers] = useState<{action: string; price: number; timestamp: number}[]>([]);
-  const [livePrice, setLivePrice] = useState<number | undefined>(undefined);
+
+  // ── Live hooks ──────────────────────────────────────────────────────────
+  // Candlestick: direct Binance WebSocket stream (real-time candles, no polling)
+  const {
+    candles:    liveCandles,
+    livePrice:  binanceLivePrice,
+    loading:    candleLoading,
+    connected:  candleConnected,
+  } = useBinanceKline(selectedPair ?? undefined, candleTF);
+
+  // Equity: backend WS appends new points as bot trades execute
+  const {equityData: equityCurve, totalPnl: equityPnl} = useLiveEquity({
+    botId:       route.params.botId,
+    initialData: equityCurveRest,
+    initialPnl:  equityPnlRest,
+  });
 
   const DURATION_OPTIONS: {label: string; minutes?: number; days?: number}[] = [
     {label: '1 Min', minutes: 1},
@@ -127,7 +142,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
           const defaultTF = isStockBot ? '1d' : '4h';
           setSelectedPair(pairs[0]);
           setCandleTF(defaultTF);
-          fetchCandles(pairs[0], defaultTF);
+          fetchTradeMarkers(pairs[0]); // candles come from useBinanceKline
         }
       }
 
@@ -192,44 +207,30 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     }
   }, [route.params.botId]);
 
-  // Fetch bot equity curve (cumulative P&L)
+  // Fetch bot equity curve (cumulative P&L) — seeds the live hook
   const fetchEquityCurve = useCallback(async (days: number) => {
     setEquityLoading(true);
     try {
       const res = await api.get<{data: any}>(`/bots/${route.params.botId}/equity-curve?days=${days}`);
       const d = res?.data;
-      setEquityCurve(Array.isArray(d?.equityData) ? d.equityData : []);
+      setEquityCurveRest(Array.isArray(d?.equityData) ? d.equityData : []);
       setEquityDates(Array.isArray(d?.dates) ? d.dates : []);
-      setEquityPnl(Number(d?.totalPnl ?? 0));
+      setEquityPnlRest(Number(d?.totalPnl ?? 0));
     } catch {
-      setEquityCurve([]);
+      setEquityCurveRest([]);
       setEquityDates([]);
     } finally {
       setEquityLoading(false);
     }
   }, [route.params.botId]);
 
-  // Fetch real candles + trade markers for a pair
-  const fetchCandles = useCallback(async (pair: string, tf: string) => {
-    setCandleLoading(true);
-    setLivePrice(undefined);
+  // Fetch trade markers only — candle data now comes from useBinanceKline hook
+  const fetchTradeMarkers = useCallback(async (pair: string) => {
     try {
-      const [candleRes, markerRes] = await Promise.all([
-        api.get<{data: any[]}>(`/market/candles?symbol=${encodeURIComponent(pair)}&timeframe=${tf}&limit=100`),
-        api.get<{data: any[]}>(`/bots/${route.params.botId}/trade-markers?symbol=${encodeURIComponent(pair)}&days=90`),
-      ]);
-      const candles = Array.isArray(candleRes?.data) ? candleRes.data : [];
-      setCandleData(candles);
+      const markerRes = await api.get<{data: any[]}>(`/bots/${route.params.botId}/trade-markers?symbol=${encodeURIComponent(pair)}&days=90`);
       setTradeMarkers(Array.isArray(markerRes?.data) ? markerRes.data : []);
-      // Use the very last candle close as the "live" price (most recent available)
-      if (candles.length > 0) {
-        setLivePrice(candles[candles.length - 1].close);
-      }
     } catch {
-      setCandleData([]);
       setTradeMarkers([]);
-    } finally {
-      setCandleLoading(false);
     }
   }, [route.params.botId]);
 
@@ -238,20 +239,19 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     const defaultTF = isStockPair ? '1d' : '4h';
     setSelectedPair(pair);
     setCandleTF(defaultTF);
-    fetchCandles(pair, defaultTF);
-  }, [fetchCandles]);
+    fetchTradeMarkers(pair); // candle data comes from useBinanceKline
+  }, [fetchTradeMarkers]);
 
   const handleCandleTFChange = useCallback((tf: string) => {
     setCandleTF(tf);
-    if (selectedPair) fetchCandles(selectedPair, tf);
-  }, [selectedPair, fetchCandles]);
+    // useBinanceKline re-connects automatically when candleTF changes
+  }, []);
 
   useFocusEffect(useCallback(() => {
     fetchData();
     fetchEquityCurve(30);
-    // Auto-refresh every 30 seconds when bot is active/running
-    const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
+    // No more setInterval — live data comes from WebSocket hooks
+    return () => {};
   }, [fetchData, fetchEquityCurve]));
 
   // ─── Actions ─────────────────────────────────────────────────────────────
@@ -620,38 +620,39 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
               {/* Candlestick chart for selected pair */}
               {selectedPair ? (
-                candleLoading ? (
+                candleLoading && liveCandles.length === 0 ? (
                   <View style={{alignItems: 'center', paddingVertical: 40}}>
                     <ActivityIndicator size="small" color="#10B981" />
                     <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 8}}>Loading {selectedPair}...</Text>
                   </View>
-                ) : candleData.length > 0 ? (
+                ) : liveCandles.length > 0 ? (
                   <>
-                    {/* Timeframe selector for candles */}
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 6, marginBottom: 10}}>
-                      {(bot.category === 'Stocks' ? ['1d', '1w'] : ['1h', '4h', '1d', '1w']).map(tf => (
-                        <TouchableOpacity
-                          key={tf}
-                          activeOpacity={0.7}
-                          style={[styles.tfChip, candleTF === tf && styles.tfChipActive]}
-                          onPress={() => handleCandleTFChange(tf)}>
-                          <Text style={[styles.tfChipText, candleTF === tf && styles.tfChipTextActive]}>
-                            {tf.toUpperCase()}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
+                    {/* Timeframe selector + live indicator */}
+                    <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 10}}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 6}} style={{flex: 1}}>
+                        {(bot.category === 'Stocks' ? ['1D', '1W'] : ['1H', '4H', '1D', '1W']).map(tf => (
+                          <TouchableOpacity
+                            key={tf}
+                            activeOpacity={0.7}
+                            style={[styles.tfChip, candleTF === tf && styles.tfChipActive]}
+                            onPress={() => handleCandleTFChange(tf)}>
+                            <Text style={[styles.tfChipText, candleTF === tf && styles.tfChipTextActive]}>
+                              {tf}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                      {candleConnected && (
+                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8}}>
+                          <View style={{width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981'}} />
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: '#10B981'}}>LIVE</Text>
+                        </View>
+                      )}
+                    </View>
 
                     <CandlestickChart
-                      data={candleData.map((c: any) => ({
-                        time: c.timestamp,
-                        open: c.open,
-                        high: c.high,
-                        low: c.low,
-                        close: c.close,
-                        volume: c.volume,
-                      }))}
-                      livePrice={livePrice}
+                      data={liveCandles}
+                      livePrice={binanceLivePrice}
                       width={CHART_W}
                       height={260}
                       showTimeframes={false}

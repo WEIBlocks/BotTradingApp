@@ -8,6 +8,7 @@ import {RootStackParamList, Trade} from '../../types';
 import {useAuth} from '../../context/AuthContext';
 import {useToast} from '../../context/ToastContext';
 import {dashboardApi, DashboardSummary, ActiveBot as DashActiveBot, ExchangePower} from '../../services/dashboard';
+import {useLiveEquity} from '../../hooks/useLiveEquity';
 import {botsService} from '../../services/bots';
 import {tradesApi} from '../../services/trades';
 import {arenaApi, ArenaSession} from '../../services/arena';
@@ -260,10 +261,11 @@ export default function DashboardScreen() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [activeBots, setActiveBots] = useState<DashActiveBot[]>([]);
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
-  const [equityData, setEquityData] = useState<number[]>([]);
-  const [equityDates, setEquityDates] = useState<(string | Date)[]>([]);
-  const [equityIsReal, setEquityIsReal] = useState(false);
-  const [equityLoading, setEquityLoading] = useState(false);
+  // REST seed state — passed into useLiveEquity as initial data
+  const [equityDataRest, setEquityDataRest] = useState<number[]>([]);
+  const [equityDates,    setEquityDates]    = useState<(string | Date)[]>([]);
+  const [equityIsReal,   setEquityIsReal]   = useState(false);
+  const [equityLoading,  setEquityLoading]  = useState(false);
   const [activeArena, setActiveArena] = useState<ArenaSession | null>(null);
   const [shadowSessions, setShadowSessions] = useState<ShadowSessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -275,7 +277,7 @@ export default function DashboardScreen() {
     setEquityLoading(true);
     try {
       const result = await dashboardApi.getEquityHistoryFull(days);
-      setEquityData(result.equityData);
+      setEquityDataRest(result.equityData);
       setEquityDates(result.dates);
       setEquityIsReal(result.isRealData);
     } catch {
@@ -313,6 +315,9 @@ export default function DashboardScreen() {
   }, [fetchEquity]);
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+
+  // Live equity — seeds from REST, then receives WS updates for new trade points
+  const {equityData} = useLiveEquity({initialData: equityDataRest});
 
   const displayName = authUser?.name || 'Trader';
   const firstName = displayName.split(' ')[0];

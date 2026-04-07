@@ -5,7 +5,9 @@ import { getSubscriber } from '../../config/redis.js';
 import { db } from '../../config/database.js';
 import { trades } from '../../db/schema/trades.js';
 import { notifications } from '../../db/schema/notifications.js';
-import { eq, desc } from 'drizzle-orm';
+import { bots, botSubscriptions } from '../../db/schema/bots.js';
+import { eq, desc, and } from 'drizzle-orm';
+import { alpacaStream } from '../../lib/alpaca-stream.js';
 
 /**
  * Authenticate a WebSocket connection via query param ?token=JWT_TOKEN
@@ -256,6 +258,143 @@ export async function handleBotDecisionsWs(socket: WebSocket, request: FastifyRe
     }
   }, 30000);
 
+  socket.on('close', () => clearInterval(pingInterval));
+}
+
+/**
+ * Unified App Feed: /ws/app
+ *
+ * Single multiplexed WebSocket for the mobile app.
+ * All messages use the envelope: { topic: string, payload: unknown }
+ *
+ * Topics pushed to client:
+ *   "trade"            → new trade executed for this user
+ *   "equity_update"    → bot equity curve updated  { botId, equityData?, newPoint?, totalPnl }
+ *   "portfolio_update" → portfolio equity updated   { equityData?, newPoint?, totalValue }
+ *   "notification"     → new notification
+ *   "stock_price"      → real-time stock tick       { symbol, price, change, changePercent, timestamp }
+ *   "stock_bar"        → 1-min OHLCV bar            { symbol, open, high, low, close, volume, timestamp }
+ */
+export async function handleAppWs(socket: WebSocket, request: FastifyRequest): Promise<void> {
+  const user = authenticateWs(request);
+  if (!user) {
+    sendJson(socket, { topic: 'error', payload: { message: 'Unauthorized' } });
+    socket.close(4001, 'Unauthorized');
+    return;
+  }
+
+  const emit = (topic: string, payload: unknown) => sendJson(socket, { topic, payload });
+
+  // ── Discover user's active stock bot pairs ─────────────────────────────
+  // We subscribe to Alpaca stream for every stock symbol any of their bots trades
+  let userStockSymbols: string[] = [];
+  try {
+    const activeSubs = await db
+      .select({ config: bots.config })
+      .from(botSubscriptions)
+      .innerJoin(bots, eq(botSubscriptions.botId, bots.id))
+      .where(and(
+        eq(botSubscriptions.userId, user.userId),
+        eq(botSubscriptions.status, 'active'),
+      ));
+
+    const stockSyms = new Set<string>();
+    for (const row of activeSubs) {
+      const cfg = row.config as any;
+      const pairs: string[] = cfg?.pairs ?? [];
+      for (const p of pairs) {
+        // Stock symbols have no '/' — e.g. "NVDA", "TSLA/USD"
+        const isStock = !p.includes('/') || p.endsWith('/USD');
+        if (isStock) stockSyms.add(p.replace('/USD', '').toUpperCase());
+      }
+    }
+    userStockSymbols = Array.from(stockSyms);
+  } catch { /* non-critical */ }
+
+  // ── Subscribe Alpaca stream for this user's stock symbols ─────────────
+  if (userStockSymbols.length > 0) {
+    await alpacaStream.seedPrevPrices(userStockSymbols).catch(() => {});
+    alpacaStream.addSymbols(userStockSymbols);
+
+    // Relay Redis stock price/bar events to this client
+    const stockPriceListeners: Array<() => void> = [];
+    for (const sym of userStockSymbols) {
+      const priceChannel = `stock:price:${sym}`;
+      const priceListener = (message: string) => {
+        try { emit('stock_price', JSON.parse(message)); } catch {}
+      };
+      const barChannel = `stock:bar:${sym}`;
+      const barListener = (message: string) => {
+        try { emit('stock_bar', JSON.parse(message)); } catch {}
+      };
+      await subscribeChannel(priceChannel, priceListener);
+      await subscribeChannel(barChannel, barListener);
+      stockPriceListeners.push(
+        () => unsubscribeChannel(priceChannel, priceListener),
+        () => unsubscribeChannel(barChannel, barListener),
+      );
+    }
+
+    socket.on('close', async () => {
+      alpacaStream.removeSymbols(userStockSymbols);
+      for (const unsub of stockPriceListeners) unsub();
+    });
+  }
+
+  // ── Subscribe to trade events ──────────────────────────────────────────
+  const tradeChannel = `trades:${user.userId}`;
+  const tradeListener = (message: string) => {
+    try {
+      const parsed = JSON.parse(message);
+      const data = parsed.data || parsed;
+      emit('trade', data);
+      if (data.botId && typeof data.cumulativeEquity === 'number') {
+        emit('equity_update', { botId: data.botId, newPoint: data.cumulativeEquity, totalPnl: data.totalPnl ?? 0 });
+      }
+      if (typeof data.portfolioEquity === 'number') {
+        emit('portfolio_update', { newPoint: data.portfolioEquity, totalValue: data.portfolioValue ?? 0 });
+      }
+    } catch {}
+  };
+  await subscribeChannel(tradeChannel, tradeListener);
+
+  // ── Subscribe to notification events ──────────────────────────────────
+  const notifChannel = `notifications:${user.userId}`;
+  const notifListener = (message: string) => {
+    try { emit('notification', JSON.parse(message)); } catch {}
+  };
+  await subscribeChannel(notifChannel, notifListener);
+
+  // ── Subscribe to portfolio equity events ──────────────────────────────
+  const portfolioChannel = `portfolio:equity:${user.userId}`;
+  const portfolioListener = (message: string) => {
+    try { emit('portfolio_update', JSON.parse(message)); } catch {}
+  };
+  await subscribeChannel(portfolioChannel, portfolioListener);
+
+  // ── Subscribe to bot equity events ────────────────────────────────────
+  const botEquityChannel = `bot:equity:${user.userId}`;
+  const botEquityListener = (message: string) => {
+    try { emit('equity_update', JSON.parse(message)); } catch {}
+  };
+  await subscribeChannel(botEquityChannel, botEquityListener);
+
+  sendJson(socket, { topic: 'connected', payload: { userId: user.userId } });
+
+  const cleanup = async () => {
+    await unsubscribeChannel(tradeChannel, tradeListener);
+    await unsubscribeChannel(notifChannel, notifListener);
+    await unsubscribeChannel(portfolioChannel, portfolioListener);
+    await unsubscribeChannel(botEquityChannel, botEquityListener);
+  };
+
+  socket.on('close', cleanup);
+  socket.on('error', cleanup);
+
+  const pingInterval = setInterval(() => {
+    if (socket.readyState === WebSocket.OPEN) socket.ping();
+    else clearInterval(pingInterval);
+  }, 25000);
   socket.on('close', () => clearInterval(pingInterval));
 }
 
