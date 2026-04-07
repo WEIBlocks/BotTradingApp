@@ -1,5 +1,5 @@
 import React, {useMemo} from 'react';
-import Svg, {Path} from 'react-native-svg';
+import Svg, {Path, Line} from 'react-native-svg';
 
 const LINE_COLORS = ['#39FF14', '#A855F7', '#EC4899', '#22D3EE', '#EAB308'];
 
@@ -10,22 +10,37 @@ interface ArenaMultilineChartProps {
 }
 
 export default function ArenaMultilineChart({datasets, width, height = 200}: ArenaMultilineChartProps) {
-  const paths = useMemo(() => {
-    const allVals = datasets.flat();
-    if (allVals.length === 0) return [];
+  const chartData = useMemo(() => {
+    if (datasets.length === 0) return {paths: [], zeroY: null};
 
     const padding = {top: 12, bottom: 12, left: 4, right: 4};
     const chartW = width - padding.left - padding.right;
     const chartH = height - padding.top - padding.bottom;
-    const minVal = Math.min(...allVals);
-    const maxVal = Math.max(...allVals);
+
+    // Normalize each dataset to % return from its first value
+    // This ensures all bots start at 0% and diverge meaningfully
+    const normalized = datasets.map(data => {
+      if (data.length < 2) return [];
+      const initial = data[0] || 10000;
+      return data.map(v => ((v - initial) / initial) * 100);
+    });
+
+    const allVals = normalized.flat();
+    if (allVals.length === 0) return {paths: [], zeroY: null};
+
+    // Always include 0 in the range so the baseline is visible
+    const minVal = Math.min(...allVals, 0);
+    const maxVal = Math.max(...allVals, 0);
     const range = maxVal - minVal || 1;
 
-    return datasets.map(data => {
+    const toY = (val: number) => padding.top + chartH - ((val - minVal) / range) * chartH;
+    const zeroY = toY(0);
+
+    const paths = normalized.map(data => {
       if (data.length < 2) return '';
       const points = data.map((val, i) => ({
         x: padding.left + (i / (data.length - 1)) * chartW,
-        y: padding.top + chartH - ((val - minVal) / range) * chartH,
+        y: toY(val),
       }));
 
       let svg = `M ${points[0].x} ${points[0].y}`;
@@ -36,10 +51,23 @@ export default function ArenaMultilineChart({datasets, width, height = 200}: Are
       }
       return svg;
     });
+
+    return {paths, zeroY};
   }, [datasets, width, height]);
+
+  const {paths, zeroY} = chartData;
 
   return (
     <Svg width={width} height={height}>
+      {/* Zero baseline */}
+      {zeroY !== null && (
+        <Line
+          x1={4} y1={zeroY} x2={width - 4} y2={zeroY}
+          stroke="rgba(255,255,255,0.12)"
+          strokeWidth={1}
+          strokeDasharray="4,4"
+        />
+      )}
       {paths.map((path, i) =>
         path ? (
           <Path

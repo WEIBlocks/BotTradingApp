@@ -4,8 +4,45 @@ import { botPositions } from '../../db/schema/positions.js';
 import { trades } from '../../db/schema/trades.js';
 import { eq, and, sql, desc, gte, count } from 'drizzle-orm';
 
-export async function getSummary(userId: string) {
+/** Resolves which sandbox mode to query. Auto-detects if not specified. */
+async function resolveSandbox(userId: string, mode?: 'live' | 'testnet'): Promise<boolean | null> {
+  if (mode === 'live') return false;
+  if (mode === 'testnet') return true;
+
+  // Auto: prefer live if connected, else fall back to testnet
+  const conns = await db
+    .select({ sandbox: exchangeConnections.sandbox })
+    .from(exchangeConnections)
+    .where(and(eq(exchangeConnections.userId, userId), eq(exchangeConnections.status, 'connected')));
+
+  const hasLive     = conns.some(c => c.sandbox === false);
+  const hasTestnet  = conns.some(c => c.sandbox === true);
+  if (hasLive) return false;
+  if (hasTestnet) return true;
+  return null; // nothing connected
+}
+
+/** Returns which modes (live / testnet) the user has connected exchanges for. */
+export async function getConnectedModes(userId: string) {
+  const conns = await db
+    .select({ sandbox: exchangeConnections.sandbox, provider: exchangeConnections.provider })
+    .from(exchangeConnections)
+    .where(and(eq(exchangeConnections.userId, userId), eq(exchangeConnections.status, 'connected')));
+
+  return {
+    hasLive:    conns.some(c => c.sandbox === false),
+    hasTestnet: conns.some(c => c.sandbox === true),
+  };
+}
+
+export async function getSummary(userId: string, mode?: 'live' | 'testnet') {
+  const sandbox = await resolveSandbox(userId, mode);
+
   // Only count assets with amount > 0
+  const whereClause = sandbox === null
+    ? and(eq(exchangeConnections.userId, userId))
+    : and(eq(exchangeConnections.userId, userId), eq(exchangeConnections.sandbox, sandbox));
+
   const [result] = await db
     .select({
       totalValue: sql<string>`COALESCE(SUM(CASE WHEN ${exchangeAssets.amount}::numeric > 0 THEN ${exchangeAssets.valueUsd}::numeric ELSE 0 END), 0)`,
@@ -15,7 +52,7 @@ export async function getSummary(userId: string) {
     })
     .from(exchangeAssets)
     .innerJoin(exchangeConnections, eq(exchangeAssets.exchangeConnId, exchangeConnections.id))
-    .where(eq(exchangeConnections.userId, userId));
+    .where(whereClause);
 
   const totalValue = parseFloat(result?.totalValue ?? '0');
   const change24hValue = parseFloat(result?.change24h ?? '0');
@@ -46,7 +83,10 @@ export async function getSummary(userId: string) {
   };
 }
 
-export async function getAssets(userId: string) {
+export async function getAssets(userId: string, mode?: 'live' | 'testnet') {
+  const sandbox = await resolveSandbox(userId, mode);
+  const sandboxClause = sandbox === null ? [] : [eq(exchangeConnections.sandbox, sandbox)];
+
   const rows = await db
     .select({
       id: exchangeAssets.id,
@@ -58,13 +98,15 @@ export async function getAssets(userId: string) {
       allocation: exchangeAssets.allocation,
       iconColor: exchangeAssets.iconColor,
       provider: exchangeConnections.provider,
+      sandbox: exchangeConnections.sandbox,
     })
     .from(exchangeAssets)
     .innerJoin(exchangeConnections, eq(exchangeAssets.exchangeConnId, exchangeConnections.id))
     .where(
       and(
         eq(exchangeConnections.userId, userId),
-        sql`${exchangeAssets.amount}::numeric > 0`, // Only show assets user actually holds
+        ...sandboxClause,
+        sql`${exchangeAssets.amount}::numeric > 0`,
       ),
     );
 
@@ -139,7 +181,10 @@ export async function getEquityHistory(userId: string, days = 30) {
   };
 }
 
-export async function getAllocation(userId: string) {
+export async function getAllocation(userId: string, mode?: 'live' | 'testnet') {
+  const sandbox = await resolveSandbox(userId, mode);
+  const sandboxClause = sandbox === null ? [] : [eq(exchangeConnections.sandbox, sandbox)];
+
   // Only include assets with amount > 0
   const rows = await db
     .select({
@@ -151,7 +196,7 @@ export async function getAllocation(userId: string) {
     })
     .from(exchangeAssets)
     .innerJoin(exchangeConnections, eq(exchangeAssets.exchangeConnId, exchangeConnections.id))
-    .where(eq(exchangeConnections.userId, userId))
+    .where(and(eq(exchangeConnections.userId, userId), ...sandboxClause))
     .groupBy(exchangeAssets.symbol, exchangeAssets.name, exchangeAssets.iconColor)
     .having(sql`SUM(${exchangeAssets.amount}::numeric) > 0`);
 

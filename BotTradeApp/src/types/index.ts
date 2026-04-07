@@ -205,6 +205,7 @@ export interface Review {
 
 export interface Gladiator {
   id: string;
+  gladiatorId?: string;
   name: string;
   strategy: string;
   statLabel?: string;
@@ -217,6 +218,21 @@ export interface Gladiator {
   totalTrades?: number;
   totalPnl?: number;
   decisionLog?: { action: string; symbol: string; price: number; reasoning: string; time: string }[];
+  // Live/results session fields
+  trades?: any[];
+  detailedStats?: any;
+  tradeBreakdown?: any;
+  category?: string | null;
+  assetClass?: 'crypto' | 'stocks' | 'mixed';
+  isStockBot?: boolean;
+  marketOpen?: boolean;
+  startingAlloc?: number;
+  currentWins?: number;
+  currentLosses?: number;
+  currentTrades?: number;
+  currentPnl?: number;
+  openPositionCount?: number;
+  closedPositionCount?: number;
 }
 
 export interface Notification {

@@ -73,6 +73,42 @@ export class BinanceAdapter implements ExchangeAdapter {
     };
   }
 
+  async getTickers(symbols: string[]): Promise<Map<string, number>> {
+    const priceMap = new Map<string, number>();
+    if (symbols.length === 0) return priceMap;
+
+    // Always use public mainnet Binance for pricing (testnet has limited token data;
+    // mainnet prices are the same reference for valuation purposes)
+    const ccxt = await import('ccxt');
+    const publicExchange = new ccxt.default.binance({ enableRateLimit: true });
+
+    try {
+      await publicExchange.loadMarkets();
+      const validSymbols = new Set(Object.keys(publicExchange.markets));
+      const toFetch = symbols.filter(s => validSymbols.has(s));
+      if (toFetch.length === 0) return priceMap;
+
+      // Batch in groups of 50 to stay within rate limits
+      const BATCH = 50;
+      for (let i = 0; i < toFetch.length; i += BATCH) {
+        const batch = toFetch.slice(i, i + BATCH);
+        try {
+          const tickers = await publicExchange.fetchTickers(batch);
+          for (const [sym, ticker] of Object.entries(tickers)) {
+            const t = ticker as any;
+            const currency = sym.replace('/USDT', '').replace(':USDT', '');
+            if (t?.last) priceMap.set(currency.toUpperCase(), t.last);
+          }
+        } catch {
+          // Skip failed batch
+        }
+      }
+    } catch {
+      // Could not load markets — return empty map
+    }
+    return priceMap;
+  }
+
   async getMarkets(): Promise<Market[]> {
     if (!this.exchange) throw new Error('Not connected');
     await this.exchange.loadMarkets();

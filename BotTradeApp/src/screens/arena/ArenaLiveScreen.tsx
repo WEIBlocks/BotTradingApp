@@ -86,7 +86,15 @@ function rankLabel(rank: number): string {
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function ArenaLiveScreen({navigation, route}: Props) {
-  const {gladiatorIds, sessionId: existingSessionId, durationSeconds, mode: arenaMode, virtualBalance: arenaBal} = route.params as any;
+  const {
+    gladiatorIds,
+    sessionId: existingSessionId,
+    durationSeconds,
+    mode: arenaMode,
+    virtualBalance: arenaBal,
+    cryptoBalance: arenaCryptoBal,
+    stockBalance: arenaStockBal,
+  } = route.params as any;
   const {alert: showAlert} = useToast();
   const [session, setSession] = useState<ArenaSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,7 +109,6 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
   // Create session on mount (or resume existing)
   useEffect(() => {
     if (existingSessionId) {
-      // Resume viewing an existing session
       arenaApi.getSession(existingSessionId)
         .then(s => {
           sessionIdRef.current = s.id;
@@ -110,7 +117,14 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
         .catch(() => showAlert('Error', 'Failed to load arena session.'))
         .finally(() => setLoading(false));
     } else {
-      arenaApi.createSession(gladiatorIds, durationSeconds, arenaMode ?? 'shadow', arenaBal ?? 10000)
+      arenaApi.createSession(
+        gladiatorIds,
+        durationSeconds,
+        arenaMode ?? 'shadow',
+        arenaBal ?? 10000,
+        arenaCryptoBal,
+        arenaStockBal,
+      )
         .then(s => {
           sessionIdRef.current = s.id;
           setSession(s);
@@ -285,6 +299,102 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
           </View>
         </View>
 
+        {/* ── POOL & MARKET INFO ── */}
+        {(() => {
+          const isMixed = session?.isMixed ?? false;
+          const hasStocks = session?.hasStocks ?? false;
+          const marketOpen = session?.marketOpen ?? true;
+          const cryptoBal = session?.cryptoBalance ? parseFloat(session.cryptoBalance) : null;
+          const stockBal = session?.stockBalance ? parseFloat(session.stockBalance) : null;
+          const totalPool = parseFloat(session?.virtualBalance ?? '10000');
+          const perBot = session?.perBotAllocation ? parseFloat(session.perBotAllocation) : totalPool / Math.max(1, ranked.length);
+          return (
+            <View style={{marginHorizontal: 16, marginBottom: 10, gap: 6}}>
+              {/* Shared pool row */}
+              <View style={{backgroundColor: '#111827', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#1F2937'}}>
+                <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
+                  <View>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>SHARED POOL</Text>
+                    {isMixed ? (
+                      <View style={{flexDirection: 'row', gap: 8, marginTop: 2}}>
+                        {cryptoBal != null && <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#F59E0B'}}>${cryptoBal.toLocaleString()} crypto</Text>}
+                        {stockBal != null && <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#3B82F6'}}>${stockBal.toLocaleString()} stocks</Text>}
+                      </View>
+                    ) : (
+                      <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#FFFFFF'}}>${totalPool.toLocaleString()}</Text>
+                    )}
+                  </View>
+                  <View style={{alignItems: 'flex-end'}}>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>PER BOT</Text>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#10B981'}}>${perBot.toLocaleString(undefined, {maximumFractionDigits: 0})}</Text>
+                  </View>
+                </View>
+              </View>
+              {/* Market hours indicator (only if session has stock bots) */}
+              {hasStocks && (
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: marketOpen ? 'rgba(16,185,129,0.06)' : 'rgba(239,68,68,0.06)', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: marketOpen ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'}}>
+                  <View style={{width: 7, height: 7, borderRadius: 4, backgroundColor: marketOpen ? '#10B981' : '#EF4444'}} />
+                  <Text style={{fontFamily: 'Inter-Medium', fontSize: 11, color: marketOpen ? '#10B981' : '#EF4444'}}>
+                    US Market {marketOpen ? 'Open — Stock bots trading' : 'Closed — Stock bots idle until 9:30 AM ET'}
+                  </Text>
+                </View>
+              )}
+            </View>
+          );
+        })()}
+
+        {/* ── P&L SUMMARY ── */}
+        {(() => {
+          const avgReturnPct = ranked.length > 0
+            ? ranked.reduce((s, g) => s + (g.currentReturn || 0), 0) / ranked.length : 0;
+          const bestBot = ranked[0];
+          const worstBot = ranked[ranked.length - 1];
+          const totalPnl = ranked.reduce((s, g) => s + (g.currentPnl ?? 0), 0);
+          const isPos = totalPnl >= 0;
+          return (
+            <View style={{marginHorizontal: 16, marginBottom: 12, backgroundColor: '#111827', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#1F2937'}}>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
+                <View>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>TOTAL P&L (ALL BOTS)</Text>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: isPos ? '#10B981' : '#EF4444'}}>
+                    {isPos ? '+' : ''}${totalPnl.toFixed(2)}
+                  </Text>
+                </View>
+                <View style={{alignItems: 'flex-end'}}>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>AVG RETURN</Text>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: avgReturnPct >= 0 ? '#10B981' : '#EF4444'}}>
+                    {avgReturnPct >= 0 ? '+' : ''}{avgReturnPct.toFixed(2)}%
+                  </Text>
+                </View>
+              </View>
+              <View style={{flexDirection: 'row', gap: 6}}>
+                <View style={{flex: 1, backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: 8, padding: 6, alignItems: 'center'}}>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 12, color: '#10B981'}}>
+                    {bestBot ? `${(bestBot.currentReturn || 0) >= 0 ? '+' : ''}${(bestBot.currentReturn || 0).toFixed(1)}%` : '—'}
+                  </Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 8, color: '#10B981'}}>Best</Text>
+                </View>
+                <View style={{flex: 1, backgroundColor: 'rgba(239,68,68,0.08)', borderRadius: 8, padding: 6, alignItems: 'center'}}>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 12, color: '#EF4444'}}>
+                    {worstBot ? `${(worstBot.currentReturn || 0).toFixed(1)}%` : '—'}
+                  </Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 8, color: '#EF4444'}}>Worst</Text>
+                </View>
+                <View style={{flex: 1, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: 6, alignItems: 'center'}}>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 12, color: '#FFFFFF'}}>
+                    {ranked.reduce((s, g) => s + (g.totalTrades ?? 0), 0)}
+                  </Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 8, color: 'rgba(255,255,255,0.4)'}}>Trades</Text>
+                </View>
+                <View style={{flex: 1, backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: 6, alignItems: 'center'}}>
+                  <Text style={{fontFamily: 'Inter-Bold', fontSize: 12, color: '#FFFFFF'}}>{ranked.length}</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 8, color: 'rgba(255,255,255,0.4)'}}>Bots</Text>
+                </View>
+              </View>
+            </View>
+          );
+        })()}
+
         {/* ── CHART SECTION ── */}
         <View style={styles.chartSection}>
           <View style={styles.chartHeader}>
@@ -343,12 +453,46 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
 
               {/* Name + strategy + stats */}
               <View style={[styles.leaderInfo, {flex: 1}]}>
-                <Text style={styles.leaderName}>{g.name}</Text>
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap'}}>
+                  <Text style={styles.leaderName}>{g.name}</Text>
+                  {/* Asset class badge */}
+                  {(() => {
+                    const ac = g.assetClass ?? (g.category === 'Stocks' ? 'stocks' : 'crypto');
+                    const badgeColor = ac === 'stocks' ? '#3B82F6' : ac === 'mixed' ? '#F59E0B' : '#10B981';
+                    const badgeLabel = ac === 'stocks' ? 'STOCK' : ac === 'mixed' ? 'MIXED' : 'CRYPTO';
+                    return (
+                      <View style={{backgroundColor: badgeColor + '22', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4}}>
+                        <Text style={{fontFamily: 'Inter-Bold', fontSize: 8, color: badgeColor, letterSpacing: 0.3}}>{badgeLabel}</Text>
+                      </View>
+                    );
+                  })()}
+                  {/* Market closed indicator for stock bots */}
+                  {(g.assetClass === 'stocks' || g.isStockBot) && g.marketOpen === false && (
+                    <View style={{backgroundColor: 'rgba(239,68,68,0.15)', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4}}>
+                      <Text style={{fontFamily: 'Inter-Bold', fontSize: 7, color: '#EF4444'}}>MARKET CLOSED</Text>
+                    </View>
+                  )}
+                </View>
                 <Text style={styles.leaderStrategy}>{g.strategy.toUpperCase()}</Text>
-                <View style={{flexDirection: 'row', gap: 4, marginTop: 3, flexWrap: 'nowrap'}}>
-                  <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#10B981'}}>B:{botBuys}</Text>
-                  <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#EF4444'}}>S:{botSells}</Text>
-                  <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#6B7280'}}>H:{loggedHolds >= 20 ? '20+' : loggedHolds}</Text>
+                <View style={{flexDirection: 'row', gap: 4, marginTop: 3, flexWrap: 'nowrap', alignItems: 'center'}}>
+                  {/* Starting allocation */}
+                  {g.startingAlloc != null && g.startingAlloc > 0 && (
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.35)'}}>
+                      ${g.startingAlloc.toLocaleString(undefined, {maximumFractionDigits: 0})} alloc ·
+                    </Text>
+                  )}
+                  <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#FFFFFF'}}>
+                    {g.currentTrades ?? 0}T
+                  </Text>
+                  {(g.currentWins ?? 0) > 0 && (
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#10B981'}}>{g.currentWins}W</Text>
+                  )}
+                  {(g.currentLosses ?? 0) > 0 && (
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#EF4444'}}>{g.currentLosses}L</Text>
+                  )}
+                  {(g.openPositionCount ?? 0) > 0 && (
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#3B82F6'}}>{g.openPositionCount} open</Text>
+                  )}
                 </View>
               </View>
 
@@ -357,9 +501,9 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
                 <Text style={[styles.returnValue, {color: returnColor}]}>
                   {returnSign}{(g.currentReturn || 0).toFixed(2)}%
                 </Text>
-                {g.totalPnl != null && g.totalPnl !== 0 && (
+                {g.currentPnl != null && g.currentPnl !== 0 && (
                   <Text style={{fontFamily: 'Inter-Medium', fontSize: 10, color: returnColor, textAlign: 'right'}}>
-                    {g.totalPnl >= 0 ? '+' : ''}${g.totalPnl.toFixed(2)}
+                    {(g.currentPnl ?? 0) >= 0 ? '+' : ''}${(g.currentPnl ?? 0).toFixed(2)}
                   </Text>
                 )}
                 {isFirst && (
@@ -408,58 +552,130 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
               ))}
             </ScrollView>
 
-            {/* Overall stats bar */}
+            {/* Overall stats bar — use DB trade counts (accurate), not trimmed log */}
             {(() => {
-              const allDecs: any[] = [];
+              // Real trade counts from DB positions (not trimmed log)
+              const realTotalTrades = activeGladiators.reduce((s, g) => s + ((g as any).currentTrades ?? g.totalTrades ?? 0), 0);
+              // Open/closed from real positions
+              let openCount = 0;
+              let closedCount = 0;
               for (const g of activeGladiators) {
-                const log = (g as any).decisionLog;
-                if (Array.isArray(log)) allDecs.push(...log);
+                const trades = (g as any).trades || [];
+                openCount += trades.filter((t: any) => t.status === 'open').length;
+                closedCount += trades.filter((t: any) => t.status === 'closed').length;
               }
-              const totalB = allDecs.filter(d => d.action === 'BUY').length;
-              const totalS = allDecs.filter(d => d.action === 'SELL').length;
-              const loggedH = allDecs.filter(d => d.action === 'HOLD').length;
-              // Holds are trimmed per bot (max 20 each), so show 100+ if at limit
-              const botsAtHoldLimit = activeGladiators.filter(g => {
-                const log = (g as any).decisionLog || [];
-                return log.filter((d: any) => d.action === 'HOLD').length >= 20;
-              }).length;
-              const holdsDisplay = botsAtHoldLimit > 0 ? `${loggedH}+` : `${loggedH}`;
-              const totalDisplay = botsAtHoldLimit > 0 ? `${totalB + totalS}+${loggedH}` : `${allDecs.length}`;
+              // Total P&L across all bots (from currentPnl which uses real positions)
+              const totalPnl = activeGladiators.reduce((s, g) => s + ((g as any).currentPnl ?? 0), 0);
+              const pnlColor = totalPnl >= 0 ? '#10B981' : '#EF4444';
               return (
                 <View style={{flexDirection: 'row', marginHorizontal: 16, marginBottom: 12, backgroundColor: '#111827', borderRadius: 10, padding: 10, gap: 4}}>
                   <View style={{flex: 1, alignItems: 'center'}}>
-                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#10B981'}}>{totalB}</Text>
-                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#10B981'}}>Buys</Text>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#FFFFFF'}}>{realTotalTrades}</Text>
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.5)'}}>Total</Text>
                   </View>
                   <View style={{width: 1, backgroundColor: '#1F2937'}} />
                   <View style={{flex: 1, alignItems: 'center'}}>
-                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#EF4444'}}>{totalS}</Text>
-                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#EF4444'}}>Sells</Text>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#3B82F6'}}>{openCount}</Text>
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#3B82F6'}}>Open</Text>
                   </View>
                   <View style={{width: 1, backgroundColor: '#1F2937'}} />
                   <View style={{flex: 1, alignItems: 'center'}}>
-                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#6B7280'}}>{holdsDisplay}</Text>
-                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#6B7280'}}>Holds</Text>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#6B7280'}}>{closedCount}</Text>
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: '#6B7280'}}>Closed</Text>
                   </View>
                   <View style={{width: 1, backgroundColor: '#1F2937'}} />
                   <View style={{flex: 1, alignItems: 'center'}}>
-                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'}}>{totalB + totalS}</Text>
-                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.4)'}}>Trades</Text>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: pnlColor}}>
+                      {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}
+                    </Text>
+                    <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.4)'}}>P&L</Text>
                   </View>
                 </View>
               );
             })()}
 
-            {/* Decision/Trade cards with pagination */}
-            {(() => {
+            {/* Trades tab — show REAL trades from DB positions */}
+            {feedTab === 'trades' && (() => {
+              const allTrades: any[] = [];
+              for (const g of activeGladiators) {
+                if (decisionFilter && decisionFilter !== g.id) continue;
+                const trades = (g as any).trades || [];
+                for (const t of trades) {
+                  allTrades.push({ ...t, botName: g.name, botColor: g.avatarColor || '#6C63FF', category: (g as any).category });
+                }
+              }
+              allTrades.sort((a: any, b: any) => new Date(b.openedAt || 0).getTime() - new Date(a.openedAt || 0).getTime());
+
+              if (allTrades.length === 0) {
+                return (
+                  <View style={{alignItems: 'center', paddingVertical: 24}}>
+                    <Text style={{fontSize: 32, marginBottom: 8}}>{'💰'}</Text>
+                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 4}}>No trades executed yet</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.2)', textAlign: 'center'}}>
+                      Positions will appear here when bots open/close trades.
+                    </Text>
+                  </View>
+                );
+              }
+
+              return (
+                <>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.2)', textAlign: 'center', marginBottom: 8}}>
+                    {allTrades.length} position{allTrades.length !== 1 ? 's' : ''} ({allTrades.filter((t: any) => t.status === 'open').length} open, {allTrades.filter((t: any) => t.status === 'closed').length} closed)
+                  </Text>
+                  {allTrades.map((t: any, i: number) => {
+                    const isOpen = t.status === 'open';
+                    const isWin = !isOpen && (t.pnl ?? 0) > 0;
+                    const borderColor = isOpen ? '#3B82F6' : isWin ? '#10B981' : '#EF4444';
+                    const pnlVal = t.pnl ?? 0;
+                    const pnlPct = t.pnlPercent ?? 0;
+                    return (
+                      <View key={`trade-${i}`} style={{marginHorizontal: 16, marginBottom: 8, backgroundColor: '#111827', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#1F2937', borderLeftWidth: 3, borderLeftColor: borderColor}}>
+                        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4}}>
+                          <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+                            <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: t.botColor}} />
+                            <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#9CA3AF'}}>{t.botName}</Text>
+                            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#FFFFFF'}}>{t.symbol}</Text>
+                            {t.category && (
+                              <View style={{backgroundColor: t.category === 'Stocks' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3}}>
+                                <Text style={{fontFamily: 'Inter-Bold', fontSize: 7, color: t.category === 'Stocks' ? '#3B82F6' : '#F59E0B'}}>{t.category === 'Stocks' ? 'STOCK' : 'CRYPTO'}</Text>
+                              </View>
+                            )}
+                          </View>
+                          {isOpen ? (
+                            <Text style={{fontFamily: 'Inter-Bold', fontSize: 11, color: '#3B82F6'}}>OPEN</Text>
+                          ) : (
+                            <Text style={{fontFamily: 'Inter-Bold', fontSize: 12, color: borderColor}}>
+                              {isWin ? '+' : ''}{pnlPct.toFixed(2)}%
+                            </Text>
+                          )}
+                        </View>
+                        <View style={{flexDirection: 'row', gap: 12, marginBottom: 2}}>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: '#9CA3AF'}}>Entry: ${t.entryPrice?.toFixed(2)}</Text>
+                          {!isOpen && <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: '#9CA3AF'}}>Exit: ${t.exitPrice?.toFixed(2)}</Text>}
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: '#9CA3AF'}}>Size: ${t.entryValue?.toFixed(0)}</Text>
+                          {!isOpen && <Text style={{fontFamily: 'Inter-Bold', fontSize: 11, color: borderColor}}>P&L: {pnlVal >= 0 ? '+' : ''}${pnlVal.toFixed(2)}</Text>}
+                        </View>
+                        {t.entryReasoning && (
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: '#6B7280', fontStyle: 'italic'}} numberOfLines={1}>
+                            {t.entryReasoning.slice(0, 80)}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  })}
+                </>
+              );
+            })()}
+
+            {/* Decisions tab — show decision log (BUY/SELL/HOLD from engine) */}
+            {feedTab === 'decisions' && (() => {
               const allDecisions: {botName: string; botColor: string; action: string; symbol: string; price: number; reasoning: string; time: string}[] = [];
               for (const g of activeGladiators) {
                 if (decisionFilter && decisionFilter !== g.id) continue;
                 const log = (g as any).decisionLog;
                 if (Array.isArray(log)) {
                   for (const d of log) {
-                    // If "Trades" tab, only show BUY/SELL
-                    if (feedTab === 'trades' && d.action === 'HOLD') continue;
                     allDecisions.push({
                       botName: g.name,
                       botColor: g.avatarColor || '#6C63FF',
@@ -477,12 +693,10 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
               if (allDecisions.length === 0) {
                 return (
                   <View style={{alignItems: 'center', paddingVertical: 24}}>
-                    <Text style={{fontSize: 32, marginBottom: 8}}>{feedTab === 'trades' ? '💰' : '📋'}</Text>
-                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 4}}>
-                      {feedTab === 'trades' ? 'No trades executed yet' : 'Waiting for bot decisions...'}
-                    </Text>
+                    <Text style={{fontSize: 32, marginBottom: 8}}>{'📋'}</Text>
+                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 4}}>Waiting for bot decisions...</Text>
                     <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.2)', textAlign: 'center'}}>
-                      {feedTab === 'trades' ? 'BUY and SELL orders will appear here when bots execute trades.' : 'Decisions will appear as bots analyze the market.'}
+                      Decisions will appear as bots analyze the market.
                     </Text>
                   </View>
                 );
@@ -494,7 +708,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
               return (
                 <>
                   <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.2)', textAlign: 'center', marginBottom: 8}}>
-                    Showing {decisionPage * DECISIONS_PER_PAGE + 1}-{Math.min((decisionPage + 1) * DECISIONS_PER_PAGE, allDecisions.length)} of {allDecisions.length} {feedTab === 'trades' ? 'trades' : 'decisions'}
+                    Showing {decisionPage * DECISIONS_PER_PAGE + 1}-{Math.min((decisionPage + 1) * DECISIONS_PER_PAGE, allDecisions.length)} of {allDecisions.length} decisions
                   </Text>
                   {paged.map((d, i) => (
                     <View key={`dec-${decisionPage}-${i}`} style={{marginHorizontal: 16, marginBottom: 8, backgroundColor: '#111827', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#1F2937', borderLeftWidth: d.action !== 'HOLD' ? 3 : 1, borderLeftColor: d.action === 'BUY' ? '#10B981' : d.action === 'SELL' ? '#EF4444' : '#1F2937'}}>

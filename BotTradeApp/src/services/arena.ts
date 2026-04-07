@@ -70,6 +70,14 @@ export interface ArenaSession {
   elapsedSeconds: number;
   remainingSeconds: number;
   gladiators: Gladiator[];
+  virtualBalance?: string;
+  cryptoBalance?: string | null;
+  stockBalance?: string | null;
+  isMixed?: boolean;
+  hasCrypto?: boolean;
+  hasStocks?: boolean;
+  perBotAllocation?: string | null;
+  marketOpen?: boolean;
 }
 
 export interface ArenaHistoryItem {
@@ -118,13 +126,18 @@ function mapBotToGladiator(b: ArenaBotRow, index: number): Gladiator {
     selected: index < 3,
     currentReturn: parseFloat(b.return30d ?? '0') || 0,
     equityData: [],
+    category: b.category,
+    // assetClass detected by backend
+    assetClass: (b as any).assetClass ?? 'crypto',
   };
 }
 
 function mapGladiatorRow(g: any): Gladiator {
   const ret = parseFloat(g.finalReturn ?? g.currentReturn ?? '0') || 0;
   return {
+    // Core identity
     id: g.botId ?? g.id,
+    gladiatorId: g.id, // keep the arena gladiator row ID as well
     name: g.botName ?? g.name ?? 'Unknown',
     strategy: g.botStrategy ?? g.strategy ?? '',
     statLabel: g.isWinner ? 'Champion' : g.rank ? `Rank #${g.rank}` : '',
@@ -137,6 +150,17 @@ function mapGladiatorRow(g: any): Gladiator {
     totalTrades: g.totalTrades ?? g.currentTrades ?? 0,
     totalPnl: parseFloat(g.totalPnl ?? g.currentPnl ?? '0') || 0,
     decisionLog: Array.isArray(g.decisionLog) ? g.decisionLog : [],
+    // Extra fields from live/results session endpoints (pass-through)
+    trades: Array.isArray(g.trades) ? g.trades : [],
+    detailedStats: g.detailedStats ?? null,
+    tradeBreakdown: g.tradeBreakdown ?? null,
+    category: g.category ?? g.botCategory ?? null,
+    currentWins: g.currentWins ?? 0,
+    currentLosses: g.currentLosses ?? 0,
+    currentTrades: g.currentTrades ?? g.totalTrades ?? 0,
+    currentPnl: parseFloat(g.currentPnl ?? g.totalPnl ?? '0') || 0,
+    openPositionCount: g.openPositionCount ?? 0,
+    closedPositionCount: g.closedPositionCount ?? 0,
   };
 }
 
@@ -151,10 +175,18 @@ export const arenaApi = {
   },
 
   /** Create a new arena session. */
-  async createSession(botIds: string[], durationSeconds = 300, mode: 'shadow' | 'live' = 'shadow', virtualBalance = 10000): Promise<ArenaSession> {
-    const res = await api.post<DataWrap<SessionResponse>>('/arena/session', {
-      botIds, durationSeconds, mode, virtualBalance,
-    } as Record<string, unknown>);
+  async createSession(
+    botIds: string[],
+    durationSeconds = 300,
+    mode: 'shadow' | 'live' = 'shadow',
+    virtualBalance = 10000,
+    cryptoBalance?: number,
+    stockBalance?: number,
+  ): Promise<ArenaSession> {
+    const body: Record<string, unknown> = { botIds, durationSeconds, mode, virtualBalance };
+    if (cryptoBalance !== undefined) body.cryptoBalance = cryptoBalance;
+    if (stockBalance !== undefined) body.stockBalance = stockBalance;
+    const res = await api.post<DataWrap<SessionResponse>>('/arena/session', body);
     const s = res?.data;
     return {
       id: s?.id ?? '',
@@ -164,6 +196,13 @@ export const arenaApi = {
       elapsedSeconds: s?.elapsedSeconds ?? 0,
       remainingSeconds: s?.remainingSeconds ?? durationSeconds,
       gladiators: (s?.gladiators ?? []).map(mapGladiatorRow),
+      virtualBalance: (s as any)?.virtualBalance,
+      cryptoBalance: (s as any)?.cryptoBalance,
+      stockBalance: (s as any)?.stockBalance,
+      isMixed: (s as any)?.isMixed ?? false,
+      hasCrypto: (s as any)?.hasCrypto ?? true,
+      hasStocks: (s as any)?.hasStocks ?? false,
+      perBotAllocation: (s as any)?.perBotAllocation,
     };
   },
 
@@ -179,7 +218,33 @@ export const arenaApi = {
       elapsedSeconds: s?.elapsedSeconds ?? 0,
       remainingSeconds: s?.remainingSeconds ?? 0,
       gladiators: (s?.gladiators ?? []).map(mapGladiatorRow),
+      virtualBalance: (s as any)?.virtualBalance,
+      cryptoBalance: (s as any)?.cryptoBalance,
+      stockBalance: (s as any)?.stockBalance,
+      isMixed: (s as any)?.isMixed ?? false,
+      hasCrypto: (s as any)?.hasCrypto ?? true,
+      hasStocks: (s as any)?.hasStocks ?? false,
+      perBotAllocation: (s as any)?.perBotAllocation,
+      marketOpen: (s as any)?.marketOpen,
     };
+  },
+
+  /** Fetch connected exchange balances for live arena validation. */
+  async getExchangeBalances(): Promise<{cryptoBalance: number; stockBalance: number; hasCrypto: boolean; hasStocks: boolean}> {
+    try {
+      const res = await api.get<DataWrap<any[]>>('/user/exchanges');
+      const conns = Array.isArray(res?.data) ? res.data : [];
+      const cryptoConn = conns.find((c: any) => c.assetClass === 'crypto' || c.provider === 'binance');
+      const stockConn = conns.find((c: any) => c.assetClass === 'stocks' || c.provider === 'alpaca');
+      return {
+        cryptoBalance: cryptoConn ? parseFloat(cryptoConn.totalBalance ?? '0') : 0,
+        stockBalance: stockConn ? parseFloat(stockConn.totalBalance ?? '0') : 0,
+        hasCrypto: !!cryptoConn,
+        hasStocks: !!stockConn,
+      };
+    } catch {
+      return { cryptoBalance: 0, stockBalance: 0, hasCrypto: false, hasStocks: false };
+    }
   },
 
   /** Get user's arena battle history. */

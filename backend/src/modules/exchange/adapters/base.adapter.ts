@@ -49,6 +49,7 @@ export interface ExchangeAdapter {
   testConnection(): Promise<boolean>;
   getBalances(): Promise<Balance[]>;
   getTicker(symbol: string): Promise<Ticker>;
+  getTickers?(symbols: string[]): Promise<Map<string, number>>; // currency → USD price
   getMarkets(): Promise<Market[]>;
   createOrder(
     symbol: string,

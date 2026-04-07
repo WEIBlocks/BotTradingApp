@@ -251,45 +251,71 @@ export async function resync(connectionId: string, userId: string) {
 
     const balances = await adapter.getBalances();
 
+    const connAssetClass = conn.assetClass ?? 'crypto';
+    const STABLE = new Set(['USDT', 'USDC', 'USD', 'BUSD', 'DAI']);
+
+    // For crypto: batch-fetch tickers to avoid serial N×200ms calls
+    const priceMap = new Map<string, number>();
+    const nonZero = balances.filter(b => b.total > 0 || b.free > 0);
+    if (connAssetClass !== 'stocks' && adapter.getTickers) {
+      const cryptoSymbols = nonZero
+        .map(b => `${b.currency.toUpperCase()}/USDT`)
+        .filter(s => !STABLE.has(s.replace('/USDT', '')));
+      if (cryptoSymbols.length > 0) {
+        const fetched = await adapter.getTickers(cryptoSymbols).catch(() => new Map<string, number>());
+        for (const [k, v] of fetched) priceMap.set(k, v);
+      }
+    }
+
+    await adapter.disconnect();
+
     // Delete old assets and insert fresh data
     await db
       .delete(exchangeAssets)
       .where(eq(exchangeAssets.exchangeConnId, connectionId));
 
     let totalUsd = 0;
+    const rows: { exchangeConnId: string; symbol: string; amount: string; valueUsd: string; allocation: string }[] = [];
 
-    const connAssetClass = conn.assetClass ?? 'crypto';
-
-    for (const bal of balances) {
+    for (const bal of nonZero) {
+      const sym = bal.currency.toUpperCase();
       let valueUsd = 0;
-      try {
-        if (['USDT', 'USDC', 'USD', 'BUSD', 'DAI'].includes(bal.currency)) {
-          valueUsd = bal.total;
-        } else if (connAssetClass === 'stocks') {
-          valueUsd = bal.total; // Alpaca returns market value
-        } else {
-          const ticker = await adapter.getTicker(`${bal.currency}/USDT`);
-          valueUsd = bal.total * ticker.last;
-        }
-      } catch {
-        // Could not fetch ticker
+
+      if (STABLE.has(sym)) {
+        valueUsd = bal.total;
+      } else if (connAssetClass === 'stocks') {
+        valueUsd = bal.total;
+      } else {
+        const price = priceMap.get(sym);
+        if (price) valueUsd = bal.total * price;
       }
 
       totalUsd += valueUsd;
 
-      const resyncAmount = connAssetClass === 'stocks' && !['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes(bal.currency)
-        ? bal.free  // share count
-        : bal.total;
-
-      await db.insert(exchangeAssets).values({
+      const resyncAmount = connAssetClass === 'stocks' && !STABLE.has(sym) ? bal.free : bal.total;
+      rows.push({
         exchangeConnId: connectionId,
         symbol: bal.currency,
         amount: String(resyncAmount),
-        valueUsd: String(valueUsd.toFixed(2)),
+        valueUsd: valueUsd.toFixed(2),
+        allocation: '0',
       });
     }
 
-    await adapter.disconnect();
+    // Compute allocation in memory
+    if (totalUsd > 0) {
+      for (const row of rows) {
+        row.allocation = ((parseFloat(row.valueUsd) / totalUsd) * 100).toFixed(2);
+      }
+    }
+
+    // Bulk insert (chunked to stay within PG parameter limits)
+    if (rows.length > 0) {
+      const CHUNK = 500;
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        await db.insert(exchangeAssets).values(rows.slice(i, i + CHUNK) as any);
+      }
+    }
 
     // Update connection with new balance
     const [result] = await db

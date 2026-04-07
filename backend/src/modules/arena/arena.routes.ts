@@ -36,9 +36,9 @@ export async function arenaRoutes(app: FastifyInstance) {
   zApp.post('/session', {
     schema: { body: createSessionBodySchema, response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
   }, async (request) => {
-    const { botIds, durationSeconds, mode, virtualBalance } = request.body;
+    const { botIds, durationSeconds, mode, virtualBalance, cryptoBalance, stockBalance } = request.body;
     const session = await arenaService.createSession(
-      request.user.userId, botIds, durationSeconds, mode, virtualBalance,
+      request.user.userId, botIds, durationSeconds, mode, virtualBalance, cryptoBalance, stockBalance,
     );
     return { data: session };
   });

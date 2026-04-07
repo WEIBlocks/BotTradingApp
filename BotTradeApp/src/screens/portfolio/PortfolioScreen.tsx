@@ -4,9 +4,10 @@ import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Rect, Circle} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
-import {portfolioApi, PortfolioSummary, PortfolioAsset, AllocationItem} from '../../services/portfolio';
+import {portfolioApi, PortfolioSummary, PortfolioAsset, AllocationItem, PortfolioMode} from '../../services/portfolio';
 import {dashboardApi, ActiveBot as DashActiveBot} from '../../services/dashboard';
 import {botsService} from '../../services/bots';
+import {api} from '../../services/api';
 import AllocationBar from '../../components/charts/AllocationBar';
 
 // ─── Shadow session type (for cross-referencing status) ─────────────────────
@@ -88,6 +89,19 @@ function SearchIcon({size = 16, color = 'rgba(255,255,255,0.35)'}: {size?: numbe
   );
 }
 
+// ─── Sync Icon ───────────────────────────────────────────────────────────────
+
+function SyncIcon({size = 20, color = 'rgba(255,255,255,0.75)'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M4 12C4 7.58 7.58 4 12 4C14.3 4 16.4 4.93 17.95 6.46L20 8.5" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Path d="M20 4V8.5H15.5" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M20 12C20 16.42 16.42 20 12 20C9.7 20 7.6 19.07 6.05 17.54L4 15.5" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Path d="M4 20V15.5H8.5" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
 // ─── Connect Exchange Icon ──────────────────────────────────────────────────
 
 function LinkIcon({size = 18}: {size?: number}) {
@@ -112,15 +126,20 @@ export default function PortfolioScreen() {
   const [shadowSessions, setShadowSessions] = useState<ShadowSessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [assetSearch, setAssetSearch] = useState('');
   const [providerFilter, setProviderFilter] = useState('all'); // 'all' | 'binance' | 'alpaca' | etc.
+  const [portfolioMode, setPortfolioMode] = useState<PortfolioMode | undefined>(undefined);
+  const [hasLive, setHasLive] = useState(false);
+  const [hasTestnet, setHasTestnet] = useState(false);
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (mode?: PortfolioMode) => {
+    const activeMode = mode ?? portfolioMode;
     try {
       const [s, a, alloc, bots, shadowRes] = await Promise.all([
-        portfolioApi.getSummary().catch(() => ({totalValue: 0, totalChange24h: 0, totalChangePercent24h: 0, totalRealizedPnl: 0, closedPositions: 0, openPositions: 0}) as PortfolioSummary),
-        portfolioApi.getAssets().catch(() => [] as PortfolioAsset[]),
-        portfolioApi.getAllocation().catch(() => [] as AllocationItem[]),
+        portfolioApi.getSummary(activeMode).catch(() => ({totalValue: 0, totalChange24h: 0, totalChangePercent24h: 0, totalRealizedPnl: 0, closedPositions: 0, openPositions: 0}) as PortfolioSummary),
+        portfolioApi.getAssets(activeMode).catch(() => [] as PortfolioAsset[]),
+        portfolioApi.getAllocation(activeMode).catch(() => [] as AllocationItem[]),
         dashboardApi.getActiveBots().catch(() => [] as DashActiveBot[]),
         botsService.getShadowSessions().then((res: any) => {
           const items = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
@@ -140,7 +159,34 @@ export default function PortfolioScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+  useFocusEffect(useCallback(() => {
+    portfolioApi.getModes().then(({hasLive: hl, hasTestnet: ht}) => {
+      setHasLive(hl);
+      setHasTestnet(ht);
+      const autoMode: PortfolioMode | undefined = hl ? 'live' : ht ? 'testnet' : undefined;
+      setPortfolioMode(m => {
+        const resolved = m ?? autoMode;
+        fetchData(resolved);
+        return resolved;
+      });
+    }).catch(() => fetchData(undefined));
+  }, [fetchData]));
+
+  const handleResync = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      // Resync all connected exchanges then refresh UI
+      const res = await api.get<{data: {id: string}[]}>('/exchange/user/connections').catch(() => ({data: []}));
+      const connections: {id: string}[] = Array.isArray((res as any)?.data) ? (res as any).data : Array.isArray(res) ? (res as any) : [];
+      await Promise.allSettled(connections.map((c: {id: string}) => api.post(`/exchange/${c.id}/resync`, {})));
+      await fetchData(portfolioMode);
+    } catch {
+      // Best-effort
+    } finally {
+      setSyncing(false);
+    }
+  }, [syncing, fetchData]);
 
   // Unique providers for filter chips
   const providers = useMemo(() => {
@@ -233,11 +279,21 @@ export default function PortfolioScreen() {
             <Text style={styles.screenTitle}>Portfolio</Text>
           </View>
         </View>
-        <TouchableOpacity
-          style={styles.iconBtn}
-          onPress={() => navigation.navigate('Notifications')}>
-          <BellIconSvg size={28} hasDot />
-        </TouchableOpacity>
+        <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+          <TouchableOpacity
+            style={[styles.iconBtn, syncing && {opacity: 0.5}]}
+            onPress={handleResync}
+            disabled={syncing}>
+            {syncing
+              ? <ActivityIndicator size="small" color="rgba(255,255,255,0.75)" />
+              : <SyncIcon size={22} />}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => navigation.navigate('Notifications')}>
+            <BellIconSvg size={28} hasDot />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -246,13 +302,41 @@ export default function PortfolioScreen() {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            onRefresh={() => { setRefreshing(true); fetchData(); }}
+            onRefresh={() => { setRefreshing(true); fetchData(portfolioMode); }}
             tintColor="#10B981"
             colors={['#10B981']}
             progressBackgroundColor="#161B22"
           />
         }>
         {/* Balance Section */}
+        {/* Live / Testnet mode tabs — only shown when both are connected */}
+        {hasLive && hasTestnet && (
+          <View style={styles.modeTabs}>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={[styles.modeTab, portfolioMode === 'live' && styles.modeTabActive]}
+              onPress={() => { setPortfolioMode('live'); fetchData('live'); }}>
+              <View style={[styles.modeDot, {backgroundColor: '#10B981'}]} />
+              <Text style={[styles.modeTabText, portfolioMode === 'live' && styles.modeTabTextActive]}>LIVE</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              style={[styles.modeTab, portfolioMode === 'testnet' && styles.modeTabActive]}
+              onPress={() => { setPortfolioMode('testnet'); fetchData('testnet'); }}>
+              <View style={[styles.modeDot, {backgroundColor: '#F59E0B'}]} />
+              <Text style={[styles.modeTabText, portfolioMode === 'testnet' && styles.modeTabTextActive]}>TESTNET</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Testnet badge when only testnet connected */}
+        {!hasLive && hasTestnet && (
+          <View style={styles.testnetBanner}>
+            <View style={[styles.modeDot, {backgroundColor: '#F59E0B'}]} />
+            <Text style={styles.testnetBannerText}>TESTNET MODE — Test exchange balances</Text>
+          </View>
+        )}
+
         <View style={styles.balanceSection}>
           <Text style={styles.balanceLabel}>
             {providerFilter === 'all' ? 'Total Portfolio Value' : `${providers.find(p => p.key === providerFilter)?.label ?? providerFilter} Portfolio`}
@@ -378,12 +462,22 @@ export default function PortfolioScreen() {
                   const changeColor = asset.change24h >= 0 ? '#10B981' : '#EF4444';
                   const changeSign = asset.change24h >= 0 ? '+' : '';
                   const isLast = idx === filteredAssets.length - 1;
+                  // Format quantity: stocks use up to 6 decimals (fractional shares),
+                  // crypto uses up to 8 but trims trailing zeros
+                  const isStock = asset.provider?.toLowerCase() === 'alpaca';
+                  const qty = asset.amount;
+                  const qtyStr = isStock
+                    ? (qty % 1 === 0 ? qty.toFixed(0) : qty.toFixed(4).replace(/\.?0+$/, ''))
+                    : qty >= 1
+                      ? qty.toLocaleString('en-US', {maximumFractionDigits: 4})
+                      : qty.toFixed(6).replace(/\.?0+$/, '');
+                  const qtyLabel = isStock ? `${qtyStr} shares` : qtyStr + ' ' + asset.symbol;
                   return (
-                    <View key={asset.symbol} style={[styles.assetRow, !isLast && styles.assetRowBorder]}>
+                    <View key={asset.symbol + asset.provider} style={[styles.assetRow, !isLast && styles.assetRowBorder]}>
                       <CoinIcon symbol={asset.symbol} color={asset.iconColor} size={40} />
                       <View style={styles.assetInfo}>
                         <Text style={styles.assetSymbol}>{asset.symbol}</Text>
-                        <Text style={styles.assetName}>{asset.name}</Text>
+                        <Text style={styles.assetName}>{qtyLabel}</Text>
                       </View>
                       <View style={styles.assetRight}>
                         <Text style={styles.assetValue}>
@@ -568,6 +662,14 @@ const styles = StyleSheet.create({
   todayProfit: {fontFamily: 'Inter-Medium', fontSize: 13},
 
   // Allocation
+  modeTabs: {flexDirection: 'row', marginHorizontal: 20, marginBottom: 12, gap: 8},
+  modeTab: {flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)'},
+  modeTabActive: {backgroundColor: 'rgba(255,255,255,0.12)', borderColor: 'rgba(255,255,255,0.25)'},
+  modeTabText: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.5},
+  modeTabTextActive: {color: '#FFFFFF'},
+  modeDot: {width: 7, height: 7, borderRadius: 4},
+  testnetBanner: {flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: 20, marginBottom: 12, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(245,158,11,0.1)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.25)'},
+  testnetBannerText: {fontFamily: 'Inter-Medium', fontSize: 12, color: '#F59E0B'},
   filterRow: {flexDirection: 'row', gap: 8, marginBottom: 14, paddingRight: 8},
   filterChip: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', gap: 6},
   filterChipActive: {backgroundColor: 'rgba(16,185,129,0.12)', borderColor: '#10B981'},

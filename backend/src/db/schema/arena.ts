@@ -2,7 +2,6 @@ import {
   pgTable,
   pgEnum,
   uuid,
-  varchar,
   integer,
   numeric,
   boolean,
@@ -37,7 +36,17 @@ export const arenaSessions = pgTable(
     status: arenaStatusEnum("status").default("setup"),
     mode: arenaModeEnum("mode").default("shadow"),
     durationSeconds: integer("duration_seconds").default(180),
+    // Shared balance pool — all bots compete within this total pool
     virtualBalance: numeric("virtual_balance", { precision: 14, scale: 2 }).default("10000"),
+    // For mixed (crypto+stock) sessions, store balances separately
+    cryptoBalance: numeric("crypto_balance", { precision: 14, scale: 2 }),
+    stockBalance: numeric("stock_balance", { precision: 14, scale: 2 }),
+    // Session type flags
+    hasCrypto: boolean("has_crypto").default(false),
+    hasStocks: boolean("has_stocks").default(false),
+    isMixed: boolean("is_mixed").default(false),
+    // Per-bot allocation = virtualBalance / botCount (computed at start)
+    perBotAllocation: numeric("per_bot_allocation", { precision: 14, scale: 2 }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

@@ -80,9 +80,17 @@ export interface BotPnl {
 
 // ─── Service ────────────────────────────────────────────────────────────────
 
+export type PortfolioMode = 'live' | 'testnet';
+
 export const portfolioApi = {
-  async getSummary(): Promise<PortfolioSummary> {
-    const res = await api.get<DataWrap<PortfolioSummaryResponse>>('/portfolio/summary');
+  async getModes(): Promise<{hasLive: boolean; hasTestnet: boolean}> {
+    const res = await api.get<DataWrap<{hasLive: boolean; hasTestnet: boolean}>>('/portfolio/modes').catch(() => null);
+    return (res as any)?.data ?? {hasLive: false, hasTestnet: false};
+  },
+
+  async getSummary(mode?: PortfolioMode): Promise<PortfolioSummary> {
+    const qs = mode ? `?mode=${mode}` : '';
+    const res = await api.get<DataWrap<PortfolioSummaryResponse>>(`/portfolio/summary${qs}`);
     const d = res?.data;
     return {
       totalValue: parseFloat(d?.totalValue ?? '0') || 0,
@@ -94,10 +102,10 @@ export const portfolioApi = {
     };
   },
 
-  async getAssets(): Promise<PortfolioAsset[]> {
-    const res = await api.get<DataWrap<AssetResponse[]>>('/portfolio/assets');
+  async getAssets(mode?: PortfolioMode): Promise<PortfolioAsset[]> {
+    const qs = mode ? `?mode=${mode}` : '';
+    const res = await api.get<DataWrap<AssetResponse[]>>(`/portfolio/assets${qs}`);
     const items = Array.isArray(res?.data) ? res.data : [];
-    // Backend already filters zero-balance, but double-check client-side
     return items
       .filter(a => parseFloat(a.amount) > 0)
       .map(a => ({
@@ -111,11 +119,12 @@ export const portfolioApi = {
         iconColor: a.iconColor ?? '#6B7280',
         provider: a.provider ?? '',
       }))
-      .sort((a, b) => b.valueUsd - a.valueUsd); // Sort by value descending
+      .sort((a, b) => b.valueUsd - a.valueUsd);
   },
 
-  async getAllocation(): Promise<AllocationItem[]> {
-    const res = await api.get<DataWrap<AllocationResponse[]>>('/portfolio/allocation');
+  async getAllocation(mode?: PortfolioMode): Promise<AllocationItem[]> {
+    const qs = mode ? `?mode=${mode}` : '';
+    const res = await api.get<DataWrap<AllocationResponse[]>>(`/portfolio/allocation${qs}`);
     const items = Array.isArray(res?.data) ? res.data : [];
     return items
       .filter(a => parseFloat(a.percentage) > 0)
