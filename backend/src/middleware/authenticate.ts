@@ -22,3 +22,15 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     throw new UnauthorizedError('Invalid or expired token');
   }
 }
+
+/** Like authenticate but does not throw — sets request.user if token is valid, leaves it unset otherwise */
+export async function optionalAuthenticate(request: FastifyRequest, reply: FastifyReply) {
+  const authHeader = request.headers.authorization;
+  if (!authHeader?.startsWith('Bearer ')) return;
+  const token = authHeader.substring(7);
+  try {
+    request.user = verifyAccessToken(token);
+  } catch {
+    // Invalid token — just ignore, treat as unauthenticated
+  }
+}

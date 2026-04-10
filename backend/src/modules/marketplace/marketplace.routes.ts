@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { listBots, getFeaturedBot, getTrendingBots, getBotById } from './marketplace.service.js';
+import { optionalAuthenticate } from '../../middleware/authenticate.js';
 import {
   listBotsQuerySchema,
   trendingQuerySchema,
@@ -57,9 +58,11 @@ export async function marketplaceRoutes(app: FastifyInstance) {
       params: botIdParamsSchema,
       response: { 200: botResponseSchema },
     },
+    onRequest: [optionalAuthenticate],
   }, async (request, reply) => {
     const { id } = request.params;
-    const bot = await getBotById(id);
+    const userId = (request as any).user?.userId;
+    const bot = await getBotById(id, userId);
     return { data: bot };
   });
 }

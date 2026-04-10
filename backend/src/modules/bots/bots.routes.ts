@@ -45,6 +45,21 @@ import {
   subscriptionIdParamsSchema,
 } from './bots.schema.js';
 
+// ─── Simple in-memory cache for getUserActiveBots (per user, 30s TTL) ────────
+const activeBotsCache = new Map<string, { data: unknown; at: number }>();
+const ACTIVE_BOTS_TTL = 30_000;
+function getActiveBotsCache<T>(userId: string): T | null {
+  const entry = activeBotsCache.get(userId);
+  if (entry && Date.now() - entry.at < ACTIVE_BOTS_TTL) return entry.data as T;
+  return null;
+}
+function setActiveBotsCache(userId: string, data: unknown) {
+  activeBotsCache.set(userId, { data, at: Date.now() });
+}
+export function invalidateActiveBotsCache(userId: string) {
+  activeBotsCache.delete(userId);
+}
+
 export async function botsRoutes(app: FastifyInstance) {
   const zApp = app.withTypeProvider<ZodTypeProvider>();
   zApp.addHook('onRequest', authenticate);
@@ -139,6 +154,7 @@ export async function botsRoutes(app: FastifyInstance) {
     const { id } = request.params;
     const { mode, allocatedAmount } = request.body;
     const result = await purchaseBot(request.user.userId, id, mode, allocatedAmount);
+    invalidateActiveBotsCache(request.user.userId);
     return reply.status(201).send({ data: result });
   });
 
@@ -163,7 +179,11 @@ export async function botsRoutes(app: FastifyInstance) {
       security: [{ bearerAuth: [] }],
     },
   }, async (request, reply) => {
-    const result = await getUserActiveBots(request.user.userId);
+    const uid = request.user.userId;
+    const cached = getActiveBotsCache<unknown[]>(uid);
+    if (cached) return { data: cached };
+    const result = await getUserActiveBots(uid);
+    setActiveBotsCache(uid, result);
     return { data: result };
   });
 
@@ -242,6 +262,7 @@ export async function botsRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params;
     const result = await stopShadowSession(request.user.userId, id);
+    invalidateActiveBotsCache(request.user.userId);
     return { data: result };
   });
 
@@ -371,7 +392,7 @@ export async function botsRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params;
     const { days } = request.query as { days?: number };
-    const result = await getBotEquityCurve(id, days ?? 30);
+    const result = await getBotEquityCurve(id, request.user.userId, days ?? 30);
     return { data: result };
   });
 

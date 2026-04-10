@@ -2,11 +2,40 @@ import ccxt from 'ccxt';
 import { redisConnection } from '../../config/queue.js';
 import { env } from '../../config/env.js';
 
-const binance = new ccxt.binance({
-  enableRateLimit: true,
-  options: { defaultType: 'spot' }, // Force spot market (not futures)
-});
+// ─── Direct Binance REST (no ccxt market loading overhead) ──────────────────
+const BINANCE_TF_MAP: Record<string, string> = {
+  '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d', '1w': '1w',
+};
 
+async function fetchBinanceCandles(symbol: string, tf: string, limit: number): Promise<any[]> {
+  const interval = BINANCE_TF_MAP[tf];
+  if (!interval) throw new Error(`Invalid Binance timeframe: ${tf}`);
+
+  // e.g. BTC/USDT → BTCUSDT
+  const binanceSymbol = symbol.replace('/', '');
+
+  const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
+    const data: any[] = await res.json();
+    return data.map((c: any[]) => ({
+      timestamp: Number(c[0]),
+      open:      parseFloat(c[1]),
+      high:      parseFloat(c[2]),
+      low:       parseFloat(c[3]),
+      close:     parseFloat(c[4]),
+      volume:    parseFloat(c[5]),
+    }));
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ccxt only used for Alpaca fallback — Binance now uses direct REST
 const VALID_CRYPTO_TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d', '1w'];
 
 // Alpaca timeframe mapping for REST API
@@ -123,20 +152,12 @@ export async function getCandles(symbol: string, timeframe: string = '4h', limit
     const cleanSymbol = symbol.replace('/USD', '');
     candles = await fetchStockBars(cleanSymbol, alpacaTF, limit);
   } else {
-    // Fetch from Binance
+    // Fetch from Binance directly (no ccxt market loading)
     if (!VALID_CRYPTO_TIMEFRAMES.includes(tf)) {
       throw new Error(`Invalid timeframe: ${tf}. Valid: ${VALID_CRYPTO_TIMEFRAMES.join(', ')}`);
     }
 
-    const ohlcv = await binance.fetchOHLCV(symbol, tf, undefined, limit);
-    candles = ohlcv.map((c) => ({
-      timestamp: Number(c[0] ?? 0),
-      open: Number(c[1] ?? 0),
-      high: Number(c[2] ?? 0),
-      low: Number(c[3] ?? 0),
-      close: Number(c[4] ?? 0),
-      volume: Number(c[5] ?? 0),
-    }));
+    candles = await fetchBinanceCandles(symbol, tf, limit);
   }
 
   // Cache: stocks 60s (market hours data changes), crypto varies by TF

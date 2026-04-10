@@ -1,5 +1,6 @@
 import { db } from '../../config/database.js';
 import { bots, botStatistics, reviews as reviewsTable, botSubscriptions } from '../../db/schema/bots.js';
+import { botPositions } from '../../db/schema/positions.js';
 import { trades } from '../../db/schema/trades.js';
 import { users } from '../../db/schema/users.js';
 import { eq, and, or, desc, asc, sql, ilike, count, inArray } from 'drizzle-orm';
@@ -157,7 +158,7 @@ export async function getTrendingBots(limit = 5) {
   return rows;
 }
 
-export async function getBotById(botId: string) {
+export async function getBotById(botId: string, userId?: string) {
   const [row] = await db
     .select({
       id: bots.id,
@@ -246,6 +247,7 @@ export async function getBotById(botId: string) {
         and(
           inArray(trades.botSubscriptionId, subIdList),
           eq(trades.isPaper, false),   // never expose shadow/paper trades to other users
+          eq(trades.status, 'filled'), // only show successful trades
         ),
       )
       .orderBy(desc(trades.executedAt))
@@ -293,8 +295,34 @@ export async function getBotById(botId: string) {
   `);
   const sc = (subscriberCount as any[])?.[0] || {};
 
+  // Per-user ROI: if the requesting user is subscribed, override return30d with their personal performance
+  let userReturn30d = row.return30d;
+  if (userId) {
+    const [sub] = await db.select({ amount: botSubscriptions.allocatedAmount })
+      .from(botSubscriptions)
+      .where(and(eq(botSubscriptions.botId, botId), eq(botSubscriptions.userId, userId), eq(botSubscriptions.status, 'active')))
+      .limit(1);
+    if (sub) {
+      const allocAmount = parseFloat(sub.amount ?? '0');
+      if (allocAmount > 0) {
+        const [pnlResult]: any = await db.execute(sql`
+          SELECT COALESCE(SUM(pnl::numeric), 0) as total_pnl
+          FROM bot_positions
+          WHERE bot_id = ${botId}
+            AND user_id = ${userId}
+            AND status = 'closed'
+            AND is_paper = false
+            AND closed_at >= now() - interval '30 days'
+        `);
+        const pnl30d = parseFloat(pnlResult?.total_pnl ?? '0');
+        userReturn30d = ((pnl30d / allocAmount) * 100).toFixed(2) as any;
+      }
+    }
+  }
+
   return {
     ...row,
+    return30d: userReturn30d,
     reviews: formattedReviews,
     recentTrades: formattedTrades,
     // Real-time aggregate stats

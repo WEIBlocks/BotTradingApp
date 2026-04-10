@@ -102,6 +102,7 @@ export async function getRecentTrades(userId: string, limit = 10) {
     LEFT JOIN shadow_sessions ss ON t.shadow_session_id = ss.id
     LEFT JOIN bots b2 ON ss.bot_id = b2.id
     WHERE t.user_id = ${userId}
+      AND t.status NOT IN ('failed', 'cancelled')
     ORDER BY t.executed_at DESC
     LIMIT ${limit}
   `);
@@ -139,7 +140,11 @@ export async function getTradeHistory(userId: string, filters: TradeHistoryFilte
   const { limit: take, offset } = paginate(paginationParams);
 
   // Use parameterized queries (safe from SQL injection)
-  const conditions: any[] = [sql`t.user_id = ${userId}`];
+  // Always exclude failed/cancelled trades from history
+  const conditions: any[] = [
+    sql`t.user_id = ${userId}`,
+    sql`t.status NOT IN ('failed', 'cancelled')`,
+  ];
 
   if (filters.symbol) conditions.push(sql`t.symbol = ${filters.symbol}`);
   if (filters.side) conditions.push(sql`t.side = ${filters.side}`);
@@ -151,12 +156,13 @@ export async function getTradeHistory(userId: string, filters: TradeHistoryFilte
     ? conditions[0]
     : sql.join(conditions, sql` AND `);
 
-  // Count
+  // Count (excluding failed/cancelled)
   const [countResult] = await db
     .select({ total: count() })
     .from(trades)
     .where(and(
       eq(trades.userId, userId),
+      sql`${trades.status} NOT IN ('failed', 'cancelled')`,
       ...(filters.mode === 'live' ? [eq(trades.isPaper, false)] : []),
       ...(filters.mode === 'shadow' ? [sql`${trades.shadowSessionId} IS NOT NULL`] : []),
     ));

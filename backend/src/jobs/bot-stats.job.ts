@@ -29,10 +29,11 @@ async function calculateBotStats() {
         const closedPositions = allPositions.filter(p => p.status === 'closed');
         const openPositions = allPositions.filter(p => p.status === 'open');
 
-        // Get LIVE trades count only (exclude shadow/paper from public stats)
+        // Get LIVE filled trades count only (exclude shadow/paper and failed/cancelled from public stats)
         const [tradeCount]: any = await db.execute(sql`
           SELECT count(*)::int as cnt FROM trades
           WHERE is_paper = false
+            AND status = 'filled'
             AND bot_subscription_id IN (SELECT id FROM bot_subscriptions WHERE bot_id = ${bot.id})
         `);
         const totalTradesFromTable = tradeCount?.cnt ?? 0;
@@ -78,12 +79,19 @@ async function calculateBotStats() {
         const totalCompleted = closedPositions.length;
         const winRate = totalCompleted > 0 ? (closedWins / totalCompleted) * 100 : (unrealizedPnl > 0 ? 60 : 0);
 
-        // 30-day return: closed P&L + unrealized
+        // 30-day return: dollar-based % = (realized PnL in 30d + unrealized) / total allocated
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
         const recentClosed = closedPositions.filter(p => p.closedAt && new Date(p.closedAt) >= thirtyDaysAgo);
-        let return30d = recentClosed.reduce((sum, p) => sum + parseFloat(p.pnlPercent ?? '0'), 0);
-        if (openPositions.length > 0) return30d += unrealizedPnlPct;
+        const recentPnlDollar = recentClosed.reduce((sum, p) => sum + parseFloat(p.pnl ?? '0'), 0);
+        // Get total allocated capital across all active subscriptions for this bot
+        const [allocResult]: any = await db.execute(sql`
+          SELECT COALESCE(SUM(allocated_amount::numeric), 0) as total
+          FROM bot_subscriptions WHERE bot_id = ${bot.id} AND status = 'active'
+        `);
+        const totalAllocated = parseFloat(allocResult?.total ?? '0');
+        const totalPnlDollar = recentPnlDollar + unrealizedPnl;
+        let return30d = totalAllocated > 0 ? (totalPnlDollar / totalAllocated) * 100 : 0;
 
         // Max drawdown
         let peak = 0, maxDrawdown = 0, cum = 0;

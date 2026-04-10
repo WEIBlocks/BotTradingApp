@@ -651,7 +651,6 @@ export async function getUserActiveBots(userId: string) {
       botRiskLevel: bots.riskLevel,
       botAvatarColor: bots.avatarColor,
       botAvatarLetter: bots.avatarLetter,
-      return30d: botStatistics.return30d,
       winRate: botStatistics.winRate,
       activeUsers: botStatistics.activeUsers,
       avgRating: botStatistics.avgRating,
@@ -661,7 +660,27 @@ export async function getUserActiveBots(userId: string) {
     .leftJoin(botStatistics, eq(bots.id, botStatistics.botId))
     .where(eq(botSubscriptions.userId, userId));
 
-  return rows;
+  // Calculate per-user ROI from their actual closed positions (not global stats)
+  const enriched = await Promise.all(rows.map(async (row) => {
+    const allocAmount = parseFloat(row.allocatedAmount ?? '0');
+    let return30d = 0;
+    if (allocAmount > 0) {
+      const [pnlResult]: any = await db.execute(sql`
+        SELECT COALESCE(SUM(pnl::numeric), 0) as total_pnl
+        FROM bot_positions
+        WHERE bot_id = ${row.botId}
+          AND user_id = ${userId}
+          AND status = 'closed'
+          AND is_paper = false
+          AND closed_at >= now() - interval '30 days'
+      `);
+      const pnl30d = parseFloat(pnlResult?.total_pnl ?? '0');
+      return30d = (pnl30d / allocAmount) * 100;
+    }
+    return { ...row, return30d };
+  }));
+
+  return enriched;
 }
 
 export async function backtestBot(
@@ -1103,8 +1122,26 @@ export async function stopCopyTrading(userId: string, botId: string) {
   return session;
 }
 
-export async function getBotEquityCurve(botId: string, days: number = 30) {
-  // Query closed positions for this bot, ordered by closedAt
+export async function getBotEquityCurve(botId: string, userId: string, days: number = 30) {
+  // Get user's starting balance from their subscription (live) or shadow session (paper)
+  let startingBalance = 0;
+  const [sub] = await db.select({ amount: botSubscriptions.allocatedAmount })
+    .from(botSubscriptions)
+    .where(and(eq(botSubscriptions.botId, botId), eq(botSubscriptions.userId, userId), eq(botSubscriptions.status, 'active')))
+    .limit(1);
+  if (sub) {
+    startingBalance = parseFloat(sub.amount ?? '0');
+  } else {
+    // Fallback: check shadow session
+    const [session] = await db.select({ balance: shadowSessions.virtualBalance })
+      .from(shadowSessions)
+      .where(and(eq(shadowSessions.botId, botId), eq(shadowSessions.userId, userId), eq(shadowSessions.status, 'running')))
+      .orderBy(desc(shadowSessions.startedAt))
+      .limit(1);
+    startingBalance = parseFloat(session?.balance ?? '0');
+  }
+
+  // Query closed positions for this specific user + bot, ordered by closedAt
   const closedPositions = await db
     .select({
       pnl: botPositions.pnl,
@@ -1116,30 +1153,32 @@ export async function getBotEquityCurve(botId: string, days: number = 30) {
     .where(
       and(
         eq(botPositions.botId, botId),
+        eq(botPositions.userId, userId),
         eq(botPositions.status, 'closed'),
         gte(botPositions.closedAt, sql`now() - (${days} || ' days')::interval`),
       ),
     )
     .orderBy(asc(botPositions.closedAt));
 
-  // Build cumulative equity curve
+  // Build cumulative equity curve starting from user's actual balance
   let cumPnl = 0;
-  const equityData: number[] = [0]; // start at 0 (baseline)
+  const equityData: number[] = [startingBalance]; // start at user's allocated balance
   const dates: string[] = [new Date(Date.now() - days * 86400000).toISOString()];
 
   for (const pos of closedPositions) {
     cumPnl += parseFloat(pos.pnl ?? '0');
-    equityData.push(Number(cumPnl.toFixed(2)));
+    equityData.push(Number((startingBalance + cumPnl).toFixed(2)));
     dates.push(pos.closedAt?.toISOString() ?? new Date().toISOString());
   }
 
-  // Add current value as last point if no trades found
+  // Add current value as last point
   if (equityData.length === 1) {
-    equityData.push(0);
+    equityData.push(startingBalance);
     dates.push(new Date().toISOString());
   }
 
-  return { equityData, dates, totalPnl: cumPnl, tradeCount: closedPositions.length };
+  const totalReturn = startingBalance > 0 ? (cumPnl / startingBalance) * 100 : 0;
+  return { equityData, dates, startingBalance, totalPnl: cumPnl, totalReturn, tradeCount: closedPositions.length };
 }
 
 export async function getBotTradeMarkers(botId: string, symbol: string, days: number = 30) {
