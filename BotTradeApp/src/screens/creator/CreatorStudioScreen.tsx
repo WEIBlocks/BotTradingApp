@@ -427,16 +427,17 @@ const calcStyles = StyleSheet.create({
 export default function CreatorStudioScreen() {
   const navigation = useNavigation<Nav>();
   const {alert: showAlert, showConfirm} = useToast();
-  const {isPro} = useIAP();
+  const {isPro, initialized: iapInitialized} = useIAP();
   const {user} = useAuth();
 
-  // Pro gate
+  // Pro gate — wait for IAP to finish initializing before redirecting
   React.useEffect(() => {
+    if (!iapInitialized) return;
     if (!isPro && user?.role !== 'admin') {
       showAlert('Pro Required', 'Creator Studio requires an active Pro subscription.');
-      navigation.navigate('Subscription');
+      navigation.replace('Subscription');
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [iapInitialized, isPro, user?.role, navigation, showAlert]);
   const [stats, setStats] = useState<CreatorStats | null>(null);
   const [bots, setBots] = useState<CreatorBot[]>([]);
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);

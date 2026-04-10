@@ -1,5 +1,5 @@
 import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Alert} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput} from 'react-native';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
@@ -134,16 +134,17 @@ function BalanceInput({
 export default function ArenaSetupScreen() {
   const navigation = useNavigation<NavProp>();
   const {alert: showAlert, showConfirm} = useToast();
-  const {isPro} = useIAP();
+  const {isPro, initialized: iapInitialized} = useIAP();
   const {user} = useAuth();
 
-  // Pro gate — redirect to subscription if not Pro
+  // Pro gate — wait for IAP to finish initializing before redirecting
   React.useEffect(() => {
+    if (!iapInitialized) return;
     if (!isPro && user?.role !== 'admin') {
       showAlert('Pro Required', 'Arena battles require an active Pro subscription.');
-      navigation.navigate('Subscription');
+      navigation.replace('Subscription');
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [iapInitialized, isPro, user?.role, navigation, showAlert]);
 
   const [gladiators, setGladiators] = useState<Gladiator[]>([]);
   const [loading, setLoading] = useState(true);

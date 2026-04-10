@@ -17,10 +17,10 @@ import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import Svg, {Path, Rect, Circle, Defs, LinearGradient, Stop} from 'react-native-svg';
-import {subscriptionApi} from '../../services/subscription';
 import {tradingRoomApi, TradingRoomMessage, TradingRoomMember} from '../../services/tradingRoom';
 import {useToast} from '../../context/ToastContext';
 import {useAuth} from '../../context/AuthContext';
+import {useIAP} from '../../context/IAPContext';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 const {width: SCREEN_W} = Dimensions.get('window');
@@ -253,8 +253,8 @@ export default function TradingRoomScreen() {
   const navigation = useNavigation<Nav>();
   const {user} = useAuth();
   const {alert: showAlert} = useToast();
+  const {isPro, initialized: iapInitialized} = useIAP();
 
-  const [isPro, setIsPro] = useState(false);
   const [messages, setMessages] = useState<TradingRoomMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -295,24 +295,29 @@ export default function TradingRoomScreen() {
     return () => { showSub.remove(); hideSub.remove(); };
   }, [keyboardHeight]);
 
+  // Gate: wait for IAP to finish initializing, then redirect if not pro
   useEffect(() => {
+    if (!iapInitialized) return;
+    if (!isPro && user?.role !== 'admin') {
+      navigation.replace('Subscription');
+    }
+  }, [iapInitialized, isPro, user?.role, navigation]);
+
+  // Load messages once pro status is confirmed
+  useEffect(() => {
+    if (!iapInitialized) return;
+    if (!isPro && user?.role !== 'admin') return;
     let mounted = true;
     async function init() {
       try {
-        const sub = await subscriptionApi.getCurrent().catch(() => null);
-        if (!mounted) return;
-        const proActive = (sub && sub.tier === 'pro' && sub.status === 'active') || user?.role === 'admin';
-        setIsPro(!!proActive);
-        if (proActive) {
-          const [msgRes, statsRes] = await Promise.all([
-            tradingRoomApi.getMessages(50).catch(() => ({data: []})),
-            tradingRoomApi.getOnlineStats().catch(() => ({data: {online: 0, totalMembers: 0}})),
-          ]);
-          if (mounted) {
-            setMessages(msgRes.data || []);
-            setOnlineCount(statsRes.data?.online || 0);
-            setTotalMembers(statsRes.data?.totalMembers || 0);
-          }
+        const [msgRes, statsRes] = await Promise.all([
+          tradingRoomApi.getMessages(50).catch(() => ({data: []})),
+          tradingRoomApi.getOnlineStats().catch(() => ({data: {online: 0, totalMembers: 0}})),
+        ]);
+        if (mounted) {
+          setMessages(msgRes.data || []);
+          setOnlineCount(statsRes.data?.online || 0);
+          setTotalMembers(statsRes.data?.totalMembers || 0);
         }
       } catch {} finally {
         if (mounted) setLoading(false);
@@ -320,7 +325,7 @@ export default function TradingRoomScreen() {
     }
     init();
     return () => { mounted = false; };
-  }, [user?.role]);
+  }, [iapInitialized, isPro, user?.role]);
 
   useEffect(() => {
     if (!isPro || loading) return;

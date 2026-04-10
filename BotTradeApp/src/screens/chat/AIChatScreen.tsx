@@ -161,7 +161,7 @@ function StrategyBarChart({chartWidth, backtestReturn}: {chartWidth: number; bac
 export default function AIChatScreen() {
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteProp<MainTabParamList, 'AIChat'>>();
-  const {isPro} = useIAP();
+  const {isPro, initialized: iapInitialized} = useIAP();
   const {user} = useAuth();
   const botId = (route.params as any)?.botId as string | undefined;
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
@@ -179,12 +179,13 @@ export default function AIChatScreen() {
   const shouldScrollToEnd = useRef(true);
   const keyboardHeight = useRef(new Animated.Value(0)).current;
 
-  // Pro gate
+  // Pro gate — wait for IAP to finish initializing before redirecting
   useEffect(() => {
+    if (!iapInitialized) return;
     if (!isPro && user?.role !== 'admin') {
-      navigation.navigate('Subscription');
+      navigation.replace('Subscription');
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [iapInitialized, isPro, user?.role, navigation]);
 
   useEffect(() => {
     const TAB_BAR_HEIGHT = 218;

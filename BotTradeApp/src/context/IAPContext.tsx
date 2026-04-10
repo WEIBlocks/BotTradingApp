@@ -1,6 +1,7 @@
 import React, {createContext, useContext, useEffect, useState, useCallback, useRef} from 'react';
 import {Platform} from 'react-native';
 import {useToast} from './ToastContext';
+import {useAuth} from './AuthContext';
 import {
   type ProductPurchase,
   type SubscriptionPurchase,
@@ -36,10 +37,12 @@ interface IAPContextValue extends IAPState {
 
 const IAPContext = createContext<IAPContextValue | null>(null);
 
-// ─── Provider ─────────────────────────────────────────────────────────────
+// ─── Inner provider (uses useAuth, so must be inside AuthProvider) ─────────
 
-export function IAPProvider({children}: {children: React.ReactNode}) {
+function IAPProviderInner({children}: {children: React.ReactNode}) {
   const {alert: showAlert} = useToast();
+  const {user, isAuthReady} = useAuth();
+
   const [state, setState] = useState<IAPState>({
     initialized: false,
     subscriptionProducts: [],
@@ -49,6 +52,8 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
   });
 
   const listenerCleanup = useRef<(() => void) | null>(null);
+  // Track which userId we last checked so we re-run on login/logout
+  const lastCheckedUserId = useRef<string | null>(undefined as any);
 
   // Handle completed purchase
   const handlePurchase = useCallback(async (purchase: ProductPurchase | SubscriptionPurchase) => {
@@ -65,14 +70,12 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
 
       const isSub = SUB_SKUS.includes(purchase.productId);
 
-      // Resolve the backend plan ID from the store product ID
       let planId: string | undefined;
       if (isSub) {
         const plan = await subscriptionApi.getPlanByProductId(purchase.productId).catch(() => null);
         planId = plan?.id;
       }
 
-      // Verify on backend
       await iapService.verifyReceipt({
         purchaseToken: token,
         productId: purchase.productId,
@@ -82,7 +85,6 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
         planId,
       });
 
-      // Acknowledge the purchase
       await iapService.finishPurchase(purchase, !isSub);
 
       if (isSub) {
@@ -105,39 +107,73 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
     showAlert('Purchase Failed', error.message || 'Could not complete purchase. Please try again.');
   }, []);
 
-  // Initialize on mount
+  // Re-check pro status whenever the logged-in user changes (login, logout, session restore)
   useEffect(() => {
+    // Wait until auth has finished its initial session check
+    if (!isAuthReady) return;
+
+    const currentUserId = user?.id ?? null;
+
+    // Skip if we already checked for this user
+    if (lastCheckedUserId.current === currentUserId) return;
+    lastCheckedUserId.current = currentUserId;
+
     let mounted = true;
 
+    // Reset to uninitialized while we check
+    setState(prev => ({...prev, initialized: false, activeSubscription: null}));
+
     async function init() {
-      // Check Pro status from backend (authoritative source)
-      const backendIsPro = await subscriptionApi.isPro().catch(() => false);
-
-      const connected = await iapService.init();
-      if (!mounted) return;
-
-      // Set up listeners
-      if (connected) {
-        listenerCleanup.current = iapService.addPurchaseListeners(handlePurchase, handleError);
+      // If no user, mark initialized with no subscription
+      if (!currentUserId) {
+        if (mounted) {
+          setState(prev => ({...prev, initialized: true, activeSubscription: null}));
+        }
+        return;
       }
 
-      // Load subscription products (may fail in dev/simulator)
-      const subs = connected ? await iapService.getSubscriptionProducts().catch(() => []) : [];
+      try {
+        // Backend is the authoritative source — check it first (token is now ready because isAuthReady=true)
+        const backendIsPro = await subscriptionApi.isPro().catch(() => false);
 
-      // Check existing store purchases (restore)
-      const existing = connected ? await iapService.restorePurchases().catch(() => []) : [];
-      const activeSub = existing.find(p => SUB_SKUS.includes(p.productId));
+        // If backend says pro, we can mark initialized immediately — no need to wait for IAP store
+        // This prevents the flicker where a pro user sees the paywall while IAP store loads
+        if (mounted && backendIsPro) {
+          setState(prev => ({
+            ...prev,
+            initialized: true,
+            activeSubscription: prev.activeSubscription || 'backend_pro',
+          }));
+        }
 
-      if (mounted) {
-        setState(prev => ({
-          ...prev,
-          initialized: true,
-          subscriptionProducts: subs,
-          // Backend is authoritative — if backend says Pro, mark active
-          activeSubscription: backendIsPro
-            ? (activeSub?.productId || 'backend_pro')
-            : (activeSub?.productId || null),
-        }));
+        // Also initialize the native IAP store (for purchases + local backup)
+        const connected = await iapService.init();
+        if (!mounted) return;
+
+        if (connected && !listenerCleanup.current) {
+          listenerCleanup.current = iapService.addPurchaseListeners(handlePurchase, handleError);
+        }
+
+        const subs = connected ? await iapService.getSubscriptionProducts().catch(() => []) : [];
+        const existing = connected ? await iapService.restorePurchases().catch(() => []) : [];
+        const activeSub = existing.find(p => SUB_SKUS.includes(p.productId));
+
+        if (mounted) {
+          setState(prev => ({
+            ...prev,
+            initialized: true,
+            subscriptionProducts: subs,
+            // Backend wins if true; fall back to local store; then null
+            activeSubscription: backendIsPro
+              ? (activeSub?.productId || prev.activeSubscription || 'backend_pro')
+              : (activeSub?.productId || null),
+          }));
+        }
+      } catch (err) {
+        console.warn('[IAP] Init error:', err);
+        if (mounted) {
+          setState(prev => ({...prev, initialized: true}));
+        }
       }
     }
 
@@ -145,10 +181,16 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
 
     return () => {
       mounted = false;
+    };
+  }, [isAuthReady, user?.id, handlePurchase, handleError]);
+
+  // Cleanup IAP store on unmount
+  useEffect(() => {
+    return () => {
       listenerCleanup.current?.();
       iapService.destroy();
     };
-  }, [handlePurchase, handleError]);
+  }, []);
 
   // Purchase subscription
   const purchaseSubscription = useCallback(async (sku: string, offerToken?: string): Promise<boolean> => {
@@ -159,9 +201,8 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
       const result = await iapService.purchaseSubscription(sku, offerToken);
       if (!result) {
         setState(prev => ({...prev, processing: false}));
-        return false; // User cancelled
+        return false;
       }
-      // Purchase listener will handle verification
       return true;
     } catch (err: any) {
       setState(prev => ({...prev, processing: false}));
@@ -173,7 +214,7 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
   // Purchase bot
   const purchaseBot = useCallback(async (botId: string, price: number): Promise<boolean> => {
     if (state.processing) return false;
-    if (price === 0) return true; // Free bot — no IAP needed
+    if (price === 0) return true;
 
     const productId = getBotProductId(price);
     if (!productId) {
@@ -189,7 +230,6 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
         setState(prev => ({...prev, processing: false}));
         return false;
       }
-      // Purchase listener handles verification
       return true;
     } catch (err: any) {
       setState(prev => ({...prev, processing: false}));
@@ -205,7 +245,6 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
       const purchases = await iapService.restorePurchases();
       const activeSub = purchases.find(p => SUB_SKUS.includes(p.productId));
 
-      // Verify each on backend
       const platform = Platform.OS === 'ios' ? 'ios' : 'android';
       for (const purchase of purchases) {
         const token = platform === 'android'
@@ -225,14 +264,19 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
             platform,
             type: isSub ? 'subscription' : 'bot_purchase',
             planId,
-          }).catch(() => {}); // Non-blocking
+          }).catch(() => {});
         }
       }
+
+      // Also re-check backend after restoring (in case a purchase was verified server-side)
+      const backendIsPro = await subscriptionApi.isPro().catch(() => false);
 
       setState(prev => ({
         ...prev,
         processing: false,
-        activeSubscription: activeSub?.productId || null,
+        activeSubscription: backendIsPro
+          ? (activeSub?.productId || 'backend_pro')
+          : (activeSub?.productId || null),
       }));
 
       showAlert('Restore Complete', purchases.length > 0
@@ -260,6 +304,12 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
   };
 
   return <IAPContext.Provider value={value}>{children}</IAPContext.Provider>;
+}
+
+// ─── Public Provider (wraps inner to keep API identical) ──────────────────
+
+export function IAPProvider({children}: {children: React.ReactNode}) {
+  return <IAPProviderInner>{children}</IAPProviderInner>;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────
