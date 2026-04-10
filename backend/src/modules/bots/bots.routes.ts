@@ -32,6 +32,9 @@ import {
   updateUserConfig,
   getSubscription,
   getBotFeedStats,
+  getPublicLiveStats,
+  getShadowSessionLiveStats,
+  getMyLiveStats,
 } from './bots.service.js';
 import {
   botIdParamsSchema,
@@ -338,6 +341,44 @@ export async function botsRoutes(app: FastifyInstance) {
     const { id } = request.params;
     const { mode } = request.query as { mode?: string };
     const result = await getBotFeedStats(request.user.userId, id, mode as 'paper' | 'live' | undefined);
+    return { data: result };
+  });
+
+  // GET /:id/public-live-stats - Aggregated live stats for all live users of this bot
+  zApp.get('/:id/public-live-stats', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await getPublicLiveStats(id);
+    return { data: result };
+  });
+
+  // GET /shadow-sessions/:id/live-stats - Current user's shadow session detailed stats
+  zApp.get('/shadow-sessions/:id/live-stats', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await getShadowSessionLiveStats(request.user.userId, id);
+    return { data: result };
+  });
+
+  // GET /:id/my-live-stats - Current user's personal live trading stats for a bot
+  zApp.get('/:id/my-live-stats', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await getMyLiveStats(request.user.userId, id);
     return { data: result };
   });
 

@@ -48,6 +48,8 @@ interface ActiveBotRow {
   winRate: number | null;
   activeUsers: number | null;
   avgRating: number | null;
+  shadowReturn30d?: number | null;
+  hasShadow?: boolean;
 }
 
 // ─── Exposed Types ──────────────────────────────────────────────────────────
@@ -81,6 +83,8 @@ export interface ActiveBot {
   status: string;        // subscription mode: 'live' | 'paper'
   subStatus: string;     // subscription status: 'active' | 'shadow' | 'paused' | 'stopped'
   totalReturn: number;
+  shadowReturn: number;
+  hasShadow: boolean;
 }
 
 export interface RecentTrade {
@@ -154,6 +158,8 @@ export const dashboardApi = {
       status: row.subscriptionMode ?? 'paper',
       subStatus: row.subscriptionStatus ?? 'active',
       totalReturn: Number(row.return30d) || 0,
+      shadowReturn: Number(row.shadowReturn30d) || 0,
+      hasShadow: Boolean(row.hasShadow),
     }));
   },
 

@@ -590,8 +590,6 @@ export default function DashboardScreen() {
               </View>
             )}
             {visibleBots.map((bot: DashActiveBot) => {
-              const returnColor = bot.totalReturn >= 0 ? '#10B981' : '#EF4444';
-              const returnSign = bot.totalReturn >= 0 ? '+' : '';
               const display = resolveBotDisplayStatus(bot, shadowSessions);
               // Use display as single source of truth — avoids raw subStatus mismatches
               const isLiveRunning = display.label === 'LIVE';
@@ -599,6 +597,11 @@ export default function DashboardScreen() {
               const isShadowPaused = display.label === 'SHADOW PAUSED';
               const isShadowCompleted = display.icon === 'completed';
               const isPaused = display.label === 'PAUSED';
+              // ROI: live takes priority over shadow
+              const isShadowMode = (isShadowRunning || isShadowPaused || isShadowCompleted) && !isLiveRunning;
+              const displayReturn = isShadowMode && bot.hasShadow ? bot.shadowReturn : bot.totalReturn;
+              const returnColor = displayReturn >= 0 ? '#10B981' : '#EF4444';
+              const returnSign = displayReturn >= 0 ? '+' : '';
               return (
                 <TouchableOpacity
                   key={bot.id}
@@ -631,7 +634,7 @@ export default function DashboardScreen() {
                       {bot.pair}
                       {'  '}
                       <Text style={{color: returnColor, fontFamily: 'Inter-SemiBold'}}>
-                        {returnSign}{bot.totalReturn.toFixed(1)}% ROI
+                        {returnSign}{displayReturn.toFixed(1)}%{isShadowMode ? ' SHADOW' : ' ROI'}
                       </Text>
                     </Text>
                   </View>

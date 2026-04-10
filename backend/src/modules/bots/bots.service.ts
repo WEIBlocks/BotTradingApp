@@ -677,7 +677,35 @@ export async function getUserActiveBots(userId: string) {
       const pnl30d = parseFloat(pnlResult?.total_pnl ?? '0');
       return30d = (pnl30d / allocAmount) * 100;
     }
-    return { ...row, return30d };
+    // Also get latest shadow session ROI for this bot (for portfolio/dashboard display)
+    // Use virtualBalance + sum(closed position pnl) as the true return — avoids the
+    // "low current_balance = open positions eating cash" false-negative bug.
+    let shadowReturn30d: number | null = null;
+    let hasShadow = false;
+    const [latestShadow] = await db.execute(sql`
+      SELECT id, virtual_balance, status
+      FROM shadow_sessions
+      WHERE user_id = ${userId} AND bot_id = ${row.botId}
+      ORDER BY started_at DESC LIMIT 1
+    `) as any[];
+    if (latestShadow) {
+      hasShadow = true;
+      const vb = parseFloat(latestShadow.virtual_balance ?? '0');
+      if (vb > 0) {
+        const [pnlRow] = await db.execute(sql`
+          SELECT COALESCE(SUM(pnl::numeric), 0) AS realized_pnl
+          FROM bot_positions
+          WHERE shadow_session_id = ${latestShadow.id}
+            AND status = 'closed'
+        `) as any[];
+        const realizedPnl = parseFloat(pnlRow?.realized_pnl ?? '0');
+        shadowReturn30d = (realizedPnl / vb) * 100;
+      } else {
+        shadowReturn30d = 0;
+      }
+    }
+
+    return { ...row, return30d, shadowReturn30d, hasShadow };
   }));
 
   return enriched;
@@ -1241,6 +1269,373 @@ export async function getSubscription(userId: string, subscriptionId: string) {
   return sub;
 }
 
+// ─── Public Live Stats (all users, live mode only) ─────────────────────────
+
+export async function getPublicLiveStats(botId: string) {
+  const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
+  if (!bot) throw new NotFoundError('Bot');
+
+  // All positions (live only, including stopped subscriptions) for this bot
+  const [posStats] = await db.execute(sql`
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'closed')::int                            AS total_trades,
+      COUNT(*) FILTER (WHERE status = 'closed' AND pnl::numeric > 0)::int       AS wins,
+      COUNT(*) FILTER (WHERE status = 'open')::int                              AS open_positions,
+      COALESCE(SUM(pnl::numeric) FILTER (WHERE status = 'closed'), 0)           AS total_pnl,
+      COALESCE(AVG(pnl_percent::numeric) FILTER (WHERE status = 'closed'), 0)   AS avg_return,
+      MAX(pnl_percent::numeric) FILTER (WHERE status = 'closed')                AS best_trade_pct,
+      MIN(pnl_percent::numeric) FILTER (WHERE status = 'closed')                AS worst_trade_pct,
+      COUNT(DISTINCT user_id)::int                                               AS live_traders
+    FROM bot_positions
+    WHERE bot_id = ${botId} AND is_paper = false
+  `) as any;
+
+  const total = posStats?.total_trades ?? 0;
+  const wins = posStats?.wins ?? 0;
+  const winRate = total > 0 ? (wins / total) * 100 : 0;
+
+  // 30-day window stats
+  const [pos30d] = await db.execute(sql`
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'closed')::int                                AS trades_30d,
+      COUNT(*) FILTER (WHERE status = 'closed' AND pnl::numeric > 0)::int           AS wins_30d,
+      COALESCE(SUM(pnl::numeric) FILTER (WHERE status = 'closed'), 0)               AS pnl_30d,
+      COALESCE(AVG(pnl_percent::numeric) FILTER (WHERE status = 'closed'), 0)       AS avg_return_30d
+    FROM bot_positions
+    WHERE bot_id = ${botId} AND is_paper = false AND opened_at >= now() - interval '30 days'
+  `) as any;
+
+  // Cumulative P&L equity curve — one point per closed trade, sorted by close time
+  // This shows the bot's cumulative live P&L across ALL users over time
+  const allClosed = await db.execute(sql`
+    SELECT
+      closed_at,
+      pnl::numeric AS pnl
+    FROM bot_positions
+    WHERE bot_id = ${botId} AND is_paper = false AND status = 'closed' AND closed_at IS NOT NULL
+    ORDER BY closed_at ASC
+    LIMIT 200
+  `) as any[];
+
+  let cumPnl = 0;
+  const equityCurve: number[] = [];
+  const equityDates: string[] = [];
+  for (const row of allClosed) {
+    cumPnl += parseFloat(row.pnl ?? '0');
+    equityCurve.push(Math.round(cumPnl * 100) / 100);
+    equityDates.push(row.closed_at instanceof Date ? row.closed_at.toISOString() : String(row.closed_at));
+  }
+
+  // Recent live trades (last 20, across all users, most recent first)
+  const recentRows = await db.execute(sql`
+    SELECT
+      id,
+      symbol,
+      side,
+      entry_price::numeric  AS entry_price,
+      exit_price::numeric   AS exit_price,
+      pnl::numeric          AS pnl,
+      pnl_percent::numeric  AS pnl_percent,
+      closed_at
+    FROM bot_positions
+    WHERE bot_id = ${botId} AND is_paper = false AND status = 'closed' AND closed_at IS NOT NULL
+    ORDER BY closed_at DESC
+    LIMIT 20
+  `) as any[];
+
+  const recentTrades = recentRows.map((r: any) => ({
+    id: r.id,
+    symbol: r.symbol,
+    side: r.side,
+    entryPrice: parseFloat(r.entry_price ?? '0'),
+    exitPrice: r.exit_price ? parseFloat(r.exit_price) : null,
+    pnl: parseFloat(r.pnl ?? '0'),
+    pnlPercent: parseFloat(r.pnl_percent ?? '0'),
+    closedAt: r.closed_at instanceof Date ? r.closed_at.toISOString() : String(r.closed_at),
+  }));
+
+  return {
+    liveTraders: posStats?.live_traders ?? 0,
+    totalTrades: total,
+    winRate: Math.round(winRate * 10) / 10,
+    totalPnl: parseFloat(posStats?.total_pnl ?? '0'),
+    avgReturn: parseFloat(posStats?.avg_return ?? '0'),
+    openPositions: posStats?.open_positions ?? 0,
+    trades30d: pos30d?.trades_30d ?? 0,
+    pnl30d: parseFloat(pos30d?.pnl_30d ?? '0'),
+    avgReturn30d: parseFloat(pos30d?.avg_return_30d ?? '0'),
+    bestTradePct: posStats?.best_trade_pct != null ? parseFloat(posStats.best_trade_pct) : null,
+    worstTradePct: posStats?.worst_trade_pct != null ? parseFloat(posStats.worst_trade_pct) : null,
+    equityCurve,
+    equityDates,
+    recentTrades,
+  };
+}
+
+// ─── My Personal Live Stats (current user, live mode only) ────────────────
+
+export async function getMyLiveStats(userId: string, botId: string) {
+  // Get the user's live subscription (any status — include stopped so past stats remain)
+  const [sub] = await db.select()
+    .from(botSubscriptions)
+    .where(and(
+      eq(botSubscriptions.botId, botId),
+      eq(botSubscriptions.userId, userId),
+      eq(botSubscriptions.mode, 'live'),
+    ))
+    .orderBy(desc(botSubscriptions.createdAt))
+    .limit(1);
+
+  // All live positions for this user+bot (is_paper=false), oldest first for equity curve
+  const positions = await db.select().from(botPositions)
+    .where(and(
+      eq(botPositions.botId, botId),
+      eq(botPositions.userId, userId),
+      eq(botPositions.isPaper, false),
+    ))
+    .orderBy(asc(botPositions.openedAt));
+
+  const open = positions.filter(p => p.status === 'open');
+  const closed = positions.filter(p => p.status === 'closed');
+
+  // realizedPnl: sum of actual P&L from closed positions (exitValue - entryValue)
+  const realizedPnl = closed.reduce((s, p) => s + parseFloat(p.pnl ?? '0'), 0);
+  const winsArr = closed.filter(p => parseFloat(p.pnl ?? '0') > 0);
+  const lossesArr = closed.filter(p => parseFloat(p.pnl ?? '0') <= 0);
+  const winRate = closed.length > 0 ? (winsArr.length / closed.length) * 100 : 0;
+  const avgWin = winsArr.length > 0 ? winsArr.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / winsArr.length : 0;
+  const avgLoss = lossesArr.length > 0 ? lossesArr.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / lossesArr.length : 0;
+
+  const allocatedAmount = parseFloat(sub?.allocatedAmount ?? '0');
+  // currentBalance = allocated + realized P&L (correct economic display)
+  const currentBalance = allocatedAmount > 0 ? allocatedAmount + realizedPnl : realizedPnl;
+  const totalReturn = allocatedAmount > 0 ? (realizedPnl / allocatedAmount) * 100 : 0;
+
+  // Max drawdown: track equity curve using realizedPnl accumulation, relative to peak
+  const startBalance = allocatedAmount > 0 ? allocatedAmount : 0;
+  let peak = startBalance, maxDrawdown = 0, equityCumDD = startBalance;
+  for (const p of closed) {
+    equityCumDD += parseFloat(p.pnl ?? '0');
+    if (equityCumDD > peak) peak = equityCumDD;
+    const dd = peak > 0 ? ((peak - equityCumDD) / peak) * 100 : 0;
+    if (dd > maxDrawdown) maxDrawdown = dd;
+  }
+
+  // Equity curve: cumulative P&L from oldest to newest closed trade
+  let equityCum = 0;
+  const equityCurve: number[] = [0]; // starts at 0 profit
+  const equityDates: string[] = [sub?.createdAt instanceof Date ? sub.createdAt.toISOString() : String(sub?.createdAt ?? '')];
+  for (const p of closed) {
+    equityCum += parseFloat(p.pnl ?? '0');
+    equityCurve.push(Math.round(equityCum * 100) / 100);
+    const dt = p.closedAt;
+    equityDates.push(dt instanceof Date ? dt.toISOString() : String(dt ?? ''));
+  }
+
+  const bestTrade = closed.length > 0 ? closed.reduce((b, p) => parseFloat(p.pnlPercent ?? '0') > parseFloat(b.pnlPercent ?? '0') ? p : b) : null;
+  const worstTrade = closed.length > 0 ? closed.reduce((w, p) => parseFloat(p.pnlPercent ?? '0') < parseFloat(w.pnlPercent ?? '0') ? p : w) : null;
+
+  // Closed trades: show both sides (entry and exit info) — most recent first
+  const closedTrades = [...closed].reverse().slice(0, 50).map(p => ({
+    id: p.id,
+    symbol: p.symbol,
+    side: 'buy/sell', // each position is a complete round trip
+    entryPrice: parseFloat(p.entryPrice),
+    exitPrice: p.exitPrice ? parseFloat(p.exitPrice) : null,
+    amount: parseFloat(p.amount),
+    pnl: parseFloat(p.pnl ?? '0'),
+    pnlPercent: parseFloat(p.pnlPercent ?? '0'),
+    openedAt: p.openedAt,
+    closedAt: p.closedAt,
+  }));
+
+  const openPositions = open.map(p => ({
+    id: p.id,
+    symbol: p.symbol,
+    side: p.side,
+    entryPrice: parseFloat(p.entryPrice),
+    amount: parseFloat(p.amount),
+    entryValue: parseFloat(p.entryValue ?? '0'),
+    openedAt: p.openedAt,
+  }));
+
+  // Monthly returns from closed positions grouped by month
+  const monthlyPnlMap: Record<string, number> = {};
+  for (const p of closed) {
+    const dt = p.closedAt instanceof Date ? p.closedAt : new Date(p.closedAt ?? Date.now());
+    const month = dt.toISOString().substring(0, 7);
+    monthlyPnlMap[month] = (monthlyPnlMap[month] ?? 0) + parseFloat(p.pnl ?? '0');
+  }
+  const monthlyReturns = Object.entries(monthlyPnlMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, pnl]) => ({
+      month,
+      returnPct: allocatedAmount > 0 ? Math.round((pnl / allocatedAmount) * 10000) / 100 : 0,
+      pnl: Math.round(pnl * 100) / 100,
+    }));
+
+  const startedAt = sub?.createdAt ?? (closed[0]?.openedAt ?? null);
+
+  return {
+    subscriptionStatus: sub?.status ?? 'none',
+    allocatedAmount,
+    currentBalance: Math.round(currentBalance * 100) / 100,
+    realizedPnl: Math.round(realizedPnl * 100) / 100,
+    totalReturn: Math.round(totalReturn * 100) / 100,
+    totalTrades: closed.length,
+    openPositionsCount: open.length,
+    winRate: Math.round(winRate * 10) / 10,
+    wins: winsArr.length,
+    losses: lossesArr.length,
+    avgWinPercent: Math.round(avgWin * 100) / 100,
+    avgLossPercent: Math.round(avgLoss * 100) / 100,
+    maxDrawdown: Math.round(maxDrawdown * 100) / 100,
+    bestTrade: bestTrade ? { symbol: bestTrade.symbol, pnlPercent: parseFloat(bestTrade.pnlPercent ?? '0'), pnl: parseFloat(bestTrade.pnl ?? '0') } : null,
+    worstTrade: worstTrade ? { symbol: worstTrade.symbol, pnlPercent: parseFloat(worstTrade.pnlPercent ?? '0'), pnl: parseFloat(worstTrade.pnl ?? '0') } : null,
+    equityCurve,
+    equityDates,
+    closedTrades,
+    openPositions,
+    monthlyReturns,
+    startedAt,
+  };
+}
+
+// ─── Shadow Session Stats (current user's session only) ────────────────────
+
+export async function getShadowSessionLiveStats(userId: string, sessionId: string) {
+  const [session] = await db.select().from(shadowSessions)
+    .where(and(eq(shadowSessions.id, sessionId), eq(shadowSessions.userId, userId)));
+  if (!session) throw new NotFoundError('Shadow session');
+
+  // Positions scoped strictly to this sessionId, oldest first for equity curve
+  const positions = await db.select().from(botPositions)
+    .where(and(
+      eq(botPositions.shadowSessionId, sessionId),
+      eq(botPositions.userId, userId),
+    ))
+    .orderBy(asc(botPositions.openedAt));
+
+  const open = positions.filter(p => p.status === 'open');
+  const closed = positions.filter(p => p.status === 'closed');
+
+  // realizedPnl: sum of actual P&L from closed positions (exitValue - entryValue, computed by closePosition in bot-engine)
+  const realizedPnl = closed.reduce((s, p) => s + parseFloat(p.pnl ?? '0'), 0);
+  const wins = closed.filter(p => parseFloat(p.pnl ?? '0') > 0);
+  const losses = closed.filter(p => parseFloat(p.pnl ?? '0') <= 0);
+  const winRate = closed.length > 0 ? (wins.length / closed.length) * 100 : 0;
+  const avgWin = wins.length > 0 ? wins.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / wins.length : 0;
+  const avgLoss = losses.length > 0 ? losses.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / losses.length : 0;
+
+  const virtualBalance = parseFloat(session.virtualBalance);
+
+  // Use virtualBalance + realizedPnl as the true current balance for display.
+  // The DB currentBalance tracks the engine's "cash on hand" (deducts BUY cost, adds back SELL proceeds)
+  // which makes it look like losses when positions are open. We show the economically correct value.
+  const displayBalance = virtualBalance + realizedPnl;
+  const totalReturn = virtualBalance > 0 ? (realizedPnl / virtualBalance) * 100 : 0;
+
+  // Max drawdown: track equity curve from realizedPnl accumulation
+  let peak = virtualBalance, maxDrawdown = 0, equityCum = virtualBalance;
+  for (const p of closed) {
+    equityCum += parseFloat(p.pnl ?? '0');
+    if (equityCum > peak) peak = equityCum;
+    const dd = peak > 0 ? ((peak - equityCum) / peak) * 100 : 0;
+    if (dd > maxDrawdown) maxDrawdown = dd;
+  }
+
+  const bestTrade = closed.length > 0 ? closed.reduce((b, p) => parseFloat(p.pnlPercent ?? '0') > parseFloat(b.pnlPercent ?? '0') ? p : b) : null;
+  const worstTrade = closed.length > 0 ? closed.reduce((w, p) => parseFloat(p.pnlPercent ?? '0') < parseFloat(w.pnlPercent ?? '0') ? p : w) : null;
+
+  const now = new Date();
+  const started = session.startedAt ? new Date(session.startedAt) : now;
+  const daysRunning = Math.max(0, Math.floor((now.getTime() - started.getTime()) / 86_400_000));
+
+  // Equity curve: cumulative P&L points from oldest to newest closed trade
+  let cumPnl = 0;
+  const equityCurve: number[] = [0]; // start at 0 (no profit at start)
+  const equityDates: string[] = [session.startedAt instanceof Date ? session.startedAt.toISOString() : String(session.startedAt ?? '')];
+  for (const p of closed) {
+    cumPnl += parseFloat(p.pnl ?? '0');
+    equityCurve.push(Math.round(cumPnl * 100) / 100);
+    const dt = p.closedAt;
+    equityDates.push(dt instanceof Date ? dt.toISOString() : String(dt ?? ''));
+  }
+
+  // Closed trades list (most recent first, last 50)
+  const closedTrades = [...closed].reverse().slice(0, 50).map(p => ({
+    id: p.id,
+    symbol: p.symbol,
+    side: p.side,
+    entryPrice: parseFloat(p.entryPrice),
+    exitPrice: p.exitPrice ? parseFloat(p.exitPrice) : null,
+    amount: parseFloat(p.amount),
+    pnl: parseFloat(p.pnl ?? '0'),
+    pnlPercent: parseFloat(p.pnlPercent ?? '0'),
+    openedAt: p.openedAt,
+    closedAt: p.closedAt,
+  }));
+
+  // Open positions
+  const openPositions = open.map(p => ({
+    id: p.id,
+    symbol: p.symbol,
+    side: p.side,
+    entryPrice: parseFloat(p.entryPrice),
+    amount: parseFloat(p.amount),
+    entryValue: parseFloat(p.entryValue ?? '0'),
+    openedAt: p.openedAt,
+  }));
+
+  // Monthly returns from dailyPerformance stored on the session
+  const dailyPerf = (session.dailyPerformance as Record<string, {trades: number; pnl: number; balance: number}>) ?? {};
+  const monthlyReturns = buildMonthlyReturns(dailyPerf, virtualBalance);
+
+  return {
+    sessionId: session.id,
+    status: session.status,
+    virtualBalance,
+    currentBalance: Math.round(displayBalance * 100) / 100,
+    totalReturn: Math.round(totalReturn * 100) / 100,
+    realizedPnl: Math.round(realizedPnl * 100) / 100,
+    totalTrades: closed.length,
+    openPositionsCount: open.length,
+    winRate: Math.round(winRate * 10) / 10,
+    wins: wins.length,
+    losses: losses.length,
+    avgWinPercent: Math.round(avgWin * 100) / 100,
+    avgLossPercent: Math.round(avgLoss * 100) / 100,
+    maxDrawdown: Math.round(maxDrawdown * 100) / 100,
+    bestTrade: bestTrade ? { symbol: bestTrade.symbol, pnlPercent: parseFloat(bestTrade.pnlPercent ?? '0'), pnl: parseFloat(bestTrade.pnl ?? '0') } : null,
+    worstTrade: worstTrade ? { symbol: worstTrade.symbol, pnlPercent: parseFloat(worstTrade.pnlPercent ?? '0'), pnl: parseFloat(worstTrade.pnl ?? '0') } : null,
+    daysRunning,
+    endsAt: session.endsAt,
+    startedAt: session.startedAt,
+    durationDays: session.durationDays,
+    equityCurve,
+    equityDates,
+    openPositions,
+    closedTrades,
+    monthlyReturns,
+  };
+}
+
+// Helper: build monthly returns map from dailyPerformance
+function buildMonthlyReturns(dailyPerf: Record<string, {trades: number; pnl: number; balance: number}>, startingBalance: number): {month: string; returnPct: number; pnl: number}[] {
+  const monthlyPnl: Record<string, number> = {};
+  for (const [day, data] of Object.entries(dailyPerf)) {
+    const month = day.substring(0, 7); // 'YYYY-MM'
+    monthlyPnl[month] = (monthlyPnl[month] ?? 0) + (data.pnl ?? 0);
+  }
+  return Object.entries(monthlyPnl)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, pnl]) => ({
+      month,
+      returnPct: startingBalance > 0 ? Math.round((pnl / startingBalance) * 10000) / 100 : 0,
+      pnl: Math.round(pnl * 100) / 100,
+    }));
+}
+
 // ─── Bot Feed Stats ────────────────────────────────────────────────────────
 
 export async function getBotFeedStats(userId: string, botId: string, mode?: 'paper' | 'live') {
@@ -1321,7 +1716,34 @@ export async function getBotFeedStats(userId: string, botId: string, mode?: 'pap
   const currentBalance = startingBalance + realizedPnl;
   const totalReturn = startingBalance > 0 ? ((currentBalance - startingBalance) / startingBalance) * 100 : 0;
 
-  // Closed trades list (most recent first, limit 50)
+  // Need positions in chronological order for drawdown and equity curve
+  const closedChron = [...closedPositions].sort((a, b) =>
+    new Date(a.closedAt ?? 0).getTime() - new Date(b.closedAt ?? 0).getTime()
+  );
+
+  // Max drawdown: equity-curve based, relative to peak
+  let peak2 = startingBalance > 0 ? startingBalance : 0;
+  let maxDrawdown = 0;
+  let equityRunner = startingBalance > 0 ? startingBalance : 0;
+  for (const p of closedChron) {
+    equityRunner += parseFloat(p.pnl ?? '0');
+    if (equityRunner > peak2) peak2 = equityRunner;
+    const dd = peak2 > 0 ? ((peak2 - equityRunner) / peak2) * 100 : 0;
+    if (dd > maxDrawdown) maxDrawdown = dd;
+  }
+
+  // Equity curve (cumulative realized P&L)
+  let ecCum = 0;
+  const equityCurveData: number[] = [0];
+  const equityDatesData: string[] = [];
+  for (const p of closedChron) {
+    ecCum += parseFloat(p.pnl ?? '0');
+    equityCurveData.push(Math.round(ecCum * 100) / 100);
+    const dt = p.closedAt instanceof Date ? p.closedAt : new Date(p.closedAt ?? Date.now());
+    equityDatesData.push(dt.toISOString());
+  }
+
+  // Closed trades list (most recent first, limit 50) — each represents a complete round trip
   const closedTrades = closedPositions.slice(0, 50).map(p => ({
     id: p.id,
     symbol: p.symbol,
@@ -1339,36 +1761,46 @@ export async function getBotFeedStats(userId: string, botId: string, mode?: 'pap
     closedAt: p.closedAt,
   }));
 
-  // Max drawdown
-  let peak = 0, maxDrawdown = 0, cum = 0;
-  for (const p of closedPositions) {
-    cum += parseFloat(p.pnlPercent ?? '0');
-    if (cum > peak) peak = cum;
-    if (peak - cum > maxDrawdown) maxDrawdown = peak - cum;
-  }
-
   // Best and worst trade
   const bestTrade = closedPositions.length > 0 ? closedPositions.reduce((best, p) => parseFloat(p.pnlPercent ?? '0') > parseFloat(best.pnlPercent ?? '0') ? p : best) : null;
   const worstTrade = closedPositions.length > 0 ? closedPositions.reduce((worst, p) => parseFloat(p.pnlPercent ?? '0') < parseFloat(worst.pnlPercent ?? '0') ? p : worst) : null;
 
+  // Monthly returns from closed positions
+  const monthlyPnlMap: Record<string, number> = {};
+  for (const p of closedPositions) {
+    const dt = p.closedAt instanceof Date ? p.closedAt : new Date(p.closedAt ?? Date.now());
+    const month = dt.toISOString().substring(0, 7);
+    monthlyPnlMap[month] = (monthlyPnlMap[month] ?? 0) + parseFloat(p.pnl ?? '0');
+  }
+  const monthlyReturns = Object.entries(monthlyPnlMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([month, pnl]) => ({
+      month,
+      returnPct: startingBalance > 0 ? Math.round((pnl / startingBalance) * 10000) / 100 : 0,
+      pnl: Math.round(pnl * 100) / 100,
+    }));
+
   return {
     startingBalance,
-    currentBalance,
-    totalReturn,
-    realizedPnl,
+    currentBalance: Math.round(currentBalance * 100) / 100,
+    totalReturn: Math.round(totalReturn * 100) / 100,
+    realizedPnl: Math.round(realizedPnl * 100) / 100,
     unrealizedPnl,
     totalInTrade,
     availableBalance: currentBalance - totalInTrade,
     totalTrades: closedPositions.length,
-    winRate,
+    winRate: Math.round(winRate * 10) / 10,
     wins: wins.length,
     losses: losses.length,
-    avgWinPercent: avgWin,
-    avgLossPercent: avgLoss,
-    maxDrawdown,
+    avgWinPercent: Math.round(avgWin * 100) / 100,
+    avgLossPercent: Math.round(avgLoss * 100) / 100,
+    maxDrawdown: Math.round(maxDrawdown * 100) / 100,
     bestTrade: bestTrade ? { symbol: bestTrade.symbol, pnlPercent: parseFloat(bestTrade.pnlPercent ?? '0'), pnl: parseFloat(bestTrade.pnl ?? '0') } : null,
     worstTrade: worstTrade ? { symbol: worstTrade.symbol, pnlPercent: parseFloat(worstTrade.pnlPercent ?? '0'), pnl: parseFloat(worstTrade.pnl ?? '0') } : null,
     openPositions: openPosData,
     closedTrades,
+    equityCurve: equityCurveData,
+    equityDates: equityDatesData,
+    monthlyReturns,
   };
 }

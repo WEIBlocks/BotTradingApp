@@ -51,6 +51,13 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const [customDays, setCustomDays] = useState('');
   const [virtualBalance, setVirtualBalance] = useState('10000');
 
+  // Stats tabs: 'live' = public live, 'my' = personal (shadow or live), shown when user has any active relationship
+  const [activeStatsTab, setActiveStatsTab] = useState<'live' | 'my'>('live');
+  const [publicLiveStats, setPublicLiveStats] = useState<any>(null);
+  const [shadowSessionStats, setShadowSessionStats] = useState<any>(null);
+  const [myLiveStats, setMyLiveStats] = useState<any>(null);
+  const [statsTabLoading, setStatsTabLoading] = useState(false);
+
   // Subscriber customization
   const [subUserConfig, setSubUserConfig] = useState<{
     riskMultiplier?: number;
@@ -200,6 +207,30 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         setUserBotState({status: 'stopped', subscriptionId: sub.subscriptionId || sub.id});
       } else {
         setUserBotState({status: 'none'});
+      }
+      // Always fetch public live stats for LIVE tab (includes equity curve + recent trades)
+      setStatsTabLoading(true);
+      botsService.getPublicLiveStats(route.params.botId)
+        .then((res: any) => setPublicLiveStats(res?.data ?? null))
+        .catch(() => {})
+        .finally(() => setStatsTabLoading(false));
+
+      // Determine who the current user is relative to this bot
+      const isActiveLive = sub && (sub.subscriptionStatus === 'active' || sub.status === 'active') && (sub.subscriptionMode === 'live' || sub.mode === 'live');
+      const shadowId = shadowRunning?.id ?? shadowPaused?.id ?? shadowCompleted?.id;
+
+      // Fetch user's personal live stats if running live
+      if (isActiveLive) {
+        botsService.getMyLiveStats(route.params.botId)
+          .then((res: any) => setMyLiveStats(res?.data ?? null))
+          .catch(() => {});
+      }
+
+      // Fetch shadow session stats if user has a shadow session
+      if (shadowId) {
+        botsService.getShadowSessionLiveStats(shadowId)
+          .then((res: any) => setShadowSessionStats(res?.data ?? null))
+          .catch(() => {});
       }
     } catch {
       // Bot details fetch failed
@@ -500,6 +531,14 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
   const isRunning = userBotState.status === 'active' || userBotState.status === 'shadow_running';
   const feedMode = userBotState.status === 'active' ? 'live' : 'paper';
+  const isLiveActive = userBotState.status === 'active' || userBotState.status === 'paused' || userBotState.status === 'stopped';
+  const hasShadowSession = userBotState.status === 'shadow_running' || userBotState.status === 'shadow_paused' || userBotState.status === 'shadow_completed';
+  // Show dual tabs whenever user has any personal relationship (live OR shadow)
+  const hasPersonalTab = isLiveActive || hasShadowSession;
+  // Label for the personal tab
+  const myTabLabel = isLiveActive ? 'MY LIVE' : 'MY SHADOW';
+  // Personal stats data to show in "my" tab
+  const myTabStats = isLiveActive ? myLiveStats : shadowSessionStats;
 
   return (
     <View style={styles.container}>
@@ -541,6 +580,26 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             <Path d="M9 18l6-6-6-6" stroke={userBotState.status === 'active' ? '#10B981' : '#3B82F6'} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
         </TouchableOpacity>
+      )}
+
+      {/* ── Tab bar (sticky, outside ScrollView) ── shown when user has any personal relationship */}
+      {hasPersonalTab && (
+        <View style={styles.tabBarWrap}>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            style={[styles.tabBarBtn, activeStatsTab === 'live' && styles.tabBarBtnLiveActive]}
+            onPress={() => setActiveStatsTab('live')}>
+            <View style={[styles.tabBarDot, {backgroundColor: activeStatsTab === 'live' ? '#10B981' : 'rgba(255,255,255,0.2)'}]} />
+            <Text style={[styles.tabBarBtnText, activeStatsTab === 'live' && {color: '#10B981'}]}>PUBLIC LIVE</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            style={[styles.tabBarBtn, activeStatsTab === 'my' && (isLiveActive ? styles.tabBarBtnLiveActive : styles.tabBarBtnShadowActive)]}
+            onPress={() => setActiveStatsTab('my')}>
+            <View style={[styles.tabBarDot, {backgroundColor: activeStatsTab === 'my' ? (isLiveActive ? '#10B981' : '#3B82F6') : 'rgba(255,255,255,0.2)'}]} />
+            <Text style={[styles.tabBarBtnText, activeStatsTab === 'my' && {color: isLiveActive ? '#10B981' : '#3B82F6'}]}>{myTabLabel}</Text>
+          </TouchableOpacity>
+        </View>
       )}
 
       <ScrollView
@@ -587,568 +646,628 @@ export default function BotDetailsScreen({navigation, route}: Props) {
           )}
         </View>
 
-        {/* Stats 2x2 grid */}
-        <View style={styles.statsGrid}>
-          {statCells.map(cell => (
-            <View key={cell.label} style={styles.statCell}>
-              <Text style={styles.statCellLabel}>{cell.label}</Text>
-              <Text style={[styles.statCellValue, {color: cell.color}]}>{cell.value}</Text>
+        {/* ══ PUBLIC LIVE TAB — complete screen ══ */}
+        {(!hasPersonalTab || activeStatsTab === 'live') && (
+          <View>
+            {/* Stats 2x2 grid */}
+            <View style={styles.statsGrid}>
+              {statCells.map(cell => (
+                <View key={cell.label} style={styles.statCell}>
+                  <Text style={styles.statCellLabel}>{cell.label}</Text>
+                  <Text style={[styles.statCellValue, {color: cell.color}]}>{cell.value}</Text>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
 
-        {/* Bot P&L Equity Curve (Line Chart) */}
-        <View style={styles.chartSection}>
-          <Text style={styles.chartSectionLabel}>BOT PERFORMANCE (P&L)</Text>
-          <PortfolioLineChart
-            data={equityCurve.length >= 2 ? equityCurve : [0, equityPnl]}
-            dates={equityDates}
-            currentValue={equityPnl}
-            width={CHART_W}
-            height={200}
-            isRealData={equityCurve.length >= 2}
-            loading={equityLoading}
-            onTimeframeChange={fetchEquityCurve}
-          />
-        </View>
-
-        {/* Trading Pairs — Real Candlestick Charts */}
-        {(() => {
-          const pairs = bot.config?.pairs ?? ['BTC/USDT'];
-          return (
-            <View style={styles.chartSection}>
-              <Text style={styles.chartSectionLabel}>PRICE ACTION</Text>
-              <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 12}}>
-                Real-time market data for trading pairs
-              </Text>
-
-              {/* Pair selector */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8, marginBottom: 14}}>
-                {pairs.map(pair => (
-                  <TouchableOpacity
-                    key={pair}
-                    activeOpacity={0.7}
-                    style={[
-                      styles.pairChip,
-                      selectedPair === pair && styles.pairChipActive,
-                    ]}
-                    onPress={() => handlePairSelect(pair)}>
-                    <Text style={[
-                      styles.pairChipText,
-                      selectedPair === pair && styles.pairChipTextActive,
-                    ]}>{pair}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-
-              {/* Candlestick chart for selected pair */}
-              {selectedPair ? (
-                candleLoading && liveCandles.length === 0 ? (
-                  <View style={{alignItems: 'center', paddingVertical: 40}}>
-                    <ActivityIndicator size="small" color="#10B981" />
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 8}}>Loading {selectedPair}...</Text>
-                  </View>
-                ) : liveCandles.length > 0 ? (
-                  <>
-                    {/* Timeframe selector + live indicator */}
-                    <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 10}}>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 6}} style={{flex: 1}}>
-                        {(bot.category === 'Stocks' ? ['1D', '1W'] : ['1H', '4H', '1D', '1W']).map(tf => (
-                          <TouchableOpacity
-                            key={tf}
-                            activeOpacity={0.7}
-                            style={[styles.tfChip, candleTF === tf && styles.tfChipActive]}
-                            onPress={() => handleCandleTFChange(tf)}>
-                            <Text style={[styles.tfChipText, candleTF === tf && styles.tfChipTextActive]}>
-                              {tf}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                      {candleConnected && (
-                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8}}>
-                          <View style={{width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981'}} />
-                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: '#10B981'}}>LIVE</Text>
-                        </View>
-                      )}
-                    </View>
-
-                    <CandlestickChart
-                      data={liveCandles}
-                      livePrice={binanceLivePrice}
-                      width={CHART_W}
-                      height={260}
-                      showTimeframes={false}
-                      showGrid
-                      showCrosshair
-                      showYLabels
-                    />
-
-                    {/* Trade markers legend */}
-                    {tradeMarkers.length > 0 && (
-                      <View style={styles.markersSection}>
-                        <Text style={styles.markersTitle}>BOT TRADES ON THIS PAIR</Text>
-                        {tradeMarkers.slice(0, 10).map((m, i) => (
-                          <View key={i} style={styles.markerRow}>
-                            <View style={[styles.markerDot, {backgroundColor: m.action === 'BUY' ? '#10B981' : '#EF4444'}]} />
-                            <Text style={styles.markerAction}>{m.action}</Text>
-                            <Text style={styles.markerPrice}>${m.price.toLocaleString('en-US', {minimumFractionDigits: 2})}</Text>
-                            <Text style={styles.markerTime}>
-                              {new Date(m.timestamp).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}
-                            </Text>
-                          </View>
-                        ))}
-                      </View>
-                    )}
-                  </>
-                ) : (
-                  <View style={{alignItems: 'center', paddingVertical: 30}}>
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)'}}>No candle data for {selectedPair}</Text>
-                  </View>
-                )
+            {/* Live community stats */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>LIVE TRADERS STATS</Text>
+              {statsTabLoading ? (
+                <ActivityIndicator size="small" color="#10B981" style={{marginVertical: 16}} />
               ) : (
-                <View style={{alignItems: 'center', paddingVertical: 30}}>
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)'}}>
-                    Select a pair to view price chart
-                  </Text>
+                <View style={styles.metricsCard}>
+                  <View style={styles.metricRow}>
+                    <Text style={styles.metricLabel}>Live Traders</Text>
+                    <Text style={[styles.metricValue, {color: '#10B981'}]}>{publicLiveStats?.liveTraders ?? bot.aggregateStats?.liveSubscribers ?? 0}</Text>
+                  </View>
+                  <View style={styles.metricRow}>
+                    <Text style={styles.metricLabel}>All-Time Trades</Text>
+                    <Text style={styles.metricValue}>{publicLiveStats?.totalTrades ?? bot.aggregateStats?.totalTrades ?? 0}</Text>
+                  </View>
+                  <View style={styles.metricRow}>
+                    <Text style={styles.metricLabel}>Win Rate</Text>
+                    <Text style={[styles.metricValue, {color: '#0D7FF2'}]}>{(publicLiveStats?.winRate ?? bot.winRate ?? 0).toFixed(1)}%</Text>
+                  </View>
+                  <View style={styles.metricRow}>
+                    <Text style={styles.metricLabel}>Open Positions</Text>
+                    <Text style={[styles.metricValue, {color: '#3B82F6'}]}>{publicLiveStats?.openPositions ?? bot.aggregateStats?.openPositions ?? 0}</Text>
+                  </View>
+                  <View style={styles.metricRow}>
+                    <Text style={styles.metricLabel}>30D Trades</Text>
+                    <Text style={styles.metricValue}>{publicLiveStats?.trades30d ?? '—'}</Text>
+                  </View>
+                  <View style={styles.metricRow}>
+                    <Text style={styles.metricLabel}>30D P&L (all users)</Text>
+                    <Text style={[styles.metricValue, {color: (publicLiveStats?.pnl30d ?? 0) >= 0 ? '#10B981' : '#EF4444'}]}>
+                      {publicLiveStats ? `${(publicLiveStats.pnl30d ?? 0) >= 0 ? '+' : ''}$${(publicLiveStats.pnl30d ?? 0).toFixed(2)}` : '—'}
+                    </Text>
+                  </View>
+                  <View style={styles.metricRow}>
+                    <Text style={styles.metricLabel}>Avg Return 30D</Text>
+                    <Text style={[styles.metricValue, {color: (publicLiveStats?.avgReturn30d ?? 0) >= 0 ? '#10B981' : '#EF4444'}]}>
+                      {publicLiveStats ? `${(publicLiveStats.avgReturn30d ?? 0) >= 0 ? '+' : ''}${(publicLiveStats.avgReturn30d ?? 0).toFixed(2)}%` : '—'}
+                    </Text>
+                  </View>
+                  <View style={[styles.metricRow, {borderBottomWidth: 0}]}>
+                    <Text style={styles.metricLabel}>Total P&L (all-time)</Text>
+                    <Text style={[styles.metricValue, {color: (publicLiveStats?.totalPnl ?? 0) >= 0 ? '#10B981' : '#EF4444'}]}>
+                      {publicLiveStats ? `${(publicLiveStats.totalPnl ?? 0) >= 0 ? '+' : ''}$${(publicLiveStats.totalPnl ?? 0).toFixed(2)}` : '—'}
+                    </Text>
+                  </View>
                 </View>
               )}
             </View>
-          );
-        })()}
 
-        {/* Bot Overview Card */}
-        <View style={styles.overviewCard}>
-          <View style={styles.overviewRow}>
-            <View style={styles.overviewItem}>
-              <Text style={styles.overviewLabel}>CATEGORY</Text>
-              <Text style={styles.overviewValue}>{bot.category}</Text>
+            {/* Bot P&L Equity Curve — cumulative live P&L across all users */}
+            <View style={styles.chartSection}>
+              <Text style={styles.chartSectionLabel}>LIVE PERFORMANCE (P&L)</Text>
+              {statsTabLoading ? (
+                <ActivityIndicator size="small" color="#10B981" style={{marginVertical: 40}} />
+              ) : (
+                <PortfolioLineChart
+                  data={publicLiveStats?.equityCurve?.length >= 2 ? publicLiveStats.equityCurve : [0, publicLiveStats?.totalPnl ?? 0]}
+                  dates={publicLiveStats?.equityDates ?? []}
+                  currentValue={publicLiveStats?.totalPnl ?? 0}
+                  width={CHART_W}
+                  height={200}
+                  isRealData={(publicLiveStats?.equityCurve?.length ?? 0) >= 2}
+                  loading={false}
+                />
+              )}
             </View>
-            <View style={styles.overviewDivider} />
-            <View style={styles.overviewItem}>
-              <Text style={styles.overviewLabel}>RISK LEVEL</Text>
-              <Text style={[styles.overviewValue, {color: bot.risk === 'Very High' || bot.risk === 'High' ? '#EF4444' : bot.risk === 'Med' ? '#F59E0B' : '#10B981'}]}>
-                {bot.risk}
-              </Text>
-            </View>
-            <View style={styles.overviewDivider} />
-            <View style={styles.overviewItem}>
-              <Text style={styles.overviewLabel}>PRICE</Text>
-              <Text style={styles.overviewValue}>{bot.price === 0 ? 'Free' : `$${bot.price}/mo`}</Text>
-            </View>
-          </View>
-        </View>
 
-        {/* Trading Configuration */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>TRADING CONFIGURATION</Text>
-          <View style={styles.metricsCard}>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Strategy</Text>
-              <Text style={[styles.metricValue, {color: '#8B5CF6'}]}>{bot.strategy || 'N/A'}</Text>
+            {/* Candlestick Charts */}
+            {(() => {
+              const pairs = bot.config?.pairs ?? ['BTC/USDT'];
+              return (
+                <View style={styles.chartSection}>
+                  <Text style={styles.chartSectionLabel}>PRICE ACTION</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 12}}>
+                    Real-time market data for trading pairs
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8, marginBottom: 14}}>
+                    {pairs.map(pair => (
+                      <TouchableOpacity key={pair} activeOpacity={0.7}
+                        style={[styles.pairChip, selectedPair === pair && styles.pairChipActive]}
+                        onPress={() => handlePairSelect(pair)}>
+                        <Text style={[styles.pairChipText, selectedPair === pair && styles.pairChipTextActive]}>{pair}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                  {selectedPair ? (
+                    candleLoading && liveCandles.length === 0 ? (
+                      <View style={{alignItems: 'center', paddingVertical: 40}}>
+                        <ActivityIndicator size="small" color="#10B981" />
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 8}}>Loading {selectedPair}...</Text>
+                      </View>
+                    ) : liveCandles.length > 0 ? (
+                      <View>
+                        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 10}}>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 6}} style={{flex: 1}}>
+                            {(bot.category === 'Stocks' ? ['1D', '1W'] : ['1H', '4H', '1D', '1W']).map(tf => (
+                              <TouchableOpacity key={tf} activeOpacity={0.7}
+                                style={[styles.tfChip, candleTF === tf && styles.tfChipActive]}
+                                onPress={() => handleCandleTFChange(tf)}>
+                                <Text style={[styles.tfChipText, candleTF === tf && styles.tfChipTextActive]}>{tf}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                          {candleConnected && (
+                            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8}}>
+                              <View style={{width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981'}} />
+                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: '#10B981'}}>LIVE</Text>
+                            </View>
+                          )}
+                        </View>
+                        <CandlestickChart data={liveCandles} livePrice={binanceLivePrice} width={CHART_W} height={260} showTimeframes={false} showGrid showCrosshair showYLabels />
+                        {tradeMarkers.length > 0 && (
+                          <View style={styles.markersSection}>
+                            <Text style={styles.markersTitle}>BOT TRADES ON THIS PAIR</Text>
+                            {tradeMarkers.slice(0, 10).map((m, i) => (
+                              <View key={i} style={styles.markerRow}>
+                                <View style={[styles.markerDot, {backgroundColor: m.action === 'BUY' ? '#10B981' : '#EF4444'}]} />
+                                <Text style={styles.markerAction}>{m.action}</Text>
+                                <Text style={styles.markerPrice}>${m.price.toLocaleString('en-US', {minimumFractionDigits: 2})}</Text>
+                                <Text style={styles.markerTime}>{new Date(m.timestamp).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    ) : (
+                      <View style={{alignItems: 'center', paddingVertical: 30}}>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)'}}>No candle data for {selectedPair}</Text>
+                      </View>
+                    )
+                  ) : (
+                    <View style={{alignItems: 'center', paddingVertical: 30}}>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)'}}>Select a pair to view price chart</Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
+
+            {/* Recent Live Trades (all users — each is a complete round trip) */}
+            {publicLiveStats?.recentTrades?.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>RECENT LIVE TRADES (ALL USERS)</Text>
+                <ScrollView style={{maxHeight: 360}} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                  {publicLiveStats.recentTrades.map((t: any) => (
+                    <View key={t.id} style={[styles.shadowTradeRow, {flexDirection: 'column', gap: 6, paddingVertical: 10}]}>
+                      <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
+                        <Text style={styles.shadowTradePair}>{t.symbol}</Text>
+                        <Text style={[styles.shadowTradePnl, {color: t.pnl >= 0 ? '#10B981' : '#EF4444'}]}>{t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)} <Text style={{fontSize: 11}}>{t.pnlPercent >= 0 ? '+' : ''}{t.pnlPercent.toFixed(2)}%</Text></Text>
+                      </View>
+                      <View style={{flexDirection: 'row', gap: 8}}>
+                        <View style={{flex: 1, backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: 'rgba(16,185,129,0.15)'}}>
+                          <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#10B981', letterSpacing: 0.5}}>BUY</Text>
+                          <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#FFFFFF', marginTop: 2}}>${t.entryPrice?.toFixed(4) ?? '—'}</Text>
+                        </View>
+                        <View style={{flex: 1, backgroundColor: 'rgba(239,68,68,0.08)', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: 'rgba(239,68,68,0.15)'}}>
+                          <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#EF4444', letterSpacing: 0.5}}>SELL</Text>
+                          <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#FFFFFF', marginTop: 2}}>${t.exitPrice?.toFixed(4) ?? '—'}</Text>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 1}}>{t.closedAt ? new Date(t.closedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : '—'}</Text>
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+
+            {/* Overview Card */}
+            <View style={styles.overviewCard}>
+              <View style={styles.overviewRow}>
+                <View style={styles.overviewItem}>
+                  <Text style={styles.overviewLabel}>CATEGORY</Text>
+                  <Text style={styles.overviewValue}>{bot.category}</Text>
+                </View>
+                <View style={styles.overviewDivider} />
+                <View style={styles.overviewItem}>
+                  <Text style={styles.overviewLabel}>RISK LEVEL</Text>
+                  <Text style={[styles.overviewValue, {color: bot.risk === 'Very High' || bot.risk === 'High' ? '#EF4444' : bot.risk === 'Med' ? '#F59E0B' : '#10B981'}]}>{bot.risk}</Text>
+                </View>
+                <View style={styles.overviewDivider} />
+                <View style={styles.overviewItem}>
+                  <Text style={styles.overviewLabel}>PRICE</Text>
+                  <Text style={styles.overviewValue}>{bot.price === 0 ? 'Free' : `$${bot.price}/mo`}</Text>
+                </View>
+              </View>
             </View>
-            <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8}]}>
-              <Text style={styles.metricLabel}>Trading Pairs</Text>
-              <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 6}}>
-                {(bot.config?.pairs || ['BTC/USDT']).map((pair, i) => (
-                  <View key={i} style={{backgroundColor: 'rgba(59,130,246,0.12)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: 'rgba(59,130,246,0.25)'}}>
-                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#3B82F6'}} numberOfLines={1}>{pair}</Text>
+
+            {/* Trading Configuration */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>TRADING CONFIGURATION</Text>
+              <View style={styles.metricsCard}>
+                <View style={styles.metricRow}><Text style={styles.metricLabel}>Strategy</Text><Text style={[styles.metricValue, {color: '#8B5CF6'}]}>{bot.strategy || 'N/A'}</Text></View>
+                <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8}]}>
+                  <Text style={styles.metricLabel}>Trading Pairs</Text>
+                  <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 6}}>
+                    {(bot.config?.pairs || ['BTC/USDT']).map((pair, i) => (
+                      <View key={i} style={{backgroundColor: 'rgba(59,130,246,0.12)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: 'rgba(59,130,246,0.25)'}}>
+                        <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#3B82F6'}}>{pair}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+                {bot.config?.stopLoss && <View style={styles.metricRow}><Text style={styles.metricLabel}>Stop Loss</Text><Text style={[styles.metricValue, {color: '#EF4444'}]}>{bot.config.stopLoss}%</Text></View>}
+                {bot.config?.takeProfit && <View style={styles.metricRow}><Text style={styles.metricLabel}>Take Profit</Text><Text style={[styles.metricValue, {color: '#10B981'}]}>{bot.config.takeProfit}%</Text></View>}
+                {bot.config?.tradeDirection && <View style={styles.metricRow}><Text style={styles.metricLabel}>Direction</Text><Text style={styles.metricValue}>{bot.config.tradeDirection === 'buy' ? 'Buy Only' : bot.config.tradeDirection === 'sell' ? 'Sell Only' : 'Both'}</Text></View>}
+                {bot.config?.orderType && <View style={styles.metricRow}><Text style={styles.metricLabel}>Order Type</Text><Text style={styles.metricValue}>{bot.config.orderType === 'limit' ? 'Limit' : 'Market'}</Text></View>}
+                {bot.config?.tradingFrequency && (
+                  <View style={styles.metricRow}><Text style={styles.metricLabel}>Trading Frequency</Text>
+                    <Text style={[styles.metricValue, {color: bot.config.tradingFrequency === 'max' || bot.config.tradingFrequency === 'aggressive' ? '#EF4444' : '#10B981'}]}>
+                      {bot.config.tradingFrequency.charAt(0).toUpperCase() + bot.config.tradingFrequency.slice(1)}
+                    </Text>
+                  </View>
+                )}
+                {bot.config?.aiMode && <View style={styles.metricRow}><Text style={styles.metricLabel}>AI Mode</Text><Text style={[styles.metricValue, {color: '#8B5CF6'}]}>{bot.config.aiMode === 'rules_only' ? 'Rules Only' : bot.config.aiMode === 'full_ai' ? 'Full AI' : 'Hybrid'}</Text></View>}
+                {bot.config?.maxOpenPositions !== undefined && <View style={styles.metricRow}><Text style={styles.metricLabel}>Max Open Positions</Text><Text style={styles.metricValue}>{bot.config.maxOpenPositions}</Text></View>}
+                {bot.config?.tradingSchedule && (
+                  <View style={[styles.metricRow, {borderBottomWidth: 0}]}><Text style={styles.metricLabel}>Trading Schedule</Text>
+                    <Text style={styles.metricValue}>{bot.config.tradingSchedule === '24_7' ? '24/7' : bot.config.tradingSchedule === 'us_hours' ? 'US Market Hours' : 'Custom'}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            {/* Subscriber Customization */}
+            {(userBotState.status === 'active' || userBotState.status === 'paused') && (
+              <View style={styles.section}>
+                <TouchableOpacity style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: configPanelExpanded ? 14 : 0}} activeOpacity={0.7} onPress={() => setConfigPanelExpanded(v => !v)}>
+                  <Text style={styles.sectionLabel}>MY SETTINGS</Text>
+                  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                    <Path d={configPanelExpanded ? 'M18 15l-6-6-6 6' : 'M6 9l6 6 6-6'} stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                  </Svg>
+                </TouchableOpacity>
+                {configPanelExpanded && (
+                  <View style={styles.metricsCard}>
+                    <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
+                      <Text style={styles.metricLabel}>RISK MULTIPLIER</Text>
+                      <View style={{flexDirection: 'row', gap: 8}}>
+                        {([0.5, 1, 1.5, 2] as const).map(v => (
+                          <TouchableOpacity key={v} activeOpacity={0.7} style={{paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, backgroundColor: subUserConfig.riskMultiplier === v ? 'rgba(16,185,129,0.18)' : '#1C2333', borderWidth: 1, borderColor: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.08)'}} onPress={() => setSubUserConfig(c => ({...c, riskMultiplier: v}))}>
+                            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{v}x</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                    <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
+                      <Text style={styles.metricLabel}>NOTIFICATIONS</Text>
+                      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+                        {(['all', 'wins_only', 'losses_only', 'summary'] as const).map(n => (
+                          <TouchableOpacity key={n} activeOpacity={0.7} style={{paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: subUserConfig.notificationLevel === n ? 'rgba(59,130,246,0.18)' : '#1C2333', borderWidth: 1, borderColor: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.08)'}} onPress={() => setSubUserConfig(c => ({...c, notificationLevel: n}))}>
+                            <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.5)'}}>{n === 'all' ? 'All' : n === 'wins_only' ? 'Wins Only' : n === 'losses_only' ? 'Losses Only' : 'Summary'}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                    <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
+                      <View style={{flex: 1}}><Text style={styles.metricLabel}>MAX DAILY LOSS</Text></View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
+                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.maxDailyLoss ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, maxDailyLoss: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 2}}>%</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
+                      <View style={{flex: 1}}><Text style={styles.metricLabel}>AUTO-STOP LOSS %</Text></View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
+                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopLossPercent ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopLossPercent: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 2}}>%</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
+                      <View style={{flex: 1}}><Text style={styles.metricLabel}>AUTO-STOP BALANCE</Text></View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginRight: 2}}>$</Text>
+                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopBalance ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopBalance: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                      </View>
+                    </View>
+                    <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
+                      <View style={{flex: 1}}><Text style={styles.metricLabel}>AUTO-STOP DAYS</Text></View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
+                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}} keyboardType="number-pad" value={subUserConfig.autoStopDays ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopDays: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>days</Text>
+                      </View>
+                    </View>
+                    <View style={[styles.metricRow, {alignItems: 'center', paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)'}]}>
+                      <View style={{flex: 1}}><Text style={styles.metricLabel}>COMPOUND PROFITS</Text></View>
+                      <TouchableOpacity activeOpacity={0.7} style={{width: 48, height: 26, borderRadius: 13, backgroundColor: subUserConfig.compoundProfits ? '#10B981' : '#2D3748', justifyContent: 'center', paddingHorizontal: 3}} onPress={() => setSubUserConfig(c => ({...c, compoundProfits: !c.compoundProfits}))}>
+                        <View style={{width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF', alignSelf: subUserConfig.compoundProfits ? 'flex-end' : 'flex-start'}} />
+                      </TouchableOpacity>
+                    </View>
+                    <TouchableOpacity style={{marginTop: 14, backgroundColor: '#10B981', borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: savingConfig ? 0.6 : 1}} activeOpacity={0.8} disabled={savingConfig} onPress={handleSaveUserConfig}>
+                      {savingConfig ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF'}}>Save My Settings</Text>}
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            )}
+
+            {/* Bot DNA */}
+            {bot.tags && bot.tags.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>BOT DNA</Text>
+                <View style={styles.tagsRow}>
+                  {bot.tags.map(tag => <Badge key={tag} label={tag} variant="outline" size="sm" style={styles.tag} />)}
+                </View>
+              </View>
+            )}
+
+            {/* Strategy */}
+            {bot.description ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>STRATEGY</Text>
+                <Text style={styles.strategyText}>{bot.description}</Text>
+              </View>
+            ) : null}
+
+            {/* Key Metrics */}
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>KEY METRICS</Text>
+              <View style={styles.metricsCard}>
+                <View style={styles.metricRow}><Text style={styles.metricLabel}>Total Return (30D)</Text><Text style={[styles.metricValue, {color: bot.returnPercent >= 0 ? '#10B981' : '#EF4444'}]}>{bot.returnPercent >= 0 ? '+' : ''}{bot.returnPercent.toFixed(2)}%</Text></View>
+                <View style={styles.metricRow}><Text style={styles.metricLabel}>Win Rate</Text><Text style={styles.metricValue}>{bot.winRate.toFixed(1)}%</Text></View>
+                <View style={styles.metricRow}><Text style={styles.metricLabel}>Max Drawdown</Text><Text style={[styles.metricValue, {color: '#EF4444'}]}>{bot.maxDrawdown.toFixed(2)}%</Text></View>
+                <View style={styles.metricRow}><Text style={styles.metricLabel}>Sharpe Ratio</Text><Text style={[styles.metricValue, {color: bot.sharpeRatio >= 1 ? '#10B981' : '#F59E0B'}]}>{bot.sharpeRatio.toFixed(2)}</Text></View>
+                <View style={styles.metricRow}><Text style={styles.metricLabel}>Active Users</Text><Text style={styles.metricValue}>{bot.activeUsers.toLocaleString()}</Text></View>
+                <View style={[styles.metricRow, {borderBottomWidth: 0}]}>
+                  <Text style={styles.metricLabel}>Average Rating</Text>
+                  <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                    <StarIcon size={12} filled color="#EAB308" />
+                    <Text style={styles.metricValue}>{bot.rating.toFixed(1)} ({bot.reviewCount})</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            {/* Creator */}
+            {bot.creatorName ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>CREATOR</Text>
+                <View style={styles.creatorCard}>
+                  <View style={[styles.creatorAvatar, {backgroundColor: bot.avatarColor}]}>
+                    <Text style={styles.creatorAvatarText}>{bot.creatorName.charAt(0).toUpperCase()}</Text>
+                  </View>
+                  <View style={styles.creatorInfo}>
+                    <Text style={styles.creatorName}>{bot.creatorName}</Text>
+                    <Text style={styles.creatorSub}>{isCreator ? 'You' : 'Bot Creator'}</Text>
+                  </View>
+                </View>
+              </View>
+            ) : null}
+
+            {/* Monthly Returns */}
+            {bot.monthlyReturns.length > 0 && (
+              <View style={styles.section}>
+                <Text style={styles.sectionLabel}>MONTHLY RETURNS</Text>
+                <MonthlyReturnBars data={bot.monthlyReturns} />
+              </View>
+            )}
+
+            {/* Recent Trades */}
+            {bot.recentTrades.length > 0 && (
+              <View style={styles.section}>
+                <SectionHeader title="Recent Trades" />
+                <View style={styles.card}>
+                  {bot.recentTrades.slice(0, 3).map(trade => <TradeRow key={trade.id} trade={trade} />)}
+                </View>
+              </View>
+            )}
+
+            {/* Reviews */}
+            {bot.reviews.length > 0 && (
+              <View style={styles.section}>
+                <SectionHeader title="Reviews" />
+                {bot.reviews.map(review => (
+                  <View key={review.id} style={styles.reviewCard}>
+                    <View style={styles.reviewHeader}>
+                      <View style={[styles.reviewAvatar, {backgroundColor: '#10B981'}]}>
+                        <Text style={styles.reviewAvatarText}>{review.userInitials}</Text>
+                      </View>
+                      <View>
+                        <Text style={styles.reviewName}>{review.userName}</Text>
+                        <View style={styles.reviewStars}>
+                          {[1,2,3,4,5].map(i => <StarIcon key={i} size={10} filled={i <= review.rating} color="#EAB308" />)}
+                        </View>
+                      </View>
+                      <Text style={styles.reviewDate}>{review.date}</Text>
+                    </View>
+                    <Text style={styles.reviewText}>{review.text}</Text>
                   </View>
                 ))}
               </View>
-            </View>
-            {bot.config?.stopLoss && (
-              <View style={styles.metricRow}>
-                <Text style={styles.metricLabel}>Stop Loss</Text>
-                <Text style={[styles.metricValue, {color: '#EF4444'}]}>{bot.config.stopLoss}%</Text>
-              </View>
-            )}
-            {bot.config?.takeProfit && (
-              <View style={styles.metricRow}>
-                <Text style={styles.metricLabel}>Take Profit</Text>
-                <Text style={[styles.metricValue, {color: '#10B981'}]}>{bot.config.takeProfit}%</Text>
-              </View>
-            )}
-            {bot.config?.tradeDirection && (
-              <View style={styles.metricRow}>
-                <Text style={styles.metricLabel}>Direction</Text>
-                <Text style={styles.metricValue}>{bot.config.tradeDirection === 'buy' ? 'Buy Only' : bot.config.tradeDirection === 'sell' ? 'Sell Only' : 'Both'}</Text>
-              </View>
-            )}
-            {bot.config?.orderType && (
-              <View style={styles.metricRow}>
-                <Text style={styles.metricLabel}>Order Type</Text>
-                <Text style={styles.metricValue}>{bot.config.orderType === 'limit' ? 'Limit' : 'Market'}</Text>
-              </View>
-            )}
-            {bot.config?.tradingFrequency && (
-              <View style={styles.metricRow}>
-                <Text style={styles.metricLabel}>Trading Frequency</Text>
-                <Text style={[styles.metricValue, {color: bot.config.tradingFrequency === 'max' || bot.config.tradingFrequency === 'aggressive' ? '#EF4444' : '#10B981'}]}>
-                  {bot.config.tradingFrequency.charAt(0).toUpperCase() + bot.config.tradingFrequency.slice(1)}
-                </Text>
-              </View>
-            )}
-            {bot.config?.aiMode && (
-              <View style={styles.metricRow}>
-                <Text style={styles.metricLabel}>AI Mode</Text>
-                <Text style={[styles.metricValue, {color: '#8B5CF6'}]}>
-                  {bot.config.aiMode === 'rules_only' ? 'Rules Only' : bot.config.aiMode === 'full_ai' ? 'Full AI' : 'Hybrid'}
-                </Text>
-              </View>
-            )}
-            {bot.config?.maxOpenPositions !== undefined && (
-              <View style={styles.metricRow}>
-                <Text style={styles.metricLabel}>Max Open Positions</Text>
-                <Text style={styles.metricValue}>{bot.config.maxOpenPositions}</Text>
-              </View>
-            )}
-            {bot.config?.tradingSchedule && (
-              <View style={[styles.metricRow, {borderBottomWidth: 0}]}>
-                <Text style={styles.metricLabel}>Trading Schedule</Text>
-                <Text style={styles.metricValue}>
-                  {bot.config.tradingSchedule === '24_7' ? '24/7' : bot.config.tradingSchedule === 'us_hours' ? 'US Market Hours' : 'Custom'}
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-
-        {/* ── Subscriber Customization Panel ───────────────────── */}
-        {(userBotState.status === 'active' || userBotState.status === 'paused' || userBotState.status === 'shadow_running' || userBotState.status === 'shadow_paused') && (
-          <View style={styles.section}>
-            <TouchableOpacity
-              style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: configPanelExpanded ? 14 : 0}}
-              activeOpacity={0.7}
-              onPress={() => setConfigPanelExpanded(v => !v)}>
-              <Text style={styles.sectionLabel}>MY SETTINGS</Text>
-              <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                <Path
-                  d={configPanelExpanded ? 'M18 15l-6-6-6 6' : 'M6 9l6 6 6-6'}
-                  stroke="rgba(255,255,255,0.4)"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </Svg>
-            </TouchableOpacity>
-
-            {configPanelExpanded && (
-              <View style={styles.metricsCard}>
-                {/* Risk Multiplier */}
-                <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
-                  <Text style={styles.metricLabel}>RISK MULTIPLIER</Text>
-                  <View style={{flexDirection: 'row', gap: 8}}>
-                    {([0.5, 1, 1.5, 2] as const).map(v => (
-                      <TouchableOpacity
-                        key={v}
-                        activeOpacity={0.7}
-                        style={{
-                          paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10,
-                          backgroundColor: subUserConfig.riskMultiplier === v ? 'rgba(16,185,129,0.18)' : '#1C2333',
-                          borderWidth: 1,
-                          borderColor: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.08)',
-                        }}
-                        onPress={() => setSubUserConfig(c => ({...c, riskMultiplier: v}))}>
-                        <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.5)'}}>
-                          {v}x
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)'}}>
-                    Scales the bot's SL/TP/position size
-                  </Text>
-                </View>
-
-                {/* Notification Level */}
-                <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
-                  <Text style={styles.metricLabel}>NOTIFICATIONS</Text>
-                  <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
-                    {(['all', 'wins_only', 'losses_only', 'summary'] as const).map(n => (
-                      <TouchableOpacity
-                        key={n}
-                        activeOpacity={0.7}
-                        style={{
-                          paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10,
-                          backgroundColor: subUserConfig.notificationLevel === n ? 'rgba(59,130,246,0.18)' : '#1C2333',
-                          borderWidth: 1,
-                          borderColor: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.08)',
-                        }}
-                        onPress={() => setSubUserConfig(c => ({...c, notificationLevel: n}))}>
-                        <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.5)'}}>
-                          {n === 'all' ? 'All' : n === 'wins_only' ? 'Wins Only' : n === 'losses_only' ? 'Losses Only' : 'Summary'}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                </View>
-
-                {/* Max Daily Loss % */}
-                <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
-                  <View style={{flex: 1}}>
-                    <Text style={styles.metricLabel}>MAX DAILY LOSS</Text>
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Pause bot if daily loss exceeds this %</Text>
-                  </View>
-                  <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
-                    <TextInput
-                      style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}}
-                      keyboardType="decimal-pad"
-                      value={subUserConfig.maxDailyLoss ?? ''}
-                      onChangeText={v => setSubUserConfig(c => ({...c, maxDailyLoss: v}))}
-                      placeholder="—"
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                    />
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 2}}>%</Text>
-                  </View>
-                </View>
-
-                {/* Auto-Stop Loss % */}
-                <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
-                  <View style={{flex: 1}}>
-                    <Text style={styles.metricLabel}>AUTO-STOP LOSS %</Text>
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Stop bot if total loss exceeds this %</Text>
-                  </View>
-                  <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
-                    <TextInput
-                      style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}}
-                      keyboardType="decimal-pad"
-                      value={subUserConfig.autoStopLossPercent ?? ''}
-                      onChangeText={v => setSubUserConfig(c => ({...c, autoStopLossPercent: v}))}
-                      placeholder="—"
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                    />
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 2}}>%</Text>
-                  </View>
-                </View>
-
-                {/* Auto-Stop Balance */}
-                <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
-                  <View style={{flex: 1}}>
-                    <Text style={styles.metricLabel}>AUTO-STOP BALANCE</Text>
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Stop bot if balance falls below this</Text>
-                  </View>
-                  <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginRight: 2}}>$</Text>
-                    <TextInput
-                      style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}}
-                      keyboardType="decimal-pad"
-                      value={subUserConfig.autoStopBalance ?? ''}
-                      onChangeText={v => setSubUserConfig(c => ({...c, autoStopBalance: v}))}
-                      placeholder="—"
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                    />
-                  </View>
-                </View>
-
-                {/* Auto-Stop Days */}
-                <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
-                  <View style={{flex: 1}}>
-                    <Text style={styles.metricLabel}>AUTO-STOP DAYS</Text>
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Stop bot after this many days</Text>
-                  </View>
-                  <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
-                    <TextInput
-                      style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}}
-                      keyboardType="number-pad"
-                      value={subUserConfig.autoStopDays ?? ''}
-                      onChangeText={v => setSubUserConfig(c => ({...c, autoStopDays: v}))}
-                      placeholder="—"
-                      placeholderTextColor="rgba(255,255,255,0.3)"
-                    />
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>days</Text>
-                  </View>
-                </View>
-
-                {/* Compound Profits */}
-                <View style={[styles.metricRow, {alignItems: 'center', paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)'}]}>
-                  <View style={{flex: 1}}>
-                    <Text style={styles.metricLabel}>COMPOUND PROFITS</Text>
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Reinvest profits into position sizes</Text>
-                  </View>
-                  <TouchableOpacity
-                    activeOpacity={0.7}
-                    style={{
-                      width: 48, height: 26, borderRadius: 13,
-                      backgroundColor: subUserConfig.compoundProfits ? '#10B981' : '#2D3748',
-                      justifyContent: 'center',
-                      paddingHorizontal: 3,
-                    }}
-                    onPress={() => setSubUserConfig(c => ({...c, compoundProfits: !c.compoundProfits}))}>
-                    <View style={{
-                      width: 20, height: 20, borderRadius: 10,
-                      backgroundColor: '#FFFFFF',
-                      alignSelf: subUserConfig.compoundProfits ? 'flex-end' : 'flex-start',
-                    }} />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Save Button */}
-                <TouchableOpacity
-                  style={{marginTop: 14, backgroundColor: '#10B981', borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: savingConfig ? 0.6 : 1}}
-                  activeOpacity={0.8}
-                  disabled={savingConfig}
-                  onPress={handleSaveUserConfig}>
-                  {savingConfig
-                    ? <ActivityIndicator size="small" color="#FFFFFF" />
-                    : <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF'}}>Save My Settings</Text>
-                  }
-                </TouchableOpacity>
-              </View>
             )}
           </View>
         )}
 
-        {/* Aggregate Stats (all users) */}
-        {bot.aggregateStats && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>COMMUNITY STATS</Text>
-            <View style={styles.metricsCard}>
-              <View style={styles.metricRow}>
-                <Text style={styles.metricLabel}>Total Traders</Text>
-                <Text style={styles.metricValue}>{bot.aggregateStats.totalUsers}</Text>
-              </View>
-              <View style={styles.metricRow}>
-                <Text style={styles.metricLabel}>Live Traders</Text>
-                <Text style={[styles.metricValue, {color: '#10B981'}]}>{bot.aggregateStats.liveSubscribers}</Text>
-              </View>
-              <View style={styles.metricRow}>
-                <Text style={styles.metricLabel}>Total Trades</Text>
-                <Text style={styles.metricValue}>{bot.aggregateStats.totalTrades}</Text>
-              </View>
-              <View style={styles.metricRow}>
-                <Text style={styles.metricLabel}>Open Positions</Text>
-                <Text style={[styles.metricValue, {color: '#3B82F6'}]}>{bot.aggregateStats.openPositions}</Text>
-              </View>
-              <View style={styles.metricRow}>
-                <Text style={styles.metricLabel}>Closed Positions</Text>
-                <Text style={styles.metricValue}>{bot.aggregateStats.closedPositions}</Text>
-              </View>
-              <View style={[styles.metricRow, {borderBottomWidth: 0}]}>
-                <Text style={styles.metricLabel}>Total P&L (all users)</Text>
-                <Text style={[styles.metricValue, {color: bot.aggregateStats.totalPnl >= 0 ? '#10B981' : '#EF4444'}]}>
-                  {bot.aggregateStats.totalPnl >= 0 ? '+' : ''}${bot.aggregateStats.totalPnl.toFixed(2)}
-                </Text>
-              </View>
-            </View>
-          </View>
-        )}
+        {/* ══ MY TAB — personal live or shadow stats ══ */}
+        {hasPersonalTab && activeStatsTab === 'my' && (
+          <View>
+            {myTabStats ? (
+              <View>
+                {/* 2x2 stat grid */}
+                <View style={styles.statsGrid}>
+                  {[
+                    {label: 'RETURN', value: `${(myTabStats.totalReturn ?? 0) >= 0 ? '+' : ''}${(myTabStats.totalReturn ?? 0).toFixed(1)}%`, color: (myTabStats.totalReturn ?? 0) >= 0 ? '#10B981' : '#EF4444'},
+                    {label: 'WIN RATE', value: `${(myTabStats.winRate ?? 0).toFixed(0)}%`, color: isLiveActive ? '#10B981' : '#3B82F6'},
+                    {label: 'MAX DRAWDOWN', value: `-${(myTabStats.maxDrawdown ?? 0).toFixed(1)}%`, color: '#EF4444'},
+                    {label: 'TRADES', value: `${myTabStats.totalTrades ?? 0}`, color: '#FFFFFF'},
+                  ].map(cell => (
+                    <View key={cell.label} style={styles.statCell}>
+                      <Text style={styles.statCellLabel}>{cell.label}</Text>
+                      <Text style={[styles.statCellValue, {color: cell.color}]}>{cell.value}</Text>
+                    </View>
+                  ))}
+                </View>
 
-        {/* Bot DNA */}
-        {bot.tags && bot.tags.length > 0 && (
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>BOT DNA</Text>
-          <View style={styles.tagsRow}>
-            {bot.tags.map(tag => (
-              <Badge key={tag} label={tag} variant="outline" size="sm" style={styles.tag} />
-            ))}
-          </View>
-        </View>
-        )}
-
-        {/* Strategy Description */}
-        {bot.description ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>STRATEGY</Text>
-          <Text style={styles.strategyText}>{bot.description}</Text>
-        </View>
-        ) : null}
-
-        {/* Key Metrics */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>KEY METRICS</Text>
-          <View style={styles.metricsCard}>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Total Return (30D)</Text>
-              <Text style={[styles.metricValue, {color: bot.returnPercent >= 0 ? '#10B981' : '#EF4444'}]}>
-                {bot.returnPercent >= 0 ? '+' : ''}{bot.returnPercent.toFixed(2)}%
-              </Text>
-            </View>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Win Rate</Text>
-              <Text style={styles.metricValue}>{bot.winRate.toFixed(1)}%</Text>
-            </View>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Max Drawdown</Text>
-              <Text style={[styles.metricValue, {color: '#EF4444'}]}>{bot.maxDrawdown.toFixed(2)}%</Text>
-            </View>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Sharpe Ratio</Text>
-              <Text style={[styles.metricValue, {color: bot.sharpeRatio >= 1 ? '#10B981' : '#F59E0B'}]}>{bot.sharpeRatio.toFixed(2)}</Text>
-            </View>
-            <View style={styles.metricRow}>
-              <Text style={styles.metricLabel}>Active Users</Text>
-              <Text style={styles.metricValue}>{bot.activeUsers.toLocaleString()}</Text>
-            </View>
-            <View style={[styles.metricRow, {borderBottomWidth: 0}]}>
-              <Text style={styles.metricLabel}>Average Rating</Text>
-              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                <StarIcon size={12} filled color="#EAB308" />
-                <Text style={styles.metricValue}>{bot.rating.toFixed(1)} ({bot.reviewCount})</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {/* Creator Info */}
-        {bot.creatorName ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>CREATOR</Text>
-            <View style={styles.creatorCard}>
-              <View style={[styles.creatorAvatar, {backgroundColor: bot.avatarColor}]}>
-                <Text style={styles.creatorAvatarText}>{bot.creatorName.charAt(0).toUpperCase()}</Text>
-              </View>
-              <View style={styles.creatorInfo}>
-                <Text style={styles.creatorName}>{bot.creatorName}</Text>
-                <Text style={styles.creatorSub}>{isCreator ? 'You' : 'Bot Creator'}</Text>
-              </View>
-            </View>
-          </View>
-        ) : null}
-
-        {/* Monthly Returns */}
-        {bot.monthlyReturns.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>MONTHLY RETURNS</Text>
-            <MonthlyReturnBars data={bot.monthlyReturns} />
-          </View>
-        )}
-
-        {/* Recent Trades */}
-        {bot.recentTrades.length > 0 && (
-          <View style={styles.section}>
-            <SectionHeader title="Recent Trades" />
-            <View style={styles.card}>
-              {bot.recentTrades.slice(0, 3).map(trade => (
-                <TradeRow key={trade.id} trade={trade} />
-              ))}
-            </View>
-          </View>
-        )}
-
-        {/* Reviews */}
-        {bot.reviews.length > 0 && (
-          <View style={styles.section}>
-            <SectionHeader title="Reviews" />
-            {bot.reviews.map(review => (
-              <View key={review.id} style={styles.reviewCard}>
-                <View style={styles.reviewHeader}>
-                  <View style={[styles.reviewAvatar, {backgroundColor: '#10B981'}]}>
-                    <Text style={styles.reviewAvatarText}>{review.userInitials}</Text>
+                {/* Status row — shadow only */}
+                {hasShadowSession && shadowSessionStats && (
+                  <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8}}>
+                    <View style={{paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: shadowSessionStats.status === 'running' ? 'rgba(59,130,246,0.15)' : shadowSessionStats.status === 'paused' ? 'rgba(245,158,11,0.15)' : 'rgba(107,114,128,0.15)', borderWidth: 1, borderColor: shadowSessionStats.status === 'running' ? 'rgba(59,130,246,0.4)' : shadowSessionStats.status === 'paused' ? 'rgba(245,158,11,0.4)' : 'rgba(107,114,128,0.3)'}}>
+                      <Text style={{fontFamily: 'Inter-Bold', fontSize: 10, letterSpacing: 0.8, color: shadowSessionStats.status === 'running' ? '#3B82F6' : shadowSessionStats.status === 'paused' ? '#F59E0B' : '#9CA3AF'}}>
+                        {shadowSessionStats.status === 'running' ? '● RUNNING' : shadowSessionStats.status === 'paused' ? '⏸ PAUSED' : '✓ COMPLETED'}
+                      </Text>
+                    </View>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)'}}>Day {shadowSessionStats.daysRunning} of {shadowSessionStats.durationDays ?? '?'}</Text>
                   </View>
-                  <View>
-                    <Text style={styles.reviewName}>{review.userName}</Text>
-                    <View style={styles.reviewStars}>
-                      {[1,2,3,4,5].map(i => (
-                        <StarIcon key={i} size={10} filled={i <= review.rating} color="#EAB308" />
+                )}
+
+                {/* Balance row */}
+                <View style={styles.shadowTabBalanceRow}>
+                  <View style={{flex: 1, alignItems: 'center'}}>
+                    <Text style={styles.shadowTabBalLabel}>{isLiveActive ? 'ALLOCATED' : 'STARTED WITH'}</Text>
+                    <Text style={styles.shadowTabBalValue}>${((isLiveActive ? myTabStats.allocatedAmount : myTabStats.virtualBalance) ?? 0).toFixed(0)}</Text>
+                  </View>
+                  <View style={styles.shadowTabBalDivider} />
+                  <View style={{flex: 1, alignItems: 'center'}}>
+                    <Text style={styles.shadowTabBalLabel}>CURRENT</Text>
+                    <Text style={[styles.shadowTabBalValue, {color: (myTabStats.totalReturn ?? 0) >= 0 ? '#10B981' : '#EF4444'}]}>${(myTabStats.currentBalance ?? 0).toFixed(0)}</Text>
+                  </View>
+                  <View style={styles.shadowTabBalDivider} />
+                  <View style={{flex: 1, alignItems: 'center'}}>
+                    <Text style={styles.shadowTabBalLabel}>REALIZED P&L</Text>
+                    <Text style={[styles.shadowTabBalValue, {color: (myTabStats.realizedPnl ?? 0) >= 0 ? '#10B981' : '#EF4444'}]}>{(myTabStats.realizedPnl ?? 0) >= 0 ? '+' : ''}${(myTabStats.realizedPnl ?? 0).toFixed(2)}</Text>
+                  </View>
+                </View>
+
+                {/* P&L equity curve — uses backend equityCurve (cumulative realized P&L) */}
+                {(() => {
+                  // Both live and shadow now return equityCurve from backend
+                  const curveData: number[] = myTabStats.equityCurve ?? [];
+                  const curveDates: string[] = myTabStats.equityDates ?? [];
+                  const hasEquity = curveData.length >= 2;
+                  if (!hasEquity) return null;
+                  return (
+                    <View style={[styles.chartSection, {marginTop: 16}]}>
+                      <Text style={styles.chartSectionLabel}>{isLiveActive ? 'MY LIVE PERFORMANCE (P&L)' : 'MY SHADOW PERFORMANCE (P&L)'}</Text>
+                      <PortfolioLineChart
+                        data={curveData}
+                        dates={curveDates}
+                        currentValue={myTabStats.realizedPnl ?? 0}
+                        width={CHART_W}
+                        height={180}
+                        isRealData={true}
+                        loading={false}
+                      />
+                    </View>
+                  );
+                })()}
+
+                {/* Candlestick — same Binance feed, shows bot's trading pairs */}
+                {(() => {
+                  const pairs = bot.config?.pairs ?? ['BTC/USDT'];
+                  return (
+                    <View style={styles.chartSection}>
+                      <Text style={styles.chartSectionLabel}>PRICE ACTION</Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8, marginBottom: 14}}>
+                        {pairs.map(pair => (
+                          <TouchableOpacity key={pair} activeOpacity={0.7}
+                            style={[styles.pairChip, selectedPair === pair && styles.pairChipActive]}
+                            onPress={() => handlePairSelect(pair)}>
+                            <Text style={[styles.pairChipText, selectedPair === pair && styles.pairChipTextActive]}>{pair}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                      {liveCandles.length > 0 ? (
+                        <View>
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 6, marginBottom: 10}}>
+                            {(bot.category === 'Stocks' ? ['1D', '1W'] : ['1H', '4H', '1D', '1W']).map(tf => (
+                              <TouchableOpacity key={tf} activeOpacity={0.7} style={[styles.tfChip, candleTF === tf && styles.tfChipActive]} onPress={() => handleCandleTFChange(tf)}>
+                                <Text style={[styles.tfChipText, candleTF === tf && styles.tfChipTextActive]}>{tf}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </ScrollView>
+                          <CandlestickChart data={liveCandles} livePrice={binanceLivePrice} width={CHART_W} height={260} showTimeframes={false} showGrid showCrosshair showYLabels />
+                        </View>
+                      ) : (
+                        <View style={{alignItems: 'center', paddingVertical: 30}}>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)'}}>Select a pair to view price chart</Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
+
+                {/* My metrics */}
+                <View style={styles.section}>
+                  <Text style={styles.sectionLabel}>{isLiveActive ? 'MY LIVE METRICS' : 'MY SHADOW METRICS'}</Text>
+                  <View style={styles.metricsCard}>
+                    <View style={styles.metricRow}><Text style={styles.metricLabel}>Realized P&L</Text><Text style={[styles.metricValue, {color: (myTabStats.realizedPnl ?? 0) >= 0 ? '#10B981' : '#EF4444'}]}>{(myTabStats.realizedPnl ?? 0) >= 0 ? '+' : ''}${(myTabStats.realizedPnl ?? 0).toFixed(2)}</Text></View>
+                    <View style={styles.metricRow}><Text style={styles.metricLabel}>Win Rate</Text><Text style={[styles.metricValue, {color: '#0D7FF2'}]}>{(myTabStats.winRate ?? 0).toFixed(1)}%</Text></View>
+                    <View style={styles.metricRow}><Text style={styles.metricLabel}>Total Trades</Text><Text style={styles.metricValue}>{myTabStats.totalTrades ?? 0}</Text></View>
+                    <View style={styles.metricRow}><Text style={styles.metricLabel}>Open Positions</Text><Text style={[styles.metricValue, {color: isLiveActive ? '#10B981' : '#3B82F6'}]}>{myTabStats.openPositionsCount ?? 0}</Text></View>
+                    <View style={styles.metricRow}><Text style={styles.metricLabel}>Wins / Losses</Text><Text style={styles.metricValue}><Text style={{color: '#10B981'}}>{myTabStats.wins ?? 0}W</Text> / <Text style={{color: '#EF4444'}}>{myTabStats.losses ?? 0}L</Text></Text></View>
+                    <View style={styles.metricRow}><Text style={styles.metricLabel}>Avg Win</Text><Text style={[styles.metricValue, {color: '#10B981'}]}>+{(myTabStats.avgWinPercent ?? 0).toFixed(2)}%</Text></View>
+                    <View style={styles.metricRow}><Text style={styles.metricLabel}>Avg Loss</Text><Text style={[styles.metricValue, {color: '#EF4444'}]}>{(myTabStats.avgLossPercent ?? 0).toFixed(2)}%</Text></View>
+                    <View style={[styles.metricRow, {borderBottomWidth: 0}]}><Text style={styles.metricLabel}>Max Drawdown</Text><Text style={[styles.metricValue, {color: '#EF4444'}]}>-{(myTabStats.maxDrawdown ?? 0).toFixed(2)}%</Text></View>
+                  </View>
+                </View>
+
+                {/* Best / Worst trade */}
+                {(myTabStats.bestTrade || myTabStats.worstTrade) && (
+                  <View style={styles.section}>
+                    <Text style={styles.sectionLabel}>TRADE EXTREMES</Text>
+                    <View style={styles.metricsCard}>
+                      {myTabStats.bestTrade && <View style={styles.metricRow}><Text style={styles.metricLabel}>Best Trade ({myTabStats.bestTrade.symbol})</Text><Text style={[styles.metricValue, {color: '#10B981'}]}>+{myTabStats.bestTrade.pnlPercent.toFixed(2)}%</Text></View>}
+                      {myTabStats.worstTrade && <View style={[styles.metricRow, {borderBottomWidth: 0}]}><Text style={styles.metricLabel}>Worst Trade ({myTabStats.worstTrade.symbol})</Text><Text style={[styles.metricValue, {color: '#EF4444'}]}>{myTabStats.worstTrade.pnlPercent.toFixed(2)}%</Text></View>}
+                    </View>
+                  </View>
+                )}
+
+                {/* Monthly returns */}
+                {myTabStats.monthlyReturns?.length > 0 && (
+                  <View style={styles.section}>
+                    <Text style={styles.sectionLabel}>MONTHLY RETURNS</Text>
+                    <View style={styles.metricsCard}>
+                      {myTabStats.monthlyReturns.map((m: any, idx: number) => (
+                        <View key={m.month} style={[styles.metricRow, {borderBottomWidth: idx === myTabStats.monthlyReturns.length - 1 ? 0 : 1}]}>
+                          <Text style={styles.metricLabel}>{m.month}</Text>
+                          <View style={{alignItems: 'flex-end'}}>
+                            <Text style={[styles.metricValue, {color: m.returnPct >= 0 ? '#10B981' : '#EF4444'}]}>{m.returnPct >= 0 ? '+' : ''}{m.returnPct.toFixed(2)}%</Text>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: m.pnl >= 0 ? 'rgba(16,185,129,0.6)' : 'rgba(239,68,68,0.6)'}}>{m.pnl >= 0 ? '+' : ''}${m.pnl.toFixed(2)}</Text>
+                          </View>
+                        </View>
                       ))}
                     </View>
                   </View>
-                  <Text style={styles.reviewDate}>{review.date}</Text>
-                </View>
-                <Text style={styles.reviewText}>{review.text}</Text>
+                )}
+
+                {/* Closed trades list — each row is a complete round trip (BUY entry + SELL exit) */}
+                {myTabStats.closedTrades?.length > 0 && (
+                  <View style={styles.section}>
+                    <Text style={styles.sectionLabel}>{isLiveActive ? 'MY LIVE TRADES' : 'MY SHADOW TRADES'} ({myTabStats.closedTrades.length} round trips)</Text>
+                    <ScrollView style={{maxHeight: 420}} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      {myTabStats.closedTrades.slice(0, 50).map((t: any) => (
+                        <View key={t.id} style={[styles.shadowTradeRow, {flexDirection: 'column', gap: 6, paddingVertical: 10}]}>
+                          <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
+                            <Text style={styles.shadowTradePair}>{t.symbol}</Text>
+                            <Text style={[styles.shadowTradePnl, {color: t.pnl >= 0 ? '#10B981' : '#EF4444'}]}>{t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)} <Text style={{fontSize: 11}}>{t.pnlPercent >= 0 ? '+' : ''}{t.pnlPercent.toFixed(2)}%</Text></Text>
+                          </View>
+                          <View style={{flexDirection: 'row', gap: 8}}>
+                            <View style={{flex: 1, backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: 'rgba(16,185,129,0.15)'}}>
+                              <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#10B981', letterSpacing: 0.5}}>BUY</Text>
+                              <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#FFFFFF', marginTop: 2}}>${t.entryPrice?.toFixed(4) ?? '—'}</Text>
+                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 1}}>{t.openedAt ? new Date(t.openedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : '—'}</Text>
+                            </View>
+                            <View style={{flex: 1, backgroundColor: 'rgba(239,68,68,0.08)', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: 'rgba(239,68,68,0.15)'}}>
+                              <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#EF4444', letterSpacing: 0.5}}>SELL</Text>
+                              <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#FFFFFF', marginTop: 2}}>${t.exitPrice?.toFixed(4) ?? '—'}</Text>
+                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 1}}>{t.closedAt ? new Date(t.closedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : '—'}</Text>
+                            </View>
+                          </View>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
+                {/* Open positions */}
+                {myTabStats.openPositions?.length > 0 && (
+                  <View style={styles.section}>
+                    <Text style={styles.sectionLabel}>OPEN POSITIONS ({myTabStats.openPositions.length})</Text>
+                    <ScrollView style={{maxHeight: 280}} nestedScrollEnabled showsVerticalScrollIndicator={false}>
+                      {myTabStats.openPositions.map((p: any) => (
+                        <View key={p.id} style={styles.shadowTradeRow}>
+                          <View style={{flex: 1}}>
+                            <Text style={styles.shadowTradePair}>{p.symbol} <Text style={{color: '#10B981', textTransform: 'uppercase'}}>LONG</Text></Text>
+                            <Text style={styles.shadowTradeDate}>Entry: ${p.entryPrice.toFixed(4)} · {p.openedAt ? new Date(p.openedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : '—'}</Text>
+                          </View>
+                          <View style={{alignItems: 'flex-end'}}>
+                            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#3B82F6'}}>OPEN</Text>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)'}}>${(p.entryValue ?? 0).toFixed(2)}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
+                {hasShadowSession && (
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.2)', textAlign: 'center', marginTop: 8, marginBottom: 4}}>
+                    Shadow mode uses virtual funds — no real money at risk
+                  </Text>
+                )}
               </View>
-            ))}
+            ) : (
+              <View style={{alignItems: 'center', paddingVertical: 40}}>
+                <ActivityIndicator size="small" color={isLiveActive ? '#10B981' : '#3B82F6'} />
+                <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 12}}>
+                  {isLiveActive ? 'Loading your live stats…' : 'Loading your shadow session…'}
+                </Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -1361,6 +1480,12 @@ const styles = StyleSheet.create({
   activeStatusBar: {flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginBottom: 4, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 1, gap: 8},
   activeStatusDot: {width: 8, height: 8, borderRadius: 4},
   activeStatusText: {fontFamily: 'Inter-Medium', fontSize: 12, flex: 1},
+  tabBarWrap: {flexDirection: 'row', backgroundColor: '#161B22', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 20, paddingVertical: 8, gap: 8},
+  tabBarBtn: {flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10},
+  tabBarBtnLiveActive: {backgroundColor: 'rgba(16,185,129,0.12)', borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)'},
+  tabBarBtnShadowActive: {backgroundColor: 'rgba(59,130,246,0.12)', borderWidth: 1, borderColor: 'rgba(59,130,246,0.3)'},
+  tabBarDot: {width: 7, height: 7, borderRadius: 3.5},
+  tabBarBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5},
   heroCard: {backgroundColor: '#161B22', borderRadius: 16, padding: 16, marginBottom: 16, marginTop:10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'},
   heroTop: {flexDirection: 'row', alignItems: 'center', gap: 14},
   heroInfo: {flex: 1},
@@ -1458,6 +1583,48 @@ const styles = StyleSheet.create({
   reviewStars: {flexDirection: 'row', gap: 2, marginTop: 2},
   reviewDate: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginLeft: 'auto'},
   reviewText: {fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 20},
+
+  // ─── Stats Tab UI ─────────────────────────────────────────────────────────
+  statsTabBar: {
+    flexDirection: 'row' as const, backgroundColor: '#161B22',
+    borderRadius: 12, padding: 4, marginBottom: 12,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+  },
+  statsTab: {
+    flex: 1, paddingVertical: 10, alignItems: 'center' as const,
+    borderRadius: 9, flexDirection: 'row' as const, justifyContent: 'center' as const, gap: 6,
+  },
+  statsTabLiveActive: {
+    backgroundColor: 'rgba(16,185,129,0.12)',
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)',
+  },
+  statsTabShadowActive: {
+    backgroundColor: 'rgba(59,130,246,0.12)',
+    borderWidth: 1, borderColor: 'rgba(59,130,246,0.3)',
+  },
+  statsTabText: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5},
+  statsTabTextLiveActive: {color: '#10B981'},
+  statsTabTextShadowActive: {color: '#3B82F6'},
+  statsTabLiveDot: {width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981'},
+
+  shadowTabBalanceRow: {
+    flexDirection: 'row' as const, alignItems: 'stretch' as const,
+    backgroundColor: 'rgba(59,130,246,0.06)',
+    borderRadius: 14, borderWidth: 1, borderColor: 'rgba(59,130,246,0.2)',
+    paddingVertical: 16,
+  },
+  shadowTabBalLabel: {fontFamily: 'Inter-Medium', fontSize: 9, letterSpacing: 0.8, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase' as const, marginBottom: 6},
+  shadowTabBalValue: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF', letterSpacing: -0.5},
+  shadowTabBalDivider: {width: 1, backgroundColor: 'rgba(59,130,246,0.2)'},
+
+  shadowTradeRow: {
+    flexDirection: 'row' as const, alignItems: 'center' as const,
+    backgroundColor: '#161B22', borderRadius: 12, padding: 12, marginBottom: 6,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+  },
+  shadowTradePair: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF', marginBottom: 2},
+  shadowTradeDate: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)'},
+  shadowTradePnl: {fontFamily: 'Inter-Bold', fontSize: 14, textAlign: 'right' as const},
 
   // ─── Footer ──────────────────────────────────────────────────────────────
   footer: {

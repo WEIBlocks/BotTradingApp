@@ -519,9 +519,12 @@ export default function PortfolioScreen() {
               </View>
             )}
             {visibleBots.map((bot: DashActiveBot) => {
-              const returnColor = bot.totalReturn >= 0 ? '#10B981' : '#EF4444';
-              const returnSign = bot.totalReturn >= 0 ? '+' : '';
               const display = resolveBotDisplayStatus(bot, shadowSessions);
+              const isLiveRunning = display.label === 'LIVE';
+              const isShadowMode = (display.label === 'SHADOW' || display.label === 'SHADOW PAUSED' || display.icon === 'completed') && !isLiveRunning;
+              const displayReturn = isShadowMode && bot.hasShadow ? bot.shadowReturn : bot.totalReturn;
+              const returnColor = displayReturn >= 0 ? '#10B981' : '#EF4444';
+              const returnSign = displayReturn >= 0 ? '+' : '';
               return (
                 <TouchableOpacity
                   key={`${bot.id}-${bot.subscriptionId}`}
@@ -554,7 +557,7 @@ export default function PortfolioScreen() {
                       {bot.pair}
                       {'  '}
                       <Text style={{color: returnColor, fontFamily: 'Inter-SemiBold'}}>
-                        {returnSign}{bot.totalReturn.toFixed(1)}% ROI
+                        {returnSign}{displayReturn.toFixed(1)}%{isShadowMode ? ' SHADOW' : ' ROI'}
                       </Text>
                     </Text>
                   </View>

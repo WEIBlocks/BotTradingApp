@@ -202,4 +202,19 @@ export const botsService = {
     const modeParam = mode ? `?mode=${mode}` : '';
     return api.get<{data: any}>(`/bots/${botId}/feed-stats${modeParam}`);
   },
+
+  /** Aggregated public live stats (all live users) for a bot */
+  getPublicLiveStats(botId: string) {
+    return api.get<{data: any}>(`/bots/${botId}/public-live-stats`);
+  },
+
+  /** Current user's personal live trading stats for a bot */
+  getMyLiveStats(botId: string) {
+    return api.get<{data: any}>(`/bots/${botId}/my-live-stats`);
+  },
+
+  /** Current user's shadow session detailed stats (by sessionId) */
+  getShadowSessionLiveStats(sessionId: string) {
+    return api.get<{data: any}>(`/bots/shadow-sessions/${sessionId}/live-stats`);
+  },
 };
