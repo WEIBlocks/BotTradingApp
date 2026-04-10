@@ -54,4 +54,16 @@ export async function subscriptionsRoutes(app: FastifyInstance) {
     const subscription = await subscriptionsService.cancel(request.user.userId);
     return { data: subscription };
   });
+
+  // GET /is-pro — lightweight check: is this user currently Pro?
+  zApp.get('/is-pro', {
+    preHandler: [authenticate],
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const isPro = await subscriptionsService.isUserPro(request.user.userId);
+    return { data: { isPro } };
+  });
 }

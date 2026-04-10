@@ -8,19 +8,19 @@ const verifyReceiptBodySchema = z.object({
   purchaseToken: z.string().min(1),
   productId: z.string().min(1),
   packageName: z.string().min(1),
+  platform: z.enum(['android', 'ios']),
   type: z.enum(['subscription', 'bot_purchase']),
-  itemId: z.string().optional(),
+  /** planId from our subscription_plans table — required for type=subscription */
+  planId: z.string().uuid().optional(),
 });
 
-const dataResponseSchema = z.object({
-  data: z.any(),
-});
+const dataResponseSchema = z.object({ data: z.any() });
 
 export async function iapRoutes(app: FastifyInstance) {
   const zApp = app.withTypeProvider<ZodTypeProvider>();
   zApp.addHook('preHandler', authenticate);
 
-  // POST /verify - verify a Google Play IAP receipt
+  // POST /payments/iap/verify
   zApp.post('/verify', {
     schema: {
       body: verifyReceiptBodySchema,

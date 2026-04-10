@@ -125,11 +125,11 @@ function MiniBarChart({data}: {data?: number[]}) {
 function BotGridCard({
   bot,
   onPress,
-  onPaperPress,
+  onShadowPress,
 }: {
   bot: Bot;
   onPress: () => void;
-  onPaperPress: () => void;
+  onShadowPress: () => void;
 }) {
   const returnColor = bot.returnPercent >= 0 ? '#10B981' : '#EF4444';
   const returnSign = bot.returnPercent >= 0 ? '+' : '';
@@ -194,7 +194,7 @@ function BotGridCard({
       <View style={gridStyles.btnRow}>
         <TouchableOpacity
           style={gridStyles.paperBtn}
-          onPress={onPaperPress}
+          onPress={onShadowPress}
           activeOpacity={0.7}>
           <Text style={gridStyles.paperBtnText}>Shadow</Text>
         </TouchableOpacity>
@@ -288,8 +288,8 @@ export default function MarketplaceScreen() {
   const isFiltering = searchQuery.length > 0 || activeFilter !== 'All';
   const displayBots = filteredBots.slice(0, isFiltering ? undefined : 6);
 
-  const handlePaperPress = (_bot: Bot) => {
-    navigation.navigate('PaperTradingSetup');
+  const handleShadowPress = (bot: Bot) => {
+    navigation.navigate('BotDetails', {botId: bot.id, openShadow: true});
   };
 
   const handleSettingsPress = () => {
@@ -448,7 +448,7 @@ export default function MarketplaceScreen() {
               key={bot.id}
               bot={bot}
               onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
-              onPaperPress={() => handlePaperPress(bot)}
+              onShadowPress={() => handleShadowPress(bot)}
             />
           ))}
           {displayBots.length === 0 && (

@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
+import { requireSubscription, getActiveProSubscription } from '../../middleware/requireSubscription.js';
+import { SubscriptionRequiredError } from '../../middleware/requireSubscription.js';
 import {
   createBot,
   updateBot,
@@ -153,6 +155,11 @@ export async function botsRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params;
     const { mode, allocatedAmount } = request.body;
+    // Live mode requires an active Pro subscription
+    if (mode === 'live') {
+      const sub = await getActiveProSubscription(request.user.userId);
+      if (!sub) throw new SubscriptionRequiredError();
+    }
     const result = await purchaseBot(request.user.userId, id, mode, allocatedAmount);
     invalidateActiveBotsCache(request.user.userId);
     return reply.status(201).send({ data: result });
@@ -291,13 +298,14 @@ export async function botsRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
-  // POST /:id/activate-live - Activate live trading with exchange connection
+  // POST /:id/activate-live - Activate live trading (Pro only)
   zApp.post('/:id/activate-live', {
     schema: {
       params: botIdParamsSchema,
       response: { 200: dataResponseSchema },
       security: [{ bearerAuth: [] }],
     },
+    preHandler: [requireSubscription],
   }, async (request, reply) => {
     const { id } = request.params;
     const { exchangeConnId, allocatedAmount } = request.body as { exchangeConnId: string; allocatedAmount?: number };

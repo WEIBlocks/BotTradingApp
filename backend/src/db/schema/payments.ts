@@ -3,7 +3,6 @@ import {
   pgEnum,
   uuid,
   varchar,
-  text,
   boolean,
   numeric,
   timestamp,
@@ -12,14 +11,9 @@ import {
 import { sql } from "drizzle-orm";
 import { users } from "./users";
 
-export const paymentMethodTypeEnum = pgEnum("payment_method_type", [
-  "card",
-  "crypto",
-]);
-
 export const paymentTypeEnum = pgEnum("payment_type", [
-  "bot_purchase",
   "subscription",
+  "subscription_renewal",
   "deposit",
   "withdrawal",
 ]);
@@ -38,12 +32,9 @@ export const paymentMethods = pgTable("payment_methods", {
   userId: uuid("user_id")
     .notNull()
     .references(() => users.id),
-  type: paymentMethodTypeEnum("type"),
-  stripePmId: varchar("stripe_pm_id", { length: 255 }),
+  /** "google_play" | "app_store" */
+  type: varchar("type", { length: 30 }),
   label: varchar("label", { length: 50 }),
-  last4: varchar("last4", { length: 10 }),
-  network: varchar("network", { length: 30 }),
-  cryptoAddress: varchar("crypto_address", { length: 255 }),
   isDefault: boolean("is_default").default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
@@ -58,7 +49,8 @@ export const payments = pgTable("payments", {
   type: paymentTypeEnum("type"),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
   currency: varchar("currency", { length: 10 }).default("USD"),
-  stripePaymentId: varchar("stripe_payment_id", { length: 255 }),
+  /** IAP purchase token (Google Play) or original transaction ID (App Store) */
+  iapToken: varchar("iap_token", { length: 2048 }),
   status: paymentStatusEnum("status").default("pending"),
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),

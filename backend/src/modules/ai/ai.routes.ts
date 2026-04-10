@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
+import { requireSubscription } from '../../middleware/requireSubscription.js';
 import * as aiService from './ai.service.js';
 import {
   chatMessageSchema,
@@ -14,8 +15,9 @@ import { db } from '../../config/database.js';
 
 export async function aiRoutes(app: FastifyInstance) {
   const zApp = app.withTypeProvider<ZodTypeProvider>();
-  // All AI routes require authentication
+  // All AI routes require authentication + active Pro subscription
   zApp.addHook('preHandler', authenticate);
+  zApp.addHook('preHandler', requireSubscription);
 
   // GET /ai/providers - List available AI providers and active provider
   zApp.get('/providers', {

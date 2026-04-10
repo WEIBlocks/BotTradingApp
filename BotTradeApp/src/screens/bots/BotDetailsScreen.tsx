@@ -8,6 +8,7 @@ import {marketplaceApi} from '../../services/marketplace';
 import {botsService} from '../../services/bots';
 import {api} from '../../services/api';
 import {useAuth} from '../../context/AuthContext';
+import {useIAP} from '../../context/IAPContext';
 import PortfolioLineChart from '../../components/charts/PortfolioLineChart';
 import CandlestickChart from '../../components/charts/CandlestickChart';
 import MonthlyReturnBars from '../../components/charts/MonthlyReturnBars';
@@ -39,6 +40,7 @@ interface UserBotState {
 export default function BotDetailsScreen({navigation, route}: Props) {
   const {user} = useAuth();
   const {alert: showAlert, showConfirm} = useToast();
+  const {isPro} = useIAP();
   const [bot, setBot] = useState<Bot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -254,6 +256,16 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     return () => {};
   }, [fetchData, fetchEquityCurve]));
 
+  // Auto-open shadow modal when navigated with openShadow=true (e.g. from Marketplace)
+  const openShadowTriggered = React.useRef(false);
+  React.useEffect(() => {
+    if (route.params.openShadow && bot && !loading && !openShadowTriggered.current) {
+      openShadowTriggered.current = true;
+      // Small delay so the screen is fully rendered before the modal opens
+      setTimeout(() => handleStartShadow(), 300);
+    }
+  }, [bot, loading, route.params.openShadow]);
+
   // ─── Actions ─────────────────────────────────────────────────────────────
 
   const handleStartShadow = useCallback(() => {
@@ -318,8 +330,19 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       showAlert('Already Active', 'This bot is already active and trading.');
       return;
     }
+    const isAdmin = user?.role === 'admin';
+    if (!isPro && !isAdmin) {
+      showConfirm({
+        title: 'Pro Required',
+        message: 'Live bot trading requires an active Pro subscription. Upgrade now to unlock live trading, arena access, AI chat, and more.',
+        confirmText: 'Upgrade to Pro',
+        cancelText: 'Not Now',
+        onConfirm: () => navigation.navigate('Subscription'),
+      });
+      return;
+    }
     navigation.navigate('BotPurchase', {botId: bot.id});
-  }, [navigation, bot, userBotState.status]);
+  }, [navigation, bot, userBotState.status, isPro, user]);
 
   const handleViewShadow = useCallback(async () => {
     const sessionId = userBotState.shadowSessionId;
@@ -1224,7 +1247,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             </TouchableOpacity>
             <TouchableOpacity style={[styles.activateBtn, {flex: 2}]} onPress={handleActivate} activeOpacity={0.85}>
               <Text style={styles.activateBtnText}>
-                {bot.price === 0 ? 'Activate Free' : `Activate — $${bot.price}/mo`}
+                {isPro || user?.role === 'admin'
+                  ? (bot.price === 0 ? 'Go Live (Free)' : `Go Live — $${bot.price}/mo`)
+                  : '⚡ Go Pro to Live Trade'}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1240,7 +1265,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </TouchableOpacity>
             </View>
             <TouchableOpacity style={styles.goLiveSmallBtn} onPress={handleActivate} activeOpacity={0.85}>
-              <Text style={styles.goLiveSmallText}>Go Live Now</Text>
+              <Text style={styles.goLiveSmallText}>
+                {isPro || user?.role === 'admin' ? 'Go Live Now' : '⚡ Go Pro to Live Trade'}
+              </Text>
             </TouchableOpacity>
           </>
         ) : userBotState.status === 'shadow_paused' ? (
@@ -1255,7 +1282,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </TouchableOpacity>
             </View>
             <TouchableOpacity style={styles.goLiveSmallBtn} onPress={handleActivate} activeOpacity={0.85}>
-              <Text style={styles.goLiveSmallText}>Go Live Now</Text>
+              <Text style={styles.goLiveSmallText}>
+                {isPro || user?.role === 'admin' ? 'Go Live Now' : '⚡ Go Pro to Live Trade'}
+              </Text>
             </TouchableOpacity>
           </>
         ) : userBotState.status === 'shadow_completed' ? (
@@ -1272,7 +1301,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 <Text style={styles.shadowCompleteResultsText}>View Results</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.shadowCompleteGoLiveBtn, {flex: 1}]} onPress={handleActivate} activeOpacity={0.85}>
-                <Text style={styles.shadowCompleteGoLiveText}>Go Live</Text>
+                <Text style={styles.shadowCompleteGoLiveText}>
+                  {isPro || user?.role === 'admin' ? 'Go Live' : '⚡ Go Pro'}
+                </Text>
               </TouchableOpacity>
             </View>
           </>

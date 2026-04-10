@@ -73,10 +73,18 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const [allocatedAmount, setAllocatedAmount] = useState('');
   const [amountError, setAmountError] = useState('');
 
-  const {purchaseBot, processing: iapProcessing} = useIAP();
+  const {purchaseBot, processing: iapProcessing, isPro} = useIAP();
   const {alert: showAlert, showConfirm} = useToast();
   const {user} = useAuth();
   const isAdmin = user?.role === 'admin';
+
+  // Redirect to Subscription screen if not Pro (guard for direct navigation)
+  React.useEffect(() => {
+    if (!isAdmin && !isPro) {
+      showAlert('Pro Required', 'Live bot trading requires an active Pro subscription.');
+      navigation.replace('Subscription');
+    }
+  }, []); // Run once on mount only
 
   useEffect(() => {
     Promise.all([

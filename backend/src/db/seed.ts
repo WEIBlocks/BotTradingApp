@@ -596,7 +596,8 @@ async function seed() {
       tier: "pro" as const,
       price: "29.99",
       period: "monthly" as const,
-      stripePriceId: "tradingapp_pro_monthly",
+      googleProductId: "bottrade_pro_monthly",
+      appleProductId: "com.botttradeapp.pro.monthly",
       features: [
         "Unlimited bots",
         "Live & paper trading",
@@ -612,7 +613,8 @@ async function seed() {
       tier: "pro" as const,
       price: "249.99",
       period: "yearly" as const,
-      stripePriceId: "tradingapp_pro_yearly",
+      googleProductId: "bottrade_pro_yearly",
+      appleProductId: "com.botttradeapp.pro.yearly",
       features: [
         "Unlimited bots",
         "Live & paper trading",

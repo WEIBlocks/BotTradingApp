@@ -13,6 +13,7 @@ import {RootStackParamList} from '../../types';
 import {useToast} from '../../context/ToastContext';
 import Svg, {Path, Circle, Rect, Line} from 'react-native-svg';
 import {userApi} from '../../services/user';
+import {useIAP} from '../../context/IAPContext';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 
@@ -266,6 +267,7 @@ interface SettingSection {
 export default function SettingsScreen() {
   const navigation = useNavigation<Nav>();
   const {alert: showAlert} = useToast();
+  const {isPro} = useIAP();
   const [twoFactor, setTwoFactor] = useState(false);
   const [authProvider, setAuthProvider] = useState<string>('email');
 
@@ -415,6 +417,16 @@ export default function SettingsScreen() {
                     disabled={row.type === 'text' && !row.screen}>
                     <View style={styles.rowIconCircle}>{row.icon}</View>
                     <Text style={styles.rowLabel}>{row.label}</Text>
+                    {row.label === 'Manage Subscription' && isPro && (
+                      <View style={styles.proChip}>
+                        <Text style={styles.proChipText}>PRO</Text>
+                      </View>
+                    )}
+                    {row.label === 'Manage Subscription' && !isPro && (
+                      <View style={styles.upgradeChip}>
+                        <Text style={styles.upgradeChipText}>Upgrade</Text>
+                      </View>
+                    )}
                     {row.type === 'nav' && <ChevronRight />}
                     {row.type === 'toggle' && (
                       <Switch
@@ -533,6 +545,26 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255,255,255,0.35)',
   },
+  proChip: {
+    backgroundColor: 'rgba(16,185,129,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.35)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginRight: 6,
+  },
+  proChipText: {fontFamily: 'Inter-Bold', fontSize: 10, color: '#10B981', letterSpacing: 0.5},
+  upgradeChip: {
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.25)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    marginRight: 6,
+  },
+  upgradeChipText: {fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#10B981'},
   rowDivider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.06)',

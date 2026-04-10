@@ -20,9 +20,20 @@ const envSchema = z.object({
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
   JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
 
-  // Google Play IAP — service account key JSON for receipt verification (optional in dev)
+  // ── Google Play IAP (Android) ────────────────────────────────────────────────
+  // Paste the entire service-account JSON key as a single-line string.
+  // How to get: Play Console → Setup → API access → Service Accounts → Create key → JSON
+  // Leave empty in dev — all purchases auto-accepted without verification.
   GOOGLE_PLAY_SERVICE_KEY: z.string().default(''),
   GOOGLE_PLAY_PACKAGE_NAME: z.string().default('com.botttradeapp'),
+
+  // ── Apple App Store IAP (iOS) ─────────────────────────────────────────────
+  // How to get: App Store Connect → {App} → Monetization → Subscriptions
+  //             → App-Specific Shared Secret → Generate/Copy
+  // Leave empty in dev — all purchases auto-accepted without verification.
+  APPLE_SHARED_SECRET: z.string().default(''),
+  // iOS app bundle identifier (same as Apple Developer portal)
+  APPLE_BUNDLE_ID: z.string().default('com.botttradeapp'),
 
   BINANCE_API_KEY: z.string().default(''),
   BINANCE_API_SECRET: z.string().default(''),

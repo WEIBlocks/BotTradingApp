@@ -11,6 +11,8 @@ import {RootStackParamList, MainTabParamList} from '../../types';
 import {API_BASE_URL} from '../../config/api';
 import {storage} from '../../services/storage';
 import {aiApi} from '../../services/ai';
+import {useIAP} from '../../context/IAPContext';
+import {useAuth} from '../../context/AuthContext';
 import MarkdownText from '../../components/MarkdownText';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
@@ -159,6 +161,8 @@ function StrategyBarChart({chartWidth, backtestReturn}: {chartWidth: number; bac
 export default function AIChatScreen() {
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteProp<MainTabParamList, 'AIChat'>>();
+  const {isPro} = useIAP();
+  const {user} = useAuth();
   const botId = (route.params as any)?.botId as string | undefined;
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState('');
@@ -174,6 +178,13 @@ export default function AIChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const shouldScrollToEnd = useRef(true);
   const keyboardHeight = useRef(new Animated.Value(0)).current;
+
+  // Pro gate
+  useEffect(() => {
+    if (!isPro && user?.role !== 'admin') {
+      navigation.navigate('Subscription');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const TAB_BAR_HEIGHT = 218;

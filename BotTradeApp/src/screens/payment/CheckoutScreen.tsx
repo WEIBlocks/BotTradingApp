@@ -80,7 +80,7 @@ export default function CheckoutScreen({navigation, route}: Props) {
 
   // Get store product info
   const isSub = type === 'subscription';
-  const monthlySku = SUB_SKUS[0] || 'tradingapp_pro_monthly';
+  const monthlySku = SUB_SKUS[0] || 'bottrade_pro_monthly';
   const subProduct = subscriptionProducts.find(p => p.productId === monthlySku);
   const subOfferDetails = subProduct && 'subscriptionOfferDetails' in subProduct
     ? (subProduct as any).subscriptionOfferDetails : undefined;

@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
+import { requireSubscription } from '../../middleware/requireSubscription.js';
 import * as creatorService from './creator.service.js';
 import {
   monthlyRevenueQuerySchema,
@@ -14,8 +15,9 @@ import {
 
 export async function creatorRoutes(app: FastifyInstance) {
   const zApp = app.withTypeProvider<ZodTypeProvider>();
-  // All routes require auth
+  // All creator routes require auth + active Pro subscription
   zApp.addHook('preHandler', authenticate);
+  zApp.addHook('preHandler', requireSubscription);
 
   // GET /stats
   zApp.get('/stats', {

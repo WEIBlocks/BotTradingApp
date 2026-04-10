@@ -7,12 +7,32 @@ import {RootStackParamList} from '../../types';
 import {useAuth} from '../../context/AuthContext';
 import {useToast} from '../../context/ToastContext';
 import {userApi, UserProfile, WalletData, ActivityItem} from '../../services/user';
+import {subscriptionApi, CurrentSubscription} from '../../services/subscription';
+import {useIAP} from '../../context/IAPContext';
 import SectionHeader from '../../components/common/SectionHeader';
 import ChevronRightIcon from '../../components/icons/ChevronRightIcon';
 import GiftIcon from '../../components/icons/GiftIcon';
 import BellIcon from '../../components/icons/BellIcon';
 import WalletIcon from '../../components/icons/WalletIcon';
 import GearIcon from '../../components/icons/GearIcon';
+
+function CrownIcon({size = 14, color = '#10B981'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M2 8l4 10h12l4-10-5 4-5-8-5 8-5-4z" fill={color} opacity={0.2} stroke={color} strokeWidth={1.5} strokeLinejoin="round" />
+      <Path d="M6 18h12" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+function SubscriptionMenuIcon({size = 18, color = 'rgba(255,255,255,0.6)'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M2 8l4 10h12l4-10-5 4-5-8-5 8-5-4z" stroke={color} strokeWidth={1.5} strokeLinejoin="round" />
+      <Path d="M6 18h12" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
+    </Svg>
+  );
+}
 
 function ActivityIcon({type}: {type: string}) {
   const size = 20;
@@ -107,6 +127,7 @@ const SETTINGS = [
   {icon: BotMenuIcon, label: 'Creator Studio', screen: 'CreatorStudio'},
   {icon: TradingRoomIcon, label: 'Trading Room', screen: 'TradingRoom'},
   {icon: SwordsMenuIcon, label: 'Battle Arena', screen: 'ArenaHistory'},
+  {icon: SubscriptionMenuIcon, label: 'Subscription', screen: 'Subscription'},
   {icon: GearIcon, label: 'Settings', screen: 'Settings'},
 ];
 
@@ -114,20 +135,24 @@ export default function ProfileScreen() {
   const navigation = useNavigation<NavProp>();
   const {user: authUser, logout} = useAuth();
   const {alert: showAlert, showConfirm} = useToast();
+  const {isPro} = useIAP();
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [wallet, setWallet] = useState<WalletData | null>(null);
+  const [subscription, setSubscription] = useState<CurrentSubscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const [profileData, walletData] = await Promise.all([
+      const [profileData, walletData, subData] = await Promise.all([
         userApi.getProfile(),
         userApi.getWallet(),
+        subscriptionApi.getCurrent().catch(() => null),
       ]);
       setProfile(profileData);
+      setSubscription(subData);
       // If wallet response has recentActivity, use as-is; otherwise fetch separately
       if (walletData && (!walletData.recentActivity || walletData.recentActivity.length === 0)) {
         try {
@@ -185,6 +210,16 @@ export default function ProfileScreen() {
   const referralCode = profile?.referralCode || '—';
   const recentActivity = wallet?.recentActivity || [];
 
+  // Subscription display
+  const isAdmin = authUser?.role === 'admin';
+  const isProActive = isPro || isAdmin || (subscription?.tier === 'pro' && subscription?.status === 'active');
+  const isCancelled = subscription?.status === 'cancelled';
+  const isExpired = subscription?.status === 'expired';
+  const subPeriod = subscription?.planName?.toLowerCase().includes('yearly') ? 'Yearly' : subscription?.planName?.toLowerCase().includes('monthly') ? 'Monthly' : null;
+  const subExpiryDate = subscription?.currentPeriodEnd
+    ? new Date(subscription.currentPeriodEnd).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'})
+    : null;
+
   if (loading) {
     return (
       <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
@@ -214,7 +249,15 @@ export default function ProfileScreen() {
           <View style={[styles.avatar, {backgroundColor: avatarColor}]}>
             <Text style={styles.avatarText}>{avatarInitials}</Text>
           </View>
-          <Text style={styles.userName}>{displayName}</Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.userName}>{displayName}</Text>
+            {isProActive && (
+              <View style={styles.proBadge}>
+                <CrownIcon size={11} color="#10B981" />
+                <Text style={styles.proBadgeText}>PRO</Text>
+              </View>
+            )}
+          </View>
           <Text style={styles.userEmail}>{displayEmail}</Text>
 
           {/* Balance */}
@@ -250,6 +293,44 @@ export default function ProfileScreen() {
             */}
           </View>
         </View>
+
+        {/* Subscription card */}
+        <TouchableOpacity
+          style={[styles.subCard, isProActive && !isCancelled && !isExpired ? styles.subCardPro : styles.subCardFree]}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('Subscription')}>
+          <View style={styles.subCardLeft}>
+            <View style={[styles.subIconWrap, {backgroundColor: isProActive && !isCancelled && !isExpired ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)'}]}>
+              <CrownIcon size={18} color={isProActive && !isCancelled && !isExpired ? '#10B981' : 'rgba(255,255,255,0.4)'} />
+            </View>
+            <View>
+              <Text style={styles.subCardTitle}>
+                {isAdmin ? 'Admin Account'
+                  : isProActive && !isCancelled && !isExpired
+                    ? `Pro${subPeriod ? ` · ${subPeriod}` : ''}`
+                    : isCancelled ? 'Pro · Cancelled'
+                    : isExpired ? 'Pro · Expired'
+                    : 'Free Plan'}
+              </Text>
+              <Text style={styles.subCardSub}>
+                {isAdmin ? 'Full access'
+                  : isProActive && !isCancelled && !isExpired && subExpiryDate ? `Renews ${subExpiryDate}`
+                  : (isCancelled || isExpired) && subExpiryDate ? `Access until ${subExpiryDate}`
+                  : isProActive ? 'Active'
+                  : 'Upgrade for live trading & more'}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.subCardRight}>
+            {!isProActive || isCancelled || isExpired ? (
+              <View style={styles.upgradeBtn}>
+                <Text style={styles.upgradeBtnText}>Upgrade</Text>
+              </View>
+            ) : (
+              <ChevronRightIcon size={18} color="rgba(255,255,255,0.25)" />
+            )}
+          </View>
+        </TouchableOpacity>
 
         {/* Recent Activity */}
         <View style={styles.section}>
@@ -341,7 +422,14 @@ const styles = StyleSheet.create({
   },
   avatar: {width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', marginBottom: 12},
   avatarText: {fontFamily: 'Inter-Bold', fontSize: 24, color: '#FFFFFF'},
-  userName: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF', marginBottom: 4},
+  nameRow: {flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4},
+  userName: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF'},
+  proBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: 'rgba(16,185,129,0.15)', borderWidth: 1, borderColor: 'rgba(16,185,129,0.35)',
+    paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8,
+  },
+  proBadgeText: {fontFamily: 'Inter-Bold', fontSize: 9, color: '#10B981', letterSpacing: 0.5},
   userEmail: {fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginBottom: 16},
   balanceRow: {
     flexDirection: 'row', width: '100%',
@@ -355,6 +443,31 @@ const styles = StyleSheet.create({
   statItem: {alignItems: 'center'},
   statNum: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', marginBottom: 2},
   statLbl: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)'},
+  // Subscription card
+  subCard: {
+    marginHorizontal: 20, marginBottom: 8,
+    borderRadius: 16, padding: 16,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    borderWidth: 1,
+  },
+  subCardPro: {
+    backgroundColor: 'rgba(16,185,129,0.07)',
+    borderColor: 'rgba(16,185,129,0.3)',
+  },
+  subCardFree: {
+    backgroundColor: '#161B22',
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  subCardLeft: {flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1},
+  subIconWrap: {width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center'},
+  subCardTitle: {fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', marginBottom: 2},
+  subCardSub: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
+  subCardRight: {alignItems: 'flex-end'},
+  upgradeBtn: {
+    backgroundColor: '#10B981', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10,
+  },
+  upgradeBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
+
   section: {paddingHorizontal: 20, marginBottom: 8},
   card: {
     backgroundColor: '#161B22', borderRadius: 16,

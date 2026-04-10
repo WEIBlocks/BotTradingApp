@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
+import { requireSubscription } from '../../middleware/requireSubscription.js';
 import * as arenaService from './arena.service.js';
 import { createSessionBodySchema, sessionIdParamsSchema, dataResponseSchema } from './arena.schema.js';
 
@@ -32,9 +33,10 @@ export async function arenaRoutes(app: FastifyInstance) {
     return { data: session };
   });
 
-  // POST /session - create arena session
+  // POST /session - create arena session (Pro only)
   zApp.post('/session', {
     schema: { body: createSessionBodySchema, response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+    preHandler: [requireSubscription],
   }, async (request) => {
     const { botIds, durationSeconds, mode, virtualBalance, cryptoBalance, stockBalance } = request.body;
     const session = await arenaService.createSession(

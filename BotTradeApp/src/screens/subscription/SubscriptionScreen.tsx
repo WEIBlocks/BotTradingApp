@@ -88,12 +88,18 @@ export default function SubscriptionScreen({navigation}: Props) {
 
   const isProActive = isPro || (current?.tier === 'pro' && current?.status === 'active') || user?.role === 'admin';
   const proPlan = plans.find(p => p.tier === 'pro') || null;
-  const proPrice = proPlan?.priceMonthly || 4.94;
-  const yearlyPrice = proPlan?.priceYearly || 49.99;
+  const proPrice = proPlan?.priceMonthly || 29.99;
+  const yearlyPrice = proPlan?.priceYearly || 249.99;
 
-  // Get store prices from Google Play (overrides backend prices when available)
-  const monthlySku = 'tradingapp_pro_monthly';
-  const yearlySku = 'tradingapp_pro_yearly';
+  // Format expiry date if available
+  const expiryDate = current?.currentPeriodEnd
+    ? new Date(current.currentPeriodEnd).toLocaleDateString('en-US', {year: 'numeric', month: 'long', day: 'numeric'})
+    : null;
+  const isCancelledOrExpired = current?.status === 'cancelled' || current?.status === 'expired';
+
+  // Get store prices from Google Play / App Store (overrides backend prices when available)
+  const monthlySku = 'bottrade_pro_monthly';
+  const yearlySku = 'bottrade_pro_yearly';
   const monthlyProduct = subscriptionProducts.find(p => p.productId === monthlySku);
   const yearlyProduct = subscriptionProducts.find(p => p.productId === yearlySku);
 
@@ -118,10 +124,6 @@ export default function SubscriptionScreen({navigation}: Props) {
 
     const success = await purchaseSubscription(sku, offerToken);
     if (success) {
-      // Also register on backend
-      if (proPlan?.id) {
-        await subscriptionApi.subscribe(proPlan.id).catch(() => {});
-      }
       fetchData();
     }
   };
@@ -170,11 +172,21 @@ export default function SubscriptionScreen({navigation}: Props) {
         )}
         {/* Current plan badge */}
         <View style={styles.badgeRow}>
-          <View style={[styles.planBadge, isProActive && styles.planBadgePro]}>
-            <Text style={[styles.planBadgeText, isProActive && styles.planBadgeTextPro]}>
-              {isProActive ? 'PRO' : 'FREE PLAN'}
+          <View style={[styles.planBadge, isProActive && styles.planBadgePro, isCancelledOrExpired && styles.planBadgeCancelled]}>
+            <Text style={[styles.planBadgeText, isProActive && styles.planBadgeTextPro, isCancelledOrExpired && {color: '#EF4444'}]}>
+              {isCancelledOrExpired
+                ? `${current?.status?.toUpperCase()} — ${current?.planName || 'PRO'}`
+                : isProActive
+                  ? `PRO${current?.planName?.toLowerCase().includes('yearly') ? ' · YEARLY' : current?.planName?.toLowerCase().includes('monthly') ? ' · MONTHLY' : ''}`
+                  : 'FREE PLAN'}
             </Text>
           </View>
+          {expiryDate && isProActive && !isCancelledOrExpired && (
+            <Text style={styles.expiryText}>Renews {expiryDate}</Text>
+          )}
+          {expiryDate && isCancelledOrExpired && (
+            <Text style={[styles.expiryText, {color: 'rgba(239,68,68,0.7)'}]}>Access until {expiryDate}</Text>
+          )}
         </View>
 
         {/* Pro hero card */}
@@ -343,6 +355,16 @@ const styles = StyleSheet.create({
   planBadgePro: {
     borderColor: '#10B981',
     backgroundColor: 'rgba(16,185,129,0.1)',
+  },
+  planBadgeCancelled: {
+    borderColor: 'rgba(239,68,68,0.4)',
+    backgroundColor: 'rgba(239,68,68,0.08)',
+  },
+  expiryText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.35)',
+    marginTop: 6,
   },
   planBadgeText: {
     fontFamily: 'Inter-SemiBold',

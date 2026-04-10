@@ -9,6 +9,7 @@ import {
   type PurchaseError,
 } from 'react-native-iap';
 import {iapService, SUB_SKUS, getBotProductId} from '../services/iap';
+import {subscriptionApi} from '../services/subscription';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -52,7 +53,8 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
   // Handle completed purchase
   const handlePurchase = useCallback(async (purchase: ProductPurchase | SubscriptionPurchase) => {
     try {
-      const token = Platform.OS === 'android'
+      const platform = Platform.OS === 'ios' ? 'ios' : 'android';
+      const token = platform === 'android'
         ? (purchase as any).purchaseToken
         : (purchase as any).transactionReceipt;
 
@@ -63,12 +65,21 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
 
       const isSub = SUB_SKUS.includes(purchase.productId);
 
+      // Resolve the backend plan ID from the store product ID
+      let planId: string | undefined;
+      if (isSub) {
+        const plan = await subscriptionApi.getPlanByProductId(purchase.productId).catch(() => null);
+        planId = plan?.id;
+      }
+
       // Verify on backend
       await iapService.verifyReceipt({
         purchaseToken: token,
         productId: purchase.productId,
         packageName: 'com.botttradeapp',
+        platform,
         type: isSub ? 'subscription' : 'bot_purchase',
+        planId,
       });
 
       // Acknowledge the purchase
@@ -99,17 +110,22 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
     let mounted = true;
 
     async function init() {
+      // Check Pro status from backend (authoritative source)
+      const backendIsPro = await subscriptionApi.isPro().catch(() => false);
+
       const connected = await iapService.init();
-      if (!connected || !mounted) return;
+      if (!mounted) return;
 
       // Set up listeners
-      listenerCleanup.current = iapService.addPurchaseListeners(handlePurchase, handleError);
+      if (connected) {
+        listenerCleanup.current = iapService.addPurchaseListeners(handlePurchase, handleError);
+      }
 
-      // Load subscription products
-      const subs = await iapService.getSubscriptionProducts();
+      // Load subscription products (may fail in dev/simulator)
+      const subs = connected ? await iapService.getSubscriptionProducts().catch(() => []) : [];
 
-      // Check existing purchases
-      const existing = await iapService.restorePurchases();
+      // Check existing store purchases (restore)
+      const existing = connected ? await iapService.restorePurchases().catch(() => []) : [];
       const activeSub = existing.find(p => SUB_SKUS.includes(p.productId));
 
       if (mounted) {
@@ -117,7 +133,10 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
           ...prev,
           initialized: true,
           subscriptionProducts: subs,
-          activeSubscription: activeSub?.productId || null,
+          // Backend is authoritative — if backend says Pro, mark active
+          activeSubscription: backendIsPro
+            ? (activeSub?.productId || 'backend_pro')
+            : (activeSub?.productId || null),
         }));
       }
     }
@@ -187,16 +206,25 @@ export function IAPProvider({children}: {children: React.ReactNode}) {
       const activeSub = purchases.find(p => SUB_SKUS.includes(p.productId));
 
       // Verify each on backend
+      const platform = Platform.OS === 'ios' ? 'ios' : 'android';
       for (const purchase of purchases) {
-        const token = Platform.OS === 'android'
+        const token = platform === 'android'
           ? (purchase as any).purchaseToken
           : (purchase as any).transactionReceipt;
         if (token) {
+          const isSub = SUB_SKUS.includes(purchase.productId);
+          let planId: string | undefined;
+          if (isSub) {
+            const plan = await subscriptionApi.getPlanByProductId(purchase.productId).catch(() => null);
+            planId = plan?.id;
+          }
           await iapService.verifyReceipt({
             purchaseToken: token,
             productId: purchase.productId,
             packageName: 'com.botttradeapp',
-            type: SUB_SKUS.includes(purchase.productId) ? 'subscription' : 'bot_purchase',
+            platform,
+            type: isSub ? 'subscription' : 'bot_purchase',
+            planId,
           }).catch(() => {}); // Non-blocking
         }
       }

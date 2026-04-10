@@ -19,7 +19,11 @@ export const userSubStatusEnum = pgEnum("user_sub_status", [
   "cancelled",
   "past_due",
   "trialing",
+  "expired",
 ]);
+
+/** Platform the subscription was purchased on */
+export const iapPlatformEnum = pgEnum("iap_platform", ["android", "ios", "none"]);
 
 export const subscriptionPlans = pgTable("subscription_plans", {
   id: uuid("id")
@@ -27,7 +31,10 @@ export const subscriptionPlans = pgTable("subscription_plans", {
     .default(sql`gen_random_uuid()`),
   name: varchar("name", { length: 50 }).notNull(),
   tier: planTierEnum("tier").default("free"),
-  stripePriceId: varchar("stripe_price_id", { length: 255 }),
+  /** Google Play product ID (e.g. tradingapp_pro_monthly) */
+  googleProductId: varchar("google_product_id", { length: 255 }),
+  /** Apple App Store product ID */
+  appleProductId: varchar("apple_product_id", { length: 255 }),
   price: numeric("price", { precision: 10, scale: 2 }).notNull(),
   period: planPeriodEnum("period"),
   features: text("features").array(),
@@ -49,13 +56,19 @@ export const userSubscriptions = pgTable("user_subscriptions", {
   planId: uuid("plan_id")
     .notNull()
     .references(() => subscriptionPlans.id),
-  stripeSubId: varchar("stripe_sub_id", { length: 255 }),
-  stripeCustId: varchar("stripe_cust_id", { length: 255 }),
   status: userSubStatusEnum("status").default("active"),
+  platform: iapPlatformEnum("platform").default("none"),
+  /** Google Play / App Store purchase token for renewal verification */
+  purchaseToken: varchar("purchase_token", { length: 2048 }),
+  /** Store-assigned order/transaction ID */
+  orderId: varchar("order_id", { length: 255 }),
+  /** Latest verified product ID (matches store) */
+  productId: varchar("product_id", { length: 255 }),
   currentPeriodStart: timestamp("current_period_start", {
     withTimezone: true,
   }),
   currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

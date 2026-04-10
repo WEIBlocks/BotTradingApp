@@ -10,7 +10,8 @@ interface PlanRow {
   price: string;
   period: string;
   features: string[];
-  stripePriceId?: string;
+  googleProductId?: string;
+  appleProductId?: string;
   discountPercent?: string;
 }
 
@@ -104,5 +105,27 @@ export const subscriptionApi = {
   /** Cancel subscription. */
   async cancel() {
     return api.post('/subscription/cancel');
+  },
+
+  /** Lightweight Pro check — returns true if user has active Pro subscription. */
+  async isPro(): Promise<boolean> {
+    try {
+      const res = await api.get<{data: {isPro: boolean}}>('/subscription/is-pro');
+      return res?.data?.isPro === true;
+    } catch {
+      return false;
+    }
+  },
+
+  /** Get plan by Google Play / App Store product ID. */
+  async getPlanByProductId(productId: string): Promise<{id: string} | null> {
+    try {
+      const res = await api.get<{data: PlanRow[]}>('/subscription/plans', {auth: false});
+      const plans = Array.isArray(res?.data) ? res.data : [];
+      const match = plans.find(p => p.googleProductId === productId || p.appleProductId === productId);
+      return match ? {id: match.id} : null;
+    } catch {
+      return null;
+    }
   },
 };

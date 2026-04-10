@@ -24,7 +24,7 @@ export type RootStackParamList = {
   Main: undefined;
   AllBots: {initialCategory?: string; initialSort?: string} | undefined;
   ActiveBots: undefined;
-  BotDetails: {botId: string};
+  BotDetails: {botId: string; openShadow?: boolean};
   BotPurchase: {botId: string};
   ShadowMode: undefined;
   ShadowModeResults: {botId: string; profit: number; winRate: number; sessionId?: string};

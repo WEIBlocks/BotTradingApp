@@ -15,6 +15,8 @@ import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import {useToast} from '../../context/ToastContext';
+import {useIAP} from '../../context/IAPContext';
+import {useAuth} from '../../context/AuthContext';
 import {
   creatorApi,
   CreatorStats,
@@ -425,6 +427,16 @@ const calcStyles = StyleSheet.create({
 export default function CreatorStudioScreen() {
   const navigation = useNavigation<Nav>();
   const {alert: showAlert, showConfirm} = useToast();
+  const {isPro} = useIAP();
+  const {user} = useAuth();
+
+  // Pro gate
+  React.useEffect(() => {
+    if (!isPro && user?.role !== 'admin') {
+      showAlert('Pro Required', 'Creator Studio requires an active Pro subscription.');
+      navigation.navigate('Subscription');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [stats, setStats] = useState<CreatorStats | null>(null);
   const [bots, setBots] = useState<CreatorBot[]>([]);
   const [monthlyRevenue, setMonthlyRevenue] = useState<MonthlyRevenue[]>([]);

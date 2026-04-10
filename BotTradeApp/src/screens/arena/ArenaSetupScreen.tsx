@@ -7,6 +7,8 @@ import {RootStackParamList, Gladiator} from '../../types';
 import {arenaApi, ArenaSession} from '../../services/arena';
 import {api} from '../../services/api';
 import {useToast} from '../../context/ToastContext';
+import {useIAP} from '../../context/IAPContext';
+import {useAuth} from '../../context/AuthContext';
 
 interface ExchangeInfo {
   id: string;
@@ -132,6 +134,16 @@ function BalanceInput({
 export default function ArenaSetupScreen() {
   const navigation = useNavigation<NavProp>();
   const {alert: showAlert, showConfirm} = useToast();
+  const {isPro} = useIAP();
+  const {user} = useAuth();
+
+  // Pro gate — redirect to subscription if not Pro
+  React.useEffect(() => {
+    if (!isPro && user?.role !== 'admin') {
+      showAlert('Pro Required', 'Arena battles require an active Pro subscription.');
+      navigation.navigate('Subscription');
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [gladiators, setGladiators] = useState<Gladiator[]>([]);
   const [loading, setLoading] = useState(true);

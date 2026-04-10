@@ -18,11 +18,12 @@ import {
 } from 'react-native-iap';
 import {api} from './api';
 
-// ─── Product IDs (must match Google Play Console) ─────────────────────────
+// ─── Product IDs (must match Google Play Console / App Store Connect) ────────
 
-/** Subscription product IDs */
+/** Subscription product IDs — must match googleProductId / appleProductId in DB */
 export const SUB_SKUS = Platform.select({
-  android: ['tradingapp_pro_monthly', 'tradingapp_pro_yearly'],
+  android: ['bottrade_pro_monthly', 'bottrade_pro_yearly'],
+  ios: ['com.botttradeapp.pro.monthly', 'com.botttradeapp.pro.yearly'],
   default: [],
 }) as string[];
 
@@ -158,8 +159,9 @@ export const iapService = {
     purchaseToken: string;
     productId: string;
     packageName: string;
+    platform: 'android' | 'ios';
     type: 'subscription' | 'bot_purchase';
-    itemId?: string;
+    planId?: string;
   }): Promise<VerifyReceiptResponse> {
     const res = await api.post<{data: VerifyReceiptResponse}>('/payments/iap/verify', data as Record<string, unknown>);
     return res.data;
