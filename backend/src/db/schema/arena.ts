@@ -49,6 +49,7 @@ export const arenaSessions = pgTable(
     perBotAllocation: numeric("per_bot_allocation", { precision: 14, scale: 2 }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    notificationSent: boolean("notification_sent").default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({

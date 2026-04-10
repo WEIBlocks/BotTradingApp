@@ -84,14 +84,14 @@ async function processShadowCompletionNotifications() {
 
 async function processArenaCompletionNotifications() {
   try {
+    // Only fetch completed sessions where notification has NOT been sent yet
     const completedArenas = await db.select().from(arenaSessions)
-      .where(eq(arenaSessions.status, 'completed'));
+      .where(and(
+        eq(arenaSessions.status, 'completed'),
+        eq(arenaSessions.notificationSent, false),
+      ));
 
     for (const session of completedArenas) {
-      const notifKey = `notif:arena:${session.id}`;
-      const alreadySent = await redisConnection.get(notifKey);
-      if (alreadySent) continue;
-
       await sendNotification(session.userId, {
         type: 'system',
         title: 'Arena Battle Completed',
@@ -99,7 +99,10 @@ async function processArenaCompletionNotifications() {
         priority: 'normal',
       });
 
-      await redisConnection.set(notifKey, '1', 'EX', 86400);
+      // Mark as sent in DB — survives restarts forever
+      await db.update(arenaSessions)
+        .set({ notificationSent: true })
+        .where(eq(arenaSessions.id, session.id));
     }
   } catch (err: any) {
     console.error('[Notification] Error processing arena notifications:', err.message);
