@@ -215,7 +215,9 @@
 						TestTargetID = 13B07F861A680F5B00A75B9A;
 					};
 					13B07F861A680F5B00A75B9A = {
+						DevelopmentTeam = ZP64PRYCFR;
 						LastSwiftMigration = 1120;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -502,6 +504,9 @@
 					"-ObjC",
 					"-lc++",
 				);
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = ZP64PRYCFR;
 				PRODUCT_BUNDLE_IDENTIFIER = "bottrade";
 				PRODUCT_NAME = BotTradeApp;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -528,6 +533,9 @@
 					"-ObjC",
 					"-lc++",
 				);
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = ZP64PRYCFR;
 				PRODUCT_BUNDLE_IDENTIFIER = "bottrade";
 				PRODUCT_NAME = BotTradeApp;
 				SWIFT_VERSION = 5.0;

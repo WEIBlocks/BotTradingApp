@@ -1,7 +1,7 @@
 // For USB-connected physical device: run `adb reverse tcp:3000 tcp:3000`
 // This forwards device's localhost:3000 to host machine's localhost:3000
 // For emulator: 10.0.2.2 maps to host localhost automatically
-const DEV_API_URL = 'http://192.168.1.35:3000';
+const DEV_API_URL = 'http://192.168.1.16:3000';
 
 // Production backend — DigitalOcean server (update to domain once available)
 const PROD_API_URL = 'https://206.81.2.59';
