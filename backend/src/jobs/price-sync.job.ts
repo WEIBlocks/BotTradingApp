@@ -5,33 +5,6 @@ import { env } from '../config/env.js';
 import { exchangeAssets, exchangeConnections } from '../db/schema/exchanges.js';
 import { eq, sql } from 'drizzle-orm';
 
-// CoinGecko free public API — no credentials needed, covers 10,000+ tokens
-// Used as final fallback when Kraken doesn't list a token
-async function fetchCoinGeckoPrice(symbol: string): Promise<{
-  price: number; change24h: number; volume: number;
-  high24h: number; low24h: number; timestamp: number;
-} | null> {
-  try {
-    const coin = symbol.replace('/USDT', '').replace('/USD', '').toLowerCase();
-    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coin}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_high_low=true`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return null;
-    const json: any = await res.json();
-    // CoinGecko uses full name as key (e.g. "bitcoin"), try symbol as fallback
-    const data = json[coin];
-    if (!data?.usd) return null;
-    return {
-      price: data.usd,
-      change24h: data.usd_24h_change ?? 0,
-      volume: data.usd_24h_vol ?? 0,
-      high24h: data.usd_high_24h ?? data.usd,
-      low24h: data.usd_low_24h ?? data.usd,
-      timestamp: Date.now(),
-    };
-  } catch {
-    return null;
-  }
-}
 
 // Map common ticker symbols to CoinGecko IDs (covers the most popular tokens)
 const COINGECKO_ID_MAP: Record<string, string> = {
@@ -77,22 +50,33 @@ const BASE_STOCK_SYMBOLS = ['AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL', 'NVDA', 'ME
 
 const STABLECOINS = new Set(['USDT', 'USDC', 'USD', 'BUSD', 'DAI', 'TUSD', 'FDUSD']);
 
+// Binance public API is geo-blocked on DigitalOcean NYC (HTTP 451).
+// Kraken is the primary price source; CoinGecko covers any token Kraken doesn't list.
+// Binance is still used for actual trade execution via user API keys (that's per-user, not public).
 const binance = new ccxt.binance({
   enableRateLimit: true,
   options: { defaultType: 'spot' },
 });
-
-// Fallback exchange for regions where Binance is geo-restricted (e.g. DigitalOcean NYC)
 const kraken = new ccxt.kraken({ enableRateLimit: true });
-// Kraken symbol mapping: BTC/USDT -> XBT/USDT, etc.
+
 const KRAKEN_SYMBOL_MAP: Record<string, string> = {
   'BTC/USDT': 'BTC/USD',
   'ETH/USDT': 'ETH/USD',
   'SOL/USDT': 'SOL/USD',
   'BNB/USDT': 'BNB/USD',
   'XRP/USDT': 'XRP/USD',
+  'ADA/USDT': 'ADA/USD',
+  'DOGE/USDT': 'DOGE/USD',
+  'AVAX/USDT': 'AVAX/USD',
+  'DOT/USDT': 'DOT/USD',
+  'LINK/USDT': 'LINK/USD',
+  'MATIC/USDT': 'MATIC/USD',
+  'ATOM/USDT': 'ATOM/USD',
+  'LTC/USDT': 'LTC/USD',
+  'UNI/USDT': 'UNI/USD',
 };
-let binanceGeoBlocked = false;
+// Always true on DigitalOcean NYC — Binance public API returns 451
+const binanceGeoBlocked = true;
 
 // Lazy-init Alpaca client for market data (no auth needed for free tier snapshots)
 let alpacaClient: any = null;
@@ -222,29 +206,10 @@ async function syncCryptoPricesViaKraken(symbols: string[]): Promise<number> {
 async function syncCryptoPrices(symbols: string[]) {
   if (symbols.length === 0) return 0;
 
-  if (!binanceGeoBlocked) {
-    try {
-      return await syncCryptoPricesViaBinance(symbols);
-    } catch (err: any) {
-      if (err?.message?.includes('451') || err?.message?.includes('restricted location')) {
-        binanceGeoBlocked = true;
-        console.log('[PriceSync] Binance geo-restricted — switching to Kraken for crypto prices');
-      } else {
-        throw err;
-      }
-    }
-  }
-
-  // Try Kraken first; collect any that failed (not listed on Kraken)
+  // Kraken is primary (Binance public API is geo-blocked on DigitalOcean NYC)
   const krakenCount = await syncCryptoPricesViaKraken(symbols);
 
-  // For symbols Kraken doesn't know, fall back to CoinGecko
-  const missing = symbols.filter(async s => {
-    const key = `price:${s.replace('/', ':')}`;
-    const v = await redisConnection.get(key);
-    return !v;
-  });
-  // Use CoinGecko for any symbols that got 0 results from Kraken
+  // Use CoinGecko for any symbols not listed on Kraken
   if (krakenCount < symbols.length) {
     const krakenMapped = new Set(Object.values(KRAKEN_SYMBOL_MAP));
     const notOnKraken = symbols.filter(s => {
@@ -390,18 +355,11 @@ export async function getPrice(symbol: string): Promise<{
     }
   }
 
-  // Crypto fallback: try Binance first, then Kraken
-  const exchanges = binanceGeoBlocked
-    ? [kraken]
-    : [binance, kraken];
-
-  for (const exchange of exchanges) {
-    try {
-      const fetchSym = exchange === kraken
-        ? (KRAKEN_SYMBOL_MAP[symbol] ?? symbol.replace('/USDT', '/USD'))
-        : symbol;
-      const ticker = await exchange.fetchTicker(fetchSym);
-      if (!ticker?.last) continue;
+  // Crypto: try Kraken first (Binance public API is geo-blocked on this server)
+  try {
+    const krakenSym = KRAKEN_SYMBOL_MAP[symbol] ?? symbol.replace('/USDT', '/USD');
+    const ticker = await kraken.fetchTicker(krakenSym);
+    if (ticker?.last) {
       const data = {
         price: ticker.last ?? 0,
         change24h: ticker.percentage ?? 0,
@@ -412,11 +370,9 @@ export async function getPrice(symbol: string): Promise<{
       };
       await redisConnection.set(redisKey, JSON.stringify(data), 'EX', 120);
       return data;
-    } catch (err: any) {
-      if (err?.message?.includes('451') || err?.message?.includes('restricted location')) {
-        binanceGeoBlocked = true;
-      }
     }
+  } catch {
+    // fall through to CoinGecko
   }
 
   // Final fallback: CoinGecko free public API — covers 10,000+ tokens, no credentials needed

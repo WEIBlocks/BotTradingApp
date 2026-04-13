@@ -1,6 +1,8 @@
 import ccxt from 'ccxt';
 
-const exchange = new ccxt.binance({ enableRateLimit: true });
+// Binance public API is geo-blocked on DigitalOcean NYC (HTTP 451).
+// KuCoin has no such restriction and covers the same major pairs.
+const exchange = new ccxt.kucoin({ enableRateLimit: true });
 
 interface AssetRanking {
   symbol: string;
@@ -275,7 +277,7 @@ export function extractStockSymbols(message: string): string[] {
 let cachedRankings: AssetRanking[] = [];
 let cacheTime = 0;
 
-export async function getTopAssets(limit = 10, type: 'crypto' | 'all' = 'crypto'): Promise<AssetRanking[]> {
+export async function getTopAssets(limit = 10, _type: 'crypto' | 'all' = 'crypto'): Promise<AssetRanking[]> {
   // Return cached if fresh
   if (Date.now() - cacheTime < 60000 && cachedRankings.length > 0) {
     return cachedRankings.slice(0, limit);
