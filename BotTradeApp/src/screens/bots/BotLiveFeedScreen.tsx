@@ -371,6 +371,17 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
     return '$' + p.toFixed(4);
   };
 
+  const formatAmt = (amount: any, symbol: string): string => {
+    const a = typeof amount === 'string' ? parseFloat(amount) : (amount ?? 0);
+    if (!a || isNaN(a)) return '—';
+    const isStock = !symbol.includes('/') && !symbol.includes('USDT') && symbol.length <= 5;
+    if (isStock) return a % 1 === 0 ? `${a.toFixed(0)} shares` : `${a.toFixed(4).replace(/\.?0+$/, '')} shares`;
+    const base = symbol.split('/')[0] ?? symbol;
+    if (a >= 1) return `${a.toLocaleString('en-US', {maximumFractionDigits: 4})} ${base}`;
+    if (a >= 0.0001) return `${a.toFixed(6).replace(/\.?0+$/, '')} ${base}`;
+    return `${a.toExponential(3)} ${base}`;
+  };
+
   // Stats — use server-side counts (accurate across ALL decisions, not just loaded page)
   const totalBuys = apiStats?.totalBuys ?? decisions.filter(d => d.action === 'BUY').length;
   const totalSells = apiStats?.totalSells ?? decisions.filter(d => d.action === 'SELL').length;
@@ -476,7 +487,7 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
           Entry: {formatPrice(item.entryPrice)}   Exit: {formatPrice(item.exitPrice)}
         </Text>
         <Text style={styles.tradeDetail}>
-          Size: {formatPrice(item.entryValue ?? 0)}   P&L: {isWin ? '+' : ''}{tradePnlPercent.toFixed(2)}%
+          Qty: {formatAmt(item.amount, item.symbol)}   P&L: {isWin ? '+' : ''}{tradePnlPercent.toFixed(2)}%
         </Text>
         {(item.entryReasoning || item.exitReasoning) ? (
           <Text style={styles.tradeReasoning} numberOfLines={2}>
@@ -502,7 +513,7 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
           </View>
         </View>
         <Text style={styles.tradeDetail}>
-          Entry: {formatPrice(item.entryPrice)}   Amount: {item.amount ?? '—'}
+          Entry: {formatPrice(item.entryPrice)}   Qty: {formatAmt(item.amount, item.symbol)}
         </Text>
         <Text style={styles.tradeDetail}>
           Value: {formatPrice(item.entryValue ?? 0)}   SL: {item.stopLoss ? formatPrice(item.stopLoss) : '—'}

@@ -1317,13 +1317,20 @@ export async function getPublicLiveStats(botId: string) {
     LIMIT 200
   `) as any[];
 
+  const toIso = (v: any): string | null => {
+    if (!v) return null;
+    if (v instanceof Date) return v.toISOString();
+    const d = new Date(String(v).replace(' ', 'T').replace(/(\+\d{2})$/, '$1:00'));
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  };
+
   let cumPnl = 0;
   const equityCurve: number[] = [0]; // baseline zero so chart always starts flat
   const equityDates: string[] = [''];
   for (const row of allClosed) {
     cumPnl += parseFloat(row.pnl ?? '0');
     equityCurve.push(Math.round(cumPnl * 100) / 100);
-    equityDates.push(row.closed_at instanceof Date ? row.closed_at.toISOString() : String(row.closed_at));
+    equityDates.push(toIso(row.closed_at) ?? '');
   }
 
   // Recent live trades (last 20, across all users, most recent first)
@@ -1334,8 +1341,10 @@ export async function getPublicLiveStats(botId: string) {
       side,
       entry_price::numeric  AS entry_price,
       exit_price::numeric   AS exit_price,
+      amount::numeric        AS amount,
       pnl::numeric          AS pnl,
       pnl_percent::numeric  AS pnl_percent,
+      opened_at,
       closed_at
     FROM bot_positions
     WHERE bot_id = ${botId} AND is_paper = false AND status = 'closed' AND closed_at IS NOT NULL
@@ -1349,9 +1358,11 @@ export async function getPublicLiveStats(botId: string) {
     side: r.side,
     entryPrice: parseFloat(r.entry_price ?? '0'),
     exitPrice: r.exit_price ? parseFloat(r.exit_price) : null,
+    amount: parseFloat(r.amount ?? '0'),
     pnl: parseFloat(r.pnl ?? '0'),
     pnlPercent: parseFloat(r.pnl_percent ?? '0'),
-    closedAt: r.closed_at instanceof Date ? r.closed_at.toISOString() : String(r.closed_at),
+    openedAt: toIso(r.opened_at),
+    closedAt: toIso(r.closed_at),
   }));
 
   return {

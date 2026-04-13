@@ -506,6 +506,7 @@ export async function getSessionResults(sessionId: string, userId: string) {
         symbol: pos.symbol,
         entryPrice,
         exitPrice,
+        amount: parseFloat(pos.amount),
         pnl: pos.pnl ? parseFloat(pos.pnl) : 0,
         pnlPercent: Math.round(pnlPct * 100) / 100,
         entryReasoning: pos.entryReasoning || '',

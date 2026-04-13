@@ -569,7 +569,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
                             )}
                           </View>
                           <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: '#9CA3AF'}}>
-                            Entry: ${(t.entryPrice ?? 0).toFixed(2)}{t.exitPrice > 0 ? `  →  Exit: $${t.exitPrice.toFixed(2)}` : ''}
+                            Entry: ${(t.entryPrice ?? 0).toFixed(2)}{t.exitPrice > 0 ? `  →  Exit: $${t.exitPrice.toFixed(2)}` : ''}{t.amount > 0 ? `  ·  ${(() => { const a = t.amount; const sym = (t.symbol ?? '').split('/')[0]; return a >= 1 ? `${parseFloat(a.toFixed(4))} ${sym}` : a >= 0.0001 ? `${a.toFixed(6).replace(/\.?0+$/, '')} ${sym}` : `${a.toExponential(3)} ${sym}`; })()}` : ''}
                           </Text>
                           {t.entryReasoning ? (
                             <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: '#6B7280', fontStyle: 'italic', marginTop: 2}} numberOfLines={1}>

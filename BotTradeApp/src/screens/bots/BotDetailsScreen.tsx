@@ -26,6 +26,20 @@ import {useLiveEquity} from '../../hooks/useLiveEquity';
 const {width} = Dimensions.get('window');
 const CHART_W = width - 40;
 
+// Format position size: stocks show integer or 4dp shares, crypto shows up to 6dp
+function formatAmount(amount: number | null | undefined, symbol: string): string {
+  if (amount == null || amount === 0) return '';
+  const isStock = !symbol.includes('/') && !symbol.includes('USDT') && !symbol.includes('BTC') && symbol.length <= 5 && symbol === symbol.toUpperCase();
+  if (isStock) {
+    return amount % 1 === 0 ? `${amount.toFixed(0)} shares` : `${amount.toFixed(4).replace(/\.?0+$/, '')} shares`;
+  }
+  // Crypto: extract base currency
+  const base = symbol.split('/')[0] ?? symbol;
+  if (amount >= 1) return `${amount.toLocaleString('en-US', {maximumFractionDigits: 4})} ${base}`;
+  if (amount >= 0.0001) return `${amount.toFixed(6).replace(/\.?0+$/, '')} ${base}`;
+  return `${amount.toExponential(3)} ${base}`;
+}
+
 type Props = NativeStackScreenProps<RootStackParamList, 'BotDetails'>;
 
 type BotUserStatus = 'none' | 'shadow_running' | 'shadow_completed' | 'shadow_paused' | 'active' | 'paused' | 'stopped';
@@ -813,11 +827,14 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                         <View style={{flex: 1, backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: 'rgba(16,185,129,0.15)'}}>
                           <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#10B981', letterSpacing: 0.5}}>BUY</Text>
                           <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#FFFFFF', marginTop: 2}}>${t.entryPrice?.toFixed(4) ?? '—'}</Text>
+                          {!!formatAmount(t.amount, t.symbol) && <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1}}>{formatAmount(t.amount, t.symbol)}</Text>}
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1}}>{t.openedAt ? new Date(t.openedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : '—'}</Text>
                         </View>
                         <View style={{flex: 1, backgroundColor: 'rgba(239,68,68,0.08)', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: 'rgba(239,68,68,0.15)'}}>
                           <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#EF4444', letterSpacing: 0.5}}>SELL</Text>
                           <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#FFFFFF', marginTop: 2}}>${t.exitPrice?.toFixed(4) ?? '—'}</Text>
-                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 1}}>{t.closedAt ? new Date(t.closedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : '—'}</Text>
+                          {!!formatAmount(t.amount, t.symbol) && <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1}}>{formatAmount(t.amount, t.symbol)}</Text>}
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1}}>{t.closedAt ? new Date(t.closedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : '—'}</Text>
                         </View>
                       </View>
                     </View>
@@ -1219,12 +1236,14 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                             <View style={{flex: 1, backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: 'rgba(16,185,129,0.15)'}}>
                               <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#10B981', letterSpacing: 0.5}}>BUY</Text>
                               <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#FFFFFF', marginTop: 2}}>${t.entryPrice?.toFixed(4) ?? '—'}</Text>
-                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 1}}>{t.openedAt ? new Date(t.openedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : '—'}</Text>
+                              {!!formatAmount(t.amount, t.symbol) && <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1}}>{formatAmount(t.amount, t.symbol)}</Text>}
+                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1}}>{t.openedAt ? new Date(t.openedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : '—'}</Text>
                             </View>
                             <View style={{flex: 1, backgroundColor: 'rgba(239,68,68,0.08)', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: 'rgba(239,68,68,0.15)'}}>
                               <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#EF4444', letterSpacing: 0.5}}>SELL</Text>
                               <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#FFFFFF', marginTop: 2}}>${t.exitPrice?.toFixed(4) ?? '—'}</Text>
-                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 1}}>{t.closedAt ? new Date(t.closedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : '—'}</Text>
+                              {!!formatAmount(t.amount, t.symbol) && <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1}}>{formatAmount(t.amount, t.symbol)}</Text>}
+                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1}}>{t.closedAt ? new Date(t.closedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : '—'}</Text>
                             </View>
                           </View>
                         </View>
@@ -1243,6 +1262,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                           <View style={{flex: 1}}>
                             <Text style={styles.shadowTradePair}>{p.symbol} <Text style={{color: '#10B981', textTransform: 'uppercase'}}>LONG</Text></Text>
                             <Text style={styles.shadowTradeDate}>Entry: ${p.entryPrice.toFixed(4)} · {p.openedAt ? new Date(p.openedAt).toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) : '—'}</Text>
+                            {!!formatAmount(p.amount, p.symbol) && <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1}}>{formatAmount(p.amount, p.symbol)}</Text>}
                           </View>
                           <View style={{alignItems: 'flex-end'}}>
                             <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#3B82F6'}}>OPEN</Text>

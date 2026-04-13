@@ -1,0 +1,63 @@
+import { z } from 'zod';
+export const registerSchema = {
+    body: z.object({
+        name: z.string().min(1, 'Name is required'),
+        email: z.string().email('Invalid email address'),
+        password: z.string().min(8, 'Password must be at least 8 characters'),
+    }),
+};
+export const loginSchema = {
+    body: z.object({
+        email: z.string().email('Invalid email address'),
+        password: z.string().min(1, 'Password is required'),
+    }),
+};
+export const refreshTokenSchema = {
+    body: z.object({
+        refreshToken: z.string().min(1, 'Refresh token is required'),
+    }),
+};
+export const oauthSchema = {
+    body: z.object({
+        idToken: z.string().min(1, 'ID token is required'),
+    }),
+};
+export const logoutSchema = {
+    body: z.object({
+        refreshToken: z.string().optional(),
+    }),
+};
+export const appleAuthSchema = {
+    body: z.object({
+        identityToken: z.string().min(1, 'Identity token is required'),
+        fullName: z.object({
+            firstName: z.string().optional(),
+            lastName: z.string().optional(),
+        }).optional(),
+    }),
+};
+export const refreshTokenResponseSchema = z.object({
+    accessToken: z.string(),
+    refreshToken: z.string(),
+});
+export const messageResponseSchema = z.object({
+    message: z.string(),
+});
+export const authResponseSchema = z.object({
+    accessToken: z.string(),
+    refreshToken: z.string(),
+    user: z.object({
+        id: z.string(),
+        name: z.string(),
+        email: z.string(),
+        role: z.string(),
+    }),
+    isNewUser: z.boolean().optional(),
+    onboardingComplete: z.boolean().optional(),
+});
+export const changePasswordSchema = {
+    body: z.object({
+        currentPassword: z.string().min(1, 'Current password is required'),
+        newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+    }),
+};
