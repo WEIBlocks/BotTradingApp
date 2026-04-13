@@ -1,9 +1,9 @@
 import { eq, sql, and } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { shadowSessions, bots, botSubscriptions } from '../db/schema/bots';
-import { trades } from '../db/schema/trades';
-import { activityLog } from '../db/schema/training';
-import { botDecisions } from '../db/schema/decisions';
+import { shadowSessions, bots, botSubscriptions } from '../db/schema/bots.js';
+import { trades } from '../db/schema/trades.js';
+import { activityLog } from '../db/schema/training.js';
+import { botDecisions } from '../db/schema/decisions.js';
 import { getPrice, isUSMarketOpen } from './price-sync.job.js';
 import { processSymbol } from '../lib/bot-engine.js';
 

@@ -9,7 +9,7 @@ function safeInArray(column: Column, ids: string[]) {
 import { db } from '../../config/database.js';
 import { bots, botStatistics, botSubscriptions, botVersions, shadowSessions, reviews, creatorEarnings } from '../../db/schema/bots.js';
 import { trades } from '../../db/schema/trades.js';
-import { botDecisions } from '../../db/schema/decisions';
+import { botDecisions } from '../../db/schema/decisions.js';
 import { payments } from '../../db/schema/payments.js';
 import { users } from '../../db/schema/users.js';
 import { arenaSessions, arenaGladiators } from '../../db/schema/arena.js';

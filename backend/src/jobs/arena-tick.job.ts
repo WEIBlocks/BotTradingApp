@@ -34,14 +34,18 @@ const MAX_HOLD_LOG = 50;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-/** Detect if pairs list belongs to stocks or crypto */
-function getBotAssetClass(config: any): 'crypto' | 'stocks' | 'mixed' {
+/** Detect if pairs list belongs to stocks or crypto, with category fallback */
+function getBotAssetClass(config: any, category?: string | null): 'crypto' | 'stocks' | 'mixed' {
   const pairs: string[] = config?.pairs ?? [];
-  if (pairs.length === 0) return 'crypto';
-  const stockPairs = pairs.filter((p: string) => !p.includes('/'));
-  const cryptoPairs = pairs.filter((p: string) => p.includes('/'));
-  if (stockPairs.length > 0 && cryptoPairs.length > 0) return 'mixed';
-  if (stockPairs.length > 0) return 'stocks';
+  if (pairs.length > 0) {
+    const stockPairs = pairs.filter((p: string) => !p.includes('/'));
+    const cryptoPairs = pairs.filter((p: string) => p.includes('/'));
+    if (stockPairs.length > 0 && cryptoPairs.length > 0) return 'mixed';
+    if (stockPairs.length > 0) return 'stocks';
+    return 'crypto';
+  }
+  const cat = (category ?? '').toLowerCase();
+  if (cat === 'stocks' || cat === 'equity' || cat === 'etf') return 'stocks';
   return 'crypto';
 }
 
@@ -101,15 +105,16 @@ async function processArenaTick() {
             botPrompt: bots.prompt,
             botRiskLevel: bots.riskLevel,
             botConfig: bots.config,
+            botCategory: bots.category,
             botName: bots.name,
           })
           .from(arenaGladiators)
           .innerJoin(bots, eq(arenaGladiators.botId, bots.id))
           .where(eq(arenaGladiators.sessionId, session.id));
 
-        for (const { gladiator, botStrategy, botPrompt, botRiskLevel, botConfig, botName } of gladiators) {
+        for (const { gladiator, botStrategy, botPrompt, botRiskLevel, botConfig, botCategory, botName } of gladiators) {
           const config = (botConfig ?? {}) as any;
-          const assetClass = getBotAssetClass(config);
+          const assetClass = getBotAssetClass(config, botCategory);
           const isStockBot = assetClass === 'stocks';
           const isLiveMode = session.mode === 'live';
 
@@ -187,8 +192,10 @@ async function processArenaTick() {
               shadowSessionId: gladiator.id,
               aiMode: config.aiMode,
               aiConfidenceThreshold: config.aiConfidenceThreshold,
-              maxHoldsBeforeAI: config.maxHoldsBeforeAI,
-              tradingFrequency: config.tradingFrequency,
+              // Arena: force aggressive frequency so bots trade within short battle windows.
+              // Battles often run 3–10 min; balanced (10min cooldown) would allow 0–1 trades.
+              tradingFrequency: 'aggressive',
+              maxHoldsBeforeAI: config.maxHoldsBeforeAI ?? 2,
               maxOpenPositions: config.maxOpenPositions,
               customEntryConditions: config.customEntryConditions,
               customExitConditions: config.customExitConditions,
@@ -225,22 +232,22 @@ async function processArenaTick() {
               }).catch(() => {});
             }
 
-            if (decPrice > 0) {
-              state.totalDecisions = (state.totalDecisions ?? 0) + 1;
-              state.decisions.push({
-                action: decision.action,
-                symbol,
-                price: decPrice,
-                reasoning: decision.reasoning.slice(0, 150),
-                time: new Date().toISOString(),
-              });
+            // Always log decision regardless of whether we have a live price.
+            // decPrice may be 0 if price sync hasn't run yet — still valuable to log.
+            state.totalDecisions = (state.totalDecisions ?? 0) + 1;
+            state.decisions.push({
+              action: decision.action,
+              symbol,
+              price: decPrice,
+              reasoning: decision.reasoning.slice(0, 150),
+              time: new Date().toISOString(),
+            });
 
-              const trades = state.decisions.filter(d => d.action !== 'HOLD');
-              const holds = state.decisions.filter(d => d.action === 'HOLD');
-              if (holds.length > MAX_HOLD_LOG) {
-                state.decisions = [...trades, ...holds.slice(-MAX_HOLD_LOG)]
-                  .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-              }
+            const trades = state.decisions.filter(d => d.action !== 'HOLD');
+            const holds = state.decisions.filter(d => d.action === 'HOLD');
+            if (holds.length > MAX_HOLD_LOG) {
+              state.decisions = [...trades, ...holds.slice(-MAX_HOLD_LOG)]
+                .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
             }
           }
 
@@ -249,8 +256,7 @@ async function processArenaTick() {
           let unrealizedPnl = 0;
           try {
             const { botPositions } = await import('../db/schema/positions.js');
-            const { and: andOp, gte: gteOp } = await import('drizzle-orm');
-            const sessionStart = session.startedAt ? new Date(session.startedAt) : new Date();
+            const { and: andOp } = await import('drizzle-orm');
 
             // Query positions scoped exactly to this gladiator via shadowSessionId tag.
             // For live mode query real (non-paper) positions; for shadow query paper positions.

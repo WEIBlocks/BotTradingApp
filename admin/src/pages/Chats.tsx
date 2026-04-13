@@ -503,7 +503,7 @@ export default function Chats() {
                           </div>
                         </div>
 
-                        {group.messages.map((msg, mi) => {
+                        {group.messages.map((msg) => {
                           const isUser = msg.role.toLowerCase() === 'user';
                           const globalIdx = userMessages.indexOf(msg);
                           const showConvBreak = getConversationBreak(msg, globalIdx);

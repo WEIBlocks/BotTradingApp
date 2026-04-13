@@ -5,6 +5,72 @@ import { env } from '../config/env.js';
 import { exchangeAssets, exchangeConnections } from '../db/schema/exchanges.js';
 import { eq, sql } from 'drizzle-orm';
 
+// CoinGecko free public API — no credentials needed, covers 10,000+ tokens
+// Used as final fallback when Kraken doesn't list a token
+async function fetchCoinGeckoPrice(symbol: string): Promise<{
+  price: number; change24h: number; volume: number;
+  high24h: number; low24h: number; timestamp: number;
+} | null> {
+  try {
+    const coin = symbol.replace('/USDT', '').replace('/USD', '').toLowerCase();
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${coin}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_high_low=true`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const json: any = await res.json();
+    // CoinGecko uses full name as key (e.g. "bitcoin"), try symbol as fallback
+    const data = json[coin];
+    if (!data?.usd) return null;
+    return {
+      price: data.usd,
+      change24h: data.usd_24h_change ?? 0,
+      volume: data.usd_24h_vol ?? 0,
+      high24h: data.usd_high_24h ?? data.usd,
+      low24h: data.usd_low_24h ?? data.usd,
+      timestamp: Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Map common ticker symbols to CoinGecko IDs (covers the most popular tokens)
+const COINGECKO_ID_MAP: Record<string, string> = {
+  BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binancecoin',
+  XRP: 'ripple', ADA: 'cardano', AVAX: 'avalanche-2', DOT: 'polkadot',
+  MATIC: 'matic-network', LINK: 'chainlink', UNI: 'uniswap', LTC: 'litecoin',
+  ATOM: 'cosmos', NEAR: 'near', ARB: 'arbitrum', OP: 'optimism',
+  DOGE: 'dogecoin', SHIB: 'shiba-inu', PEPE: 'pepe', FLOKI: 'floki',
+  TRX: 'tron', TON: 'the-open-network', APT: 'aptos', SUI: 'sui',
+  INJ: 'injective-protocol', SEI: 'sei-network', FET: 'fetch-ai',
+  RENDER: 'render-token', WLD: 'worldcoin-wld', JUP: 'jupiter-exchange-solana',
+};
+
+async function fetchCoinGeckoPriceById(symbol: string): Promise<{
+  price: number; change24h: number; volume: number;
+  high24h: number; low24h: number; timestamp: number;
+} | null> {
+  const ticker = symbol.replace('/USDT', '').replace('/USD', '').toUpperCase();
+  const id = COINGECKO_ID_MAP[ticker] ?? ticker.toLowerCase();
+  try {
+    const url = `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_high_low=true`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return null;
+    const json: any = await res.json();
+    const data = json[id];
+    if (!data?.usd) return null;
+    return {
+      price: data.usd,
+      change24h: data.usd_24h_change ?? 0,
+      volume: data.usd_24h_vol ?? 0,
+      high24h: data.usd_high_24h ?? data.usd,
+      low24h: data.usd_low_24h ?? data.usd,
+      timestamp: Date.now(),
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Base symbols always tracked
 const BASE_CRYPTO_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'];
 const BASE_STOCK_SYMBOLS = ['AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL', 'NVDA', 'META', 'AMD'];
@@ -15,6 +81,18 @@ const binance = new ccxt.binance({
   enableRateLimit: true,
   options: { defaultType: 'spot' },
 });
+
+// Fallback exchange for regions where Binance is geo-restricted (e.g. DigitalOcean NYC)
+const kraken = new ccxt.kraken({ enableRateLimit: true });
+// Kraken symbol mapping: BTC/USDT -> XBT/USDT, etc.
+const KRAKEN_SYMBOL_MAP: Record<string, string> = {
+  'BTC/USDT': 'BTC/USD',
+  'ETH/USDT': 'ETH/USD',
+  'SOL/USDT': 'SOL/USD',
+  'BNB/USDT': 'BNB/USD',
+  'XRP/USDT': 'XRP/USD',
+};
+let binanceGeoBlocked = false;
 
 // Lazy-init Alpaca client for market data (no auth needed for free tier snapshots)
 let alpacaClient: any = null;
@@ -48,7 +126,10 @@ async function getValidBinanceSymbols(): Promise<Set<string>> {
     validSymbolsCache = new Set(Object.keys(markets));
     validSymbolsCacheTime = Date.now();
   } catch {
+    // Silently fall back — Binance may be geo-restricted on this server (e.g. DigitalOcean NYC)
     validSymbolsCache = validSymbolsCache ?? new Set(BASE_CRYPTO_SYMBOLS);
+    // Mark cache time so we don't retry loadMarkets every 30s — retry once per hour
+    validSymbolsCacheTime = Date.now();
   }
   return validSymbolsCache;
 }
@@ -88,9 +169,7 @@ async function discoverUserSymbols(): Promise<{ crypto: string[]; stocks: string
   }
 }
 
-async function syncCryptoPrices(symbols: string[]) {
-  if (symbols.length === 0) return 0;
-
+async function syncCryptoPricesViaBinance(symbols: string[]): Promise<number> {
   const validSymbols = await getValidBinanceSymbols();
   const fetchSymbols = symbols.filter(s => validSymbols.has(s));
   if (fetchSymbols.length === 0) return 0;
@@ -99,11 +178,9 @@ async function syncCryptoPrices(symbols: string[]) {
   for (let i = 0; i < fetchSymbols.length; i += BATCH_SIZE) {
     const batch = fetchSymbols.slice(i, i + BATCH_SIZE);
     const tickers = await binance.fetchTickers(batch);
-
     for (const symbol of batch) {
       const ticker = tickers[symbol];
       if (!ticker) continue;
-
       const data = {
         price: ticker.last ?? 0,
         change24h: ticker.percentage ?? 0,
@@ -112,12 +189,81 @@ async function syncCryptoPrices(symbols: string[]) {
         low24h: ticker.low ?? 0,
         timestamp: Date.now(),
       };
-
       await redisConnection.set(`price:${symbol.replace('/', ':')}`, JSON.stringify(data), 'EX', 120);
     }
   }
-
   return fetchSymbols.length;
+}
+
+async function syncCryptoPricesViaKraken(symbols: string[]): Promise<number> {
+  let count = 0;
+  for (const symbol of symbols) {
+    try {
+      const krakenSym = KRAKEN_SYMBOL_MAP[symbol] ?? symbol.replace('/USDT', '/USD');
+      const ticker = await kraken.fetchTicker(krakenSym);
+      if (!ticker || !ticker.last) continue;
+      const data = {
+        price: ticker.last ?? 0,
+        change24h: ticker.percentage ?? 0,
+        volume: ticker.quoteVolume ?? 0,
+        high24h: ticker.high ?? 0,
+        low24h: ticker.low ?? 0,
+        timestamp: Date.now(),
+      };
+      await redisConnection.set(`price:${symbol.replace('/', ':')}`, JSON.stringify(data), 'EX', 120);
+      count++;
+    } catch {
+      // skip individual symbol failures
+    }
+  }
+  return count;
+}
+
+async function syncCryptoPrices(symbols: string[]) {
+  if (symbols.length === 0) return 0;
+
+  if (!binanceGeoBlocked) {
+    try {
+      return await syncCryptoPricesViaBinance(symbols);
+    } catch (err: any) {
+      if (err?.message?.includes('451') || err?.message?.includes('restricted location')) {
+        binanceGeoBlocked = true;
+        console.log('[PriceSync] Binance geo-restricted — switching to Kraken for crypto prices');
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  // Try Kraken first; collect any that failed (not listed on Kraken)
+  const krakenCount = await syncCryptoPricesViaKraken(symbols);
+
+  // For symbols Kraken doesn't know, fall back to CoinGecko
+  const missing = symbols.filter(async s => {
+    const key = `price:${s.replace('/', ':')}`;
+    const v = await redisConnection.get(key);
+    return !v;
+  });
+  // Use CoinGecko for any symbols that got 0 results from Kraken
+  if (krakenCount < symbols.length) {
+    const krakenMapped = new Set(Object.values(KRAKEN_SYMBOL_MAP));
+    const notOnKraken = symbols.filter(s => {
+      const mapped = KRAKEN_SYMBOL_MAP[s] ?? s.replace('/USDT', '/USD');
+      return !krakenMapped.has(mapped) && !krakenMapped.has(s);
+    });
+    let cgCount = 0;
+    for (const sym of notOnKraken) {
+      const data = await fetchCoinGeckoPriceById(sym);
+      if (data) {
+        const key = `price:${sym.replace('/', ':')}`;
+        await redisConnection.set(key, JSON.stringify(data), 'EX', 120);
+        cgCount++;
+      }
+    }
+    if (cgCount > 0) console.log(`[PriceSync] CoinGecko filled ${cgCount} tokens not on Kraken`);
+  }
+
+  return krakenCount;
 }
 
 async function syncStockPrices(symbols: string[]) {
@@ -244,23 +390,43 @@ export async function getPrice(symbol: string): Promise<{
     }
   }
 
-  // Crypto fallback via Binance
-  try {
-    const ticker = await binance.fetchTicker(symbol);
-    if (!ticker) return null;
-    const data = {
-      price: ticker.last ?? 0,
-      change24h: ticker.percentage ?? 0,
-      volume: ticker.quoteVolume ?? 0,
-      high24h: ticker.high ?? 0,
-      low24h: ticker.low ?? 0,
-      timestamp: Date.now(),
-    };
-    await redisConnection.set(redisKey, JSON.stringify(data), 'EX', 120);
-    return data;
-  } catch {
-    return null;
+  // Crypto fallback: try Binance first, then Kraken
+  const exchanges = binanceGeoBlocked
+    ? [kraken]
+    : [binance, kraken];
+
+  for (const exchange of exchanges) {
+    try {
+      const fetchSym = exchange === kraken
+        ? (KRAKEN_SYMBOL_MAP[symbol] ?? symbol.replace('/USDT', '/USD'))
+        : symbol;
+      const ticker = await exchange.fetchTicker(fetchSym);
+      if (!ticker?.last) continue;
+      const data = {
+        price: ticker.last ?? 0,
+        change24h: ticker.percentage ?? 0,
+        volume: ticker.quoteVolume ?? 0,
+        high24h: ticker.high ?? 0,
+        low24h: ticker.low ?? 0,
+        timestamp: Date.now(),
+      };
+      await redisConnection.set(redisKey, JSON.stringify(data), 'EX', 120);
+      return data;
+    } catch (err: any) {
+      if (err?.message?.includes('451') || err?.message?.includes('restricted location')) {
+        binanceGeoBlocked = true;
+      }
+    }
   }
+
+  // Final fallback: CoinGecko free public API — covers 10,000+ tokens, no credentials needed
+  const cgData = await fetchCoinGeckoPriceById(symbol);
+  if (cgData) {
+    await redisConnection.set(redisKey, JSON.stringify(cgData), 'EX', 120);
+    return cgData;
+  }
+
+  return null;
 }
 
 /** Check if US stock market is currently open */

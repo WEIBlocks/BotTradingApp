@@ -3,7 +3,10 @@
 // For emulator: 10.0.2.2 maps to host localhost automatically
 const DEV_API_URL = 'http://localhost:3000';
 
-export const API_BASE_URL = __DEV__ ? DEV_API_URL : 'https://api.bottrade.app';
+// Production backend — DigitalOcean server (update to domain once available)
+const PROD_API_URL = 'http://206.81.2.59';
+
+export const API_BASE_URL = __DEV__ ? DEV_API_URL : PROD_API_URL;
 
 // Timeout for API requests (ms)
 export const REQUEST_TIMEOUT = 15000;

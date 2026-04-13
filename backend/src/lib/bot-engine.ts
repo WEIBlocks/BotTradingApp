@@ -24,14 +24,14 @@ import OpenAI from 'openai';
 import { retrieveKnowledge } from './rag.js';
 import { computeIndicators, hasSignificantChange, type IndicatorSnapshot } from './indicators.js';
 import { getPrice } from '../jobs/price-sync.job.js';
-import { botDecisions } from '../db/schema/decisions';
-import { botPositions } from '../db/schema/positions';
-import { trades } from '../db/schema/trades';
-import { bots, botSubscriptions, shadowSessions } from '../db/schema/bots';
-import { exchangeConnections } from '../db/schema/exchanges';
+import { botDecisions } from '../db/schema/decisions.js';
+import { botPositions } from '../db/schema/positions.js';
+import { trades } from '../db/schema/trades.js';
+import { bots, botSubscriptions, shadowSessions } from '../db/schema/bots.js';
+import { exchangeConnections } from '../db/schema/exchanges.js';
 import { decrypt } from './encryption.js';
 import { createAdapter } from '../modules/exchange/adapters/adapter.factory.js';
-import { eq, and, sql, desc } from 'drizzle-orm';
+import { eq, and, sql, desc, isNull } from 'drizzle-orm';
 
 // ─── OpenAI Direct Client (better JSON reliability) ────────────────────────
 
@@ -150,11 +150,15 @@ function checkAIRateLimit(botId: string): boolean {
 
 // ─── Position Management (DB-backed) ────────────────────────────────────────
 
-async function getOpenPosition(botId: string, symbol: string, sessionKey: string) {
+async function getOpenPosition(botId: string, symbol: string, shadowSessionId?: string) {
   const conditions = [
     eq(botPositions.botId, botId),
     eq(botPositions.symbol, symbol),
     eq(botPositions.status, 'open'),
+    // Scope to session so positions from other sessions don't block new entries
+    shadowSessionId
+      ? eq(botPositions.shadowSessionId, shadowSessionId)
+      : isNull(botPositions.shadowSessionId),
   ];
 
   const [pos] = await db.select().from(botPositions).where(and(...conditions)).limit(1);
@@ -620,8 +624,8 @@ export async function processSymbol(opts: {
     const freqMult = freqCooldownMap[opts.tradingFrequency ?? 'balanced'] ?? 1;
     rules.cooldownMinutes = Math.max(1, Math.round(rules.cooldownMinutes * freqMult));
 
-    // 4. Get position from DB (persistent, survives restarts)
-    const existingPos = await getOpenPosition(botId, symbol, sessionKey);
+    // 4. Get position from DB (persistent, survives restarts) — scoped to session
+    const existingPos = await getOpenPosition(botId, symbol, opts.shadowSessionId);
     const positionPnlPct = existingPos
       ? ((priceData.price - parseFloat(existingPos.entryPrice)) / parseFloat(existingPos.entryPrice)) * 100
       : null;
@@ -755,21 +759,26 @@ export async function processSymbol(opts: {
       triggerCheck.reasons.push(`Forced AI after ${currentHolds} consecutive HOLDs`);
     }
 
-    // maxOpenPositions check for BUY
+    // Session-scoped position filter (arena/shadow sessions must not bleed across sessions)
+    const sessionScopeFilter = opts.shadowSessionId
+      ? eq(botPositions.shadowSessionId, opts.shadowSessionId)
+      : isNull(botPositions.shadowSessionId);
+
+    // maxOpenPositions check for BUY — scoped to this session
     let atMaxPositions = false;
     if (opts.maxOpenPositions !== undefined) {
       const [openRow] = await db
         .select({ cnt: sql<number>`COUNT(*)::int` })
         .from(botPositions)
-        .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open')));
+        .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open'), sessionScopeFilter));
       if (Number(openRow?.cnt ?? 0) >= opts.maxOpenPositions) atMaxPositions = true;
     }
 
-    // Portfolio-level exposure check
+    // Portfolio-level exposure check — scoped to this session
     if (!atMaxPositions) {
       try {
         const openPositions = await db.select({ entryValue: botPositions.entryValue }).from(botPositions)
-          .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open')));
+          .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open'), sessionScopeFilter));
         const totalExposure = openPositions.reduce((sum, p) => sum + parseFloat(p.entryValue ?? '0'), 0);
         const exposurePct = balance > 0 ? (totalExposure / balance) * 100 : 0;
         if (exposurePct > 80) {

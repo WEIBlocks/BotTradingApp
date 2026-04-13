@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LifeBuoy,
-  Search,
   Send,
   X,
   Clock,
@@ -38,6 +37,8 @@ interface TicketMessage {
   userId: string;
   userName?: string;
   role: string; // user | admin
+  isAdmin?: boolean;
+  is_admin?: boolean;
   content: string;
   createdAt: string;
 }

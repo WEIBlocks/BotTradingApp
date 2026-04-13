@@ -15,5 +15,5 @@
     "noUnusedParameters": false
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "tests"]
+  "exclude": ["node_modules", "dist", "tests", "src/db/seed.ts", "src/scripts/**/*", "src/db/seed-*.ts", "src/db/update-*.ts", "src/db/clear-*.ts", "src/db/cleanup-*.ts"]
 }

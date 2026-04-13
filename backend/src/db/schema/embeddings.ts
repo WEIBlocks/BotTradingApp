@@ -1,7 +1,7 @@
 import { pgTable, uuid, text, varchar, integer, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { users } from './users';
-import { bots } from './bots';
+import { users } from './users.js';
+import { bots } from './bots.js';
 
 // Note: pgvector extension must be enabled on the database
 // We store embeddings as JSONB arrays since drizzle doesn't natively support vector type

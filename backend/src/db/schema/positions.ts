@@ -10,8 +10,8 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
-import { bots, botSubscriptions, shadowSessions } from "./bots";
+import { users } from "./users.js";
+import { bots, botSubscriptions, shadowSessions } from "./bots.js";
 
 export const positionSideEnum = pgEnum("position_side", ["long", "short"]);
 export const positionStatusEnum = pgEnum("position_status", [

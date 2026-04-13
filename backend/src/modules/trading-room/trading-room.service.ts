@@ -1,8 +1,8 @@
 import { db } from '../../config/database.js';
-import { tradingRoomMessages } from '../../db/schema/trading-room';
-import { users } from '../../db/schema/users';
-import { userSubscriptions } from '../../db/schema/subscriptions';
-import { subscriptionPlans } from '../../db/schema/subscriptions';
+import { tradingRoomMessages } from '../../db/schema/trading-room.js';
+import { users } from '../../db/schema/users.js';
+import { userSubscriptions } from '../../db/schema/subscriptions.js';
+import { subscriptionPlans } from '../../db/schema/subscriptions.js';
 import { sendNotification } from '../../lib/notify.js';
 import { eq, desc, lt, and, sql, count } from 'drizzle-orm';
 import { ForbiddenError, NotFoundError, AppError } from '../../lib/errors.js';

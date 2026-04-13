@@ -11,7 +11,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
+import { users } from "./users.js";
 
 export const exchangeMethodEnum = pgEnum("exchange_method", [
   "oauth",

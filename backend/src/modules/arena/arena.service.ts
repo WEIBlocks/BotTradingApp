@@ -35,15 +35,20 @@ export function isUSMarketOpen(): boolean {
   return utcMinutes >= openMinutes && utcMinutes < closeMinutes;
 }
 
-/** Detect bot asset class from its config pairs */
-function getBotAssetClass(config: any): 'crypto' | 'stocks' | 'mixed' {
+/** Detect bot asset class from its config pairs, falling back to category field */
+function getBotAssetClass(config: any, category?: string | null): 'crypto' | 'stocks' | 'mixed' {
   const pairs: string[] = config?.pairs ?? [];
-  if (pairs.length === 0) return 'crypto'; // default
-  const stockPairs = pairs.filter(p => !p.includes('/'));
-  const cryptoPairs = pairs.filter(p => p.includes('/'));
-  if (stockPairs.length > 0 && cryptoPairs.length > 0) return 'mixed';
-  if (stockPairs.length > 0) return 'stocks';
-  return 'crypto';
+  if (pairs.length > 0) {
+    const stockPairs = pairs.filter(p => !p.includes('/'));
+    const cryptoPairs = pairs.filter(p => p.includes('/'));
+    if (stockPairs.length > 0 && cryptoPairs.length > 0) return 'mixed';
+    if (stockPairs.length > 0) return 'stocks';
+    return 'crypto';
+  }
+  // No pairs configured — use category as fallback
+  const cat = (category ?? '').toLowerCase();
+  if (cat === 'stocks' || cat === 'equity' || cat === 'etf') return 'stocks';
+  return 'crypto'; // default
 }
 
 // ─── Get Available Bots ─────────────────────────────────────────────────────
@@ -75,7 +80,7 @@ export async function getAvailableBots(userId: string) {
   // Enrich with asset class detection
   return rows.map(r => ({
     ...r,
-    assetClass: getBotAssetClass(r.config),
+    assetClass: getBotAssetClass(r.config, r.category),
   }));
 }
 
@@ -129,7 +134,7 @@ export async function createSession(
   }));
 
   // ── Detect session type: crypto-only, stocks-only, or mixed ──
-  const assetClasses = botRows.map(b => getBotAssetClass(b.config as any));
+  const assetClasses = botRows.map(b => getBotAssetClass(b.config as any, b.category));
   const hasCrypto = assetClasses.some(a => a === 'crypto' || a === 'mixed');
   const hasStocks = assetClasses.some(a => a === 'stocks' || a === 'mixed');
   const isMixed = hasCrypto && hasStocks;
@@ -197,11 +202,11 @@ export async function createSession(
   // Crypto bots share the crypto pool; stock bots share the stock pool.
   // Mixed bots (crypto+stock pairs) are counted in BOTH pools and get alloc from both.
   const pureOrMixedCryptoCount = botRows.filter(b => {
-    const ac = getBotAssetClass(b.config as any);
+    const ac = getBotAssetClass(b.config as any, b.category);
     return ac === 'crypto' || ac === 'mixed';
   }).length || 1;
   const pureOrMixedStockCount = botRows.filter(b => {
-    const ac = getBotAssetClass(b.config as any);
+    const ac = getBotAssetClass(b.config as any, b.category);
     return ac === 'stocks' || ac === 'mixed';
   }).length || 1;
 
@@ -228,8 +233,9 @@ export async function createSession(
 
   // ── Create gladiator records — each with their own allocation ──
   const gladiatorValues = botIds.map((botId) => {
-    const botConfig = botRows.find(b => b.id === botId)?.config as any;
-    const ac = getBotAssetClass(botConfig);
+    const botRow = botRows.find(b => b.id === botId);
+    const botConfig = botRow?.config as any;
+    const ac = getBotAssetClass(botConfig, botRow?.category);
     // Mixed bots get alloc from both pools; pure bots get alloc from their pool only
     const alloc = ac === 'mixed'
       ? perCryptoBotAlloc + perStockBotAlloc
@@ -303,7 +309,7 @@ export async function getSession(sessionId: string, userId: string) {
   // Enrich each gladiator with real position data scoped to this session
   const enrichedGladiators = await Promise.all(gladiators.map(async (g) => {
     const botConfig = (g.botConfig ?? {}) as any;
-    const assetClass = getBotAssetClass(botConfig);
+    const assetClass = getBotAssetClass(botConfig, g.botCategory);
     const isStockBot = assetClass === 'stocks';
 
     // Determine this bot's starting allocation
@@ -361,6 +367,14 @@ export async function getSession(sessionId: string, userId: string) {
     };
   }));
 
+  // Compute per-pool per-bot allocations for accurate display
+  const cryptoBotCount = enrichedGladiators.filter(g => g.assetClass === 'crypto' || g.assetClass === 'mixed').length || 1;
+  const stockBotCount = enrichedGladiators.filter(g => g.assetClass === 'stocks' || g.assetClass === 'mixed').length || 1;
+  const cryptoBal = session.cryptoBalance ? parseFloat(session.cryptoBalance) : null;
+  const stockBal = session.stockBalance ? parseFloat(session.stockBalance) : null;
+  const perCryptoBotAlloc = cryptoBal != null ? (cryptoBal / cryptoBotCount).toFixed(2) : null;
+  const perStockBotAlloc = stockBal != null ? (stockBal / stockBotCount).toFixed(2) : null;
+
   return {
     ...session,
     gladiators: enrichedGladiators,
@@ -374,6 +388,8 @@ export async function getSession(sessionId: string, userId: string) {
     hasCrypto: session.hasCrypto,
     hasStocks: session.hasStocks,
     perBotAllocation: session.perBotAllocation,
+    perCryptoBotAlloc,
+    perStockBotAlloc,
     marketOpen,
   };
 }
@@ -481,7 +497,7 @@ export async function getSessionResults(sessionId: string, userId: string) {
     const log = Array.isArray(g.decisionLog) ? g.decisionLog as any[] : [];
     const equity = Array.isArray(g.equityData) ? g.equityData as number[] : [];
     const botConfig = (g.botConfig ?? {}) as any;
-    const assetClass = getBotAssetClass(botConfig);
+    const assetClass = getBotAssetClass(botConfig, g.botCategory);
 
     // Starting allocation from first equity point
     const startingAlloc = equity.length > 0 ? equity[0] : parseFloat(session.perBotAllocation ?? '10000');

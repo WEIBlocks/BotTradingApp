@@ -5,9 +5,9 @@
 
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { bots, botSubscriptions } from '../db/schema/bots';
-import { exchangeConnections } from '../db/schema/exchanges';
-import { botDecisions } from '../db/schema/decisions';
+import { bots, botSubscriptions } from '../db/schema/bots.js';
+import { exchangeConnections } from '../db/schema/exchanges.js';
+import { botDecisions } from '../db/schema/decisions.js';
 import { processSymbol, executeLiveTrade } from '../lib/bot-engine.js';
 import { sendNotification } from '../lib/notify.js';
 import { refreshUserPortfolio } from './portfolio-update.job.js';

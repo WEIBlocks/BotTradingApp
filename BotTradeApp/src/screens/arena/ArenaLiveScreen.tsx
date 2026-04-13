@@ -307,13 +307,15 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
           const cryptoBal = session?.cryptoBalance ? parseFloat(session.cryptoBalance) : null;
           const stockBal = session?.stockBalance ? parseFloat(session.stockBalance) : null;
           const totalPool = parseFloat(session?.virtualBalance ?? '10000');
+          const perCryptoBot = session?.perCryptoBotAlloc ? parseFloat(session.perCryptoBotAlloc) : null;
+          const perStockBot = session?.perStockBotAlloc ? parseFloat(session.perStockBotAlloc) : null;
           const perBot = session?.perBotAllocation ? parseFloat(session.perBotAllocation) : totalPool / Math.max(1, ranked.length);
           return (
             <View style={{marginHorizontal: 16, marginBottom: 10, gap: 6}}>
               {/* Shared pool row */}
               <View style={{backgroundColor: '#111827', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#1F2937'}}>
                 <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
-                  <View>
+                  <View style={{flex: 1}}>
                     <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>SHARED POOL</Text>
                     {isMixed ? (
                       <View style={{flexDirection: 'row', gap: 8, marginTop: 2}}>
@@ -324,10 +326,27 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
                       <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#FFFFFF'}}>${totalPool.toLocaleString()}</Text>
                     )}
                   </View>
-                  <View style={{alignItems: 'flex-end'}}>
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>PER BOT</Text>
-                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#10B981'}}>${perBot.toLocaleString(undefined, {maximumFractionDigits: 0})}</Text>
-                  </View>
+                  {/* PER BOT — show split values for mixed sessions */}
+                  {isMixed ? (
+                    <View style={{alignItems: 'flex-end', gap: 2}}>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>PER BOT</Text>
+                      {perCryptoBot != null && (
+                        <Text style={{fontFamily: 'Inter-Bold', fontSize: 12, color: '#F59E0B'}}>
+                          ${perCryptoBot.toLocaleString(undefined, {maximumFractionDigits: 0})} crypto
+                        </Text>
+                      )}
+                      {perStockBot != null && (
+                        <Text style={{fontFamily: 'Inter-Bold', fontSize: 12, color: '#3B82F6'}}>
+                          ${perStockBot.toLocaleString(undefined, {maximumFractionDigits: 0})} stock
+                        </Text>
+                      )}
+                    </View>
+                  ) : (
+                    <View style={{alignItems: 'flex-end'}}>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>PER BOT</Text>
+                      <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#10B981'}}>${perBot.toLocaleString(undefined, {maximumFractionDigits: 0})}</Text>
+                    </View>
+                  )}
                 </View>
               </View>
               {/* Market hours indicator (only if session has stock bots) */}

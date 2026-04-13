@@ -77,7 +77,19 @@ export interface ArenaSession {
   hasCrypto?: boolean;
   hasStocks?: boolean;
   perBotAllocation?: string | null;
+  perCryptoBotAlloc?: string | null;
+  perStockBotAlloc?: string | null;
   marketOpen?: boolean;
+  stats?: {
+    totalTrades: number;
+    totalBuys: number;
+    totalSells: number;
+    totalPnl: string;
+    bestReturn: string;
+    worstReturn: string;
+    botCount: number;
+    avgReturn: string;
+  } | null;
 }
 
 export interface ArenaHistoryItem {
@@ -154,6 +166,7 @@ function mapGladiatorRow(g: any): Gladiator {
     trades: Array.isArray(g.trades) ? g.trades : [],
     detailedStats: g.detailedStats ?? null,
     tradeBreakdown: g.tradeBreakdown ?? null,
+    assetClass: g.assetClass ?? null,
     category: g.category ?? g.botCategory ?? null,
     currentWins: g.currentWins ?? 0,
     currentLosses: g.currentLosses ?? 0,
@@ -161,6 +174,7 @@ function mapGladiatorRow(g: any): Gladiator {
     currentPnl: parseFloat(g.currentPnl ?? g.totalPnl ?? '0') || 0,
     openPositionCount: g.openPositionCount ?? 0,
     closedPositionCount: g.closedPositionCount ?? 0,
+    startingAlloc: g.startingAlloc ?? null,
   };
 }
 
@@ -203,13 +217,16 @@ export const arenaApi = {
       hasCrypto: (s as any)?.hasCrypto ?? true,
       hasStocks: (s as any)?.hasStocks ?? false,
       perBotAllocation: (s as any)?.perBotAllocation,
+      perCryptoBotAlloc: (s as any)?.perCryptoBotAlloc,
+      perStockBotAlloc: (s as any)?.perStockBotAlloc,
     };
   },
 
   /** Get live session status. */
   async getSession(sessionId: string): Promise<ArenaSession> {
-    const res = await api.get<DataWrap<SessionResponse>>(`/arena/session/${sessionId}`);
+    const res = await api.get<DataWrap<any>>(`/arena/session/${sessionId}`);
     const s = res?.data;
+    // Backend getSession() returns a flat object with gladiators[], progress, etc.
     return {
       id: s?.id ?? '',
       status: s?.status ?? 'running',
@@ -218,14 +235,17 @@ export const arenaApi = {
       elapsedSeconds: s?.elapsedSeconds ?? 0,
       remainingSeconds: s?.remainingSeconds ?? 0,
       gladiators: (s?.gladiators ?? []).map(mapGladiatorRow),
-      virtualBalance: (s as any)?.virtualBalance,
-      cryptoBalance: (s as any)?.cryptoBalance,
-      stockBalance: (s as any)?.stockBalance,
-      isMixed: (s as any)?.isMixed ?? false,
-      hasCrypto: (s as any)?.hasCrypto ?? true,
-      hasStocks: (s as any)?.hasStocks ?? false,
-      perBotAllocation: (s as any)?.perBotAllocation,
-      marketOpen: (s as any)?.marketOpen,
+      virtualBalance: s?.virtualBalance,
+      cryptoBalance: s?.cryptoBalance,
+      stockBalance: s?.stockBalance,
+      isMixed: s?.isMixed ?? false,
+      hasCrypto: s?.hasCrypto ?? true,
+      hasStocks: s?.hasStocks ?? false,
+      perBotAllocation: s?.perBotAllocation,
+      perCryptoBotAlloc: s?.perCryptoBotAlloc,
+      perStockBotAlloc: s?.perStockBotAlloc,
+      marketOpen: s?.marketOpen,
+      stats: s?.stats ?? null,
     };
   },
 
@@ -255,17 +275,28 @@ export const arenaApi = {
 
   /** Get user's active running session (if any). Returns null if none. */
   async getActiveSession(): Promise<ArenaSession | null> {
-    const res = await api.get<DataWrap<SessionResponse | null>>('/arena/session/active');
+    const res = await api.get<DataWrap<any>>('/arena/session/active');
     const s = res?.data;
     if (!s) return null;
+    // Same flat shape as getSession
     return {
-      id: s.id ?? '',
-      status: s.status ?? 'running',
-      durationSeconds: s.durationSeconds ?? 300,
-      progress: s.progress ?? 0,
-      elapsedSeconds: s.elapsedSeconds ?? 0,
-      remainingSeconds: s.remainingSeconds ?? 0,
-      gladiators: (s.gladiators ?? []).map(mapGladiatorRow),
+      id: s?.id ?? '',
+      status: s?.status ?? 'running',
+      durationSeconds: s?.durationSeconds ?? 300,
+      progress: s?.progress ?? 0,
+      elapsedSeconds: s?.elapsedSeconds ?? 0,
+      remainingSeconds: s?.remainingSeconds ?? 0,
+      gladiators: (s?.gladiators ?? []).map(mapGladiatorRow),
+      virtualBalance: s?.virtualBalance,
+      cryptoBalance: s?.cryptoBalance,
+      stockBalance: s?.stockBalance,
+      isMixed: s?.isMixed ?? false,
+      hasCrypto: s?.hasCrypto ?? true,
+      hasStocks: s?.hasStocks ?? false,
+      perBotAllocation: s?.perBotAllocation,
+      perCryptoBotAlloc: s?.perCryptoBotAlloc,
+      perStockBotAlloc: s?.perStockBotAlloc,
+      marketOpen: s?.marketOpen,
     };
   },
 

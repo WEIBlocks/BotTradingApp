@@ -1,6 +1,6 @@
 import { db } from '../../config/database.js';
-import { supportTickets, ticketMessages } from '../../db/schema/support';
-import { users } from '../../db/schema/users';
+import { supportTickets, ticketMessages } from '../../db/schema/support.js';
+import { users } from '../../db/schema/users.js';
 import { sendNotification as sendNotif } from '../../lib/notify.js';
 import { eq, desc, and, sql } from 'drizzle-orm';
 import { NotFoundError, ForbiddenError } from '../../lib/errors.js';

@@ -1,4 +1,3 @@
-import { env } from '../../../config/env.js';
 import type {
   ExchangeAdapter,
   ExchangeCredentials,
@@ -14,7 +13,9 @@ export class BinanceAdapter implements ExchangeAdapter {
 
   async connect(credentials: ExchangeCredentials): Promise<void> {
     const ccxt = await import('ccxt');
-    const useTestnet = credentials.sandbox ?? env.BINANCE_TESTNET;
+    // sandbox is per-user — set when they connect their exchange in the app.
+    // true = Binance testnet, false = Binance live. Never driven by a global env var.
+    const useTestnet = credentials.sandbox === true;
 
     const options: Record<string, any> = {
       apiKey: credentials.apiKey,

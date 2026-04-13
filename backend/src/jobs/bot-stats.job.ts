@@ -5,10 +5,10 @@
  */
 
 import { db } from '../config/database.js';
-import { botStatistics, bots, botSubscriptions, shadowSessions } from '../db/schema/bots';
-import { botPositions } from '../db/schema/positions';
-import { botDecisions } from '../db/schema/decisions';
-import { trades } from '../db/schema/trades';
+import { botStatistics, bots, botSubscriptions, shadowSessions } from '../db/schema/bots.js';
+import { botPositions } from '../db/schema/positions.js';
+import { botDecisions } from '../db/schema/decisions.js';
+import { trades } from '../db/schema/trades.js';
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { getPrice } from './price-sync.job.js';
 
