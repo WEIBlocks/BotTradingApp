@@ -78,10 +78,10 @@ export class BinanceAdapter implements ExchangeAdapter {
     const priceMap = new Map<string, number>();
     if (symbols.length === 0) return priceMap;
 
-    // Always use public mainnet Binance for pricing (testnet has limited token data;
-    // mainnet prices are the same reference for valuation purposes)
+    // Use KuCoin public API for pricing — Binance public API is geo-blocked on DigitalOcean NYC.
+    // KuCoin has no geo-restrictions and covers the same major pairs.
     const ccxt = await import('ccxt');
-    const publicExchange = new ccxt.default.binance({ enableRateLimit: true });
+    const publicExchange = new ccxt.default.kucoin({ enableRateLimit: true });
 
     try {
       await publicExchange.loadMarkets();
@@ -89,7 +89,6 @@ export class BinanceAdapter implements ExchangeAdapter {
       const toFetch = symbols.filter(s => validSymbols.has(s));
       if (toFetch.length === 0) return priceMap;
 
-      // Batch in groups of 50 to stay within rate limits
       const BATCH = 50;
       for (let i = 0; i < toFetch.length; i += BATCH) {
         const batch = toFetch.slice(i, i + BATCH);
