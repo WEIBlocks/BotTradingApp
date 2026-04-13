@@ -146,7 +146,9 @@ function buildSkiaPaths(
   fill.lineTo(toX(drawS), PAD_T + chartH);
   fill.close();
 
-  return {line, fill, isPositive: data[endI] >= data[startI]};
+  // Use absolute value vs baseline (data[0]) so a recovering-but-still-negative
+  // curve stays red even when the visible window slopes upward.
+  return {line, fill, isPositive: data[endI] >= data[0]};
 }
 
 // Resolve crosshair from raw screen X → snapped screen X, Y, value
@@ -278,8 +280,12 @@ export default function PortfolioLineChart({
       }
     }
 
-    const chg    = dataRef[endI] - dataRef[startI];
-    const chgPct = dataRef[startI] > 0 ? (chg / dataRef[startI]) * 100 : 0;
+    // Always measure change from the true baseline (first point = 0 or starting value)
+    const baseline = dataRef[0];
+    const chg      = dataRef[endI] - baseline;
+    const chgPct   = baseline !== 0 ? (chg / Math.abs(baseline)) * 100
+                   : dataRef[endI] !== 0 ? 100 * Math.sign(dataRef[endI])
+                   : 0;
 
     return {yLabels, xLabels, chgPct, isPositive: chg >= 0, adjMin, adjRange};
   }, [dataRef, jsZoom, jsPan, chartW, chartH, dates]);

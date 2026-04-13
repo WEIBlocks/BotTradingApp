@@ -5,7 +5,7 @@ import { chatMessages } from '../../db/schema/chat.js';
 import { bots, botStatistics } from '../../db/schema/bots.js';
 import { AppError } from '../../lib/errors.js';
 import { retrieveKnowledge, storeKnowledge } from '../../lib/rag.js';
-import { getTopAssets, getPrice, getMarketOverview } from '../../lib/market-scanner.js';
+import { getTopAssets, getPrice, getMarketOverview, getStockQuotes, getStockQuote, extractStockSymbols, extractCryptoPairs, resolveTokenPrice, searchDexScreener } from '../../lib/market-scanner.js';
 import { getVideoInfo, getTranscript, extractVideoId } from '../../lib/youtube.js';
 
 // ─── Prompt Cleaning (strips AI markdown so bot prompts are human-readable) ─────
@@ -60,6 +60,11 @@ Behavioral guidelines:
 - For stock strategies ALWAYS set tradingSchedule to "us_hours". For crypto ALWAYS set tradingSchedule to "24_7".
 - Use clear formatting with bullet points and headers when appropriate.
 - If an image is attached, analyze it as a trading chart and identify patterns, support/resistance levels, and potential trade setups.
+
+REAL-TIME DATA RULES:
+- When the context block "=== LIVE CRYPTO PRICES ===" or "=== LIVE STOCK PRICES ===" appears above, you have REAL current prices fetched right now.
+- You MUST use those exact numbers. NEVER say "I don't have real-time data" or "I can't access live prices" when that data is present.
+- If NO live data block is present for a symbol the user asked about, say "I wasn't able to fetch live data for that right now, but here's what I know about it generally..." and answer based on your training knowledge.
 
 STRICT RULES:
 - You ONLY discuss topics related to trading, finance, investing, markets, crypto, stocks, forex, technical analysis, fundamental analysis, portfolio management, and financial education.
@@ -266,11 +271,11 @@ function validateTrainingContent(content: string): { valid: boolean; reason: str
     }
   }
 
-  // Check if content is trading/finance related (at least loosely)
-  const financeKeywords = /\b(trade|trading|stock|crypto|bitcoin|ethereum|market|price|chart|indicator|strategy|portfolio|profit|loss|buy|sell|position|risk|volume|trend|bullish|bearish|support|resistance|moving\s+average|rsi|macd|candle|exchange|wallet|token|coin|forex|futures|options|hedge|leverage|margin|order|bid|ask|spread)\b/i;
+  // Content must contain trading/finance keywords regardless of length
+  const financeKeywords = /\b(trade|trading|stock|crypto|bitcoin|ethereum|market|price|chart|candlestick|indicator|strategy|portfolio|profit|loss|buy|sell|position|risk|volume|trend|bullish|bearish|support|resistance|moving\s+average|rsi|macd|ema|sma|candle|exchange|wallet|token|coin|forex|futures|options|hedge|leverage|margin|order|bid|ask|spread|breakout|fibonacci|momentum|scalp|swing|equity|etf|ticker|yield)\b/i;
 
-  if (!financeKeywords.test(text) && content.length < 500) {
-    return { valid: false, reason: 'This content doesn\'t appear to be related to trading or finance. Training data should contain market analysis, strategies, or financial insights.' };
+  if (!financeKeywords.test(text)) {
+    return { valid: false, reason: 'Content does not appear to be related to trading or finance. Only upload trading strategies, chart analysis, or financial documents.' };
   }
 
   return { valid: true, reason: '' };
@@ -333,49 +338,176 @@ export async function chat(
 
   // --- TOOL LAYER: Gather context before LLM call ---
 
-  // 0. Bot-specific context
+  // 0. Bot-specific context (includes training data from RAG)
   let botContext = '';
   if (botId) {
     try {
       const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1);
       if (bot) {
         const [stats] = await db.select().from(botStatistics).where(eq(botStatistics.botId, botId)).limit(1);
-        botContext = `\n\n=== BOT CONTEXT (${bot.name}) ===\nStrategy: ${bot.strategy}\nRisk Level: ${bot.riskLevel}\nPairs: ${(bot.config as any)?.pairs?.join(', ') || 'N/A'}\n`;
+        const cfg = (bot.config as any) || {};
+        botContext = `\n\n=== BOT CONTEXT (${bot.name}) ===\n` +
+          `Strategy: ${bot.strategy}\nRisk Level: ${bot.riskLevel}\n` +
+          `Asset Class: ${bot.category || 'Crypto'}\n` +
+          `Pairs: ${cfg.pairs?.join(', ') || 'N/A'}\n` +
+          `AI Mode: ${cfg.aiMode || 'hybrid'}\n` +
+          `Trading Frequency: ${cfg.tradingFrequency || 'balanced'}\n`;
         if (stats) {
           botContext += `Performance: 30d Return: ${stats.return30d}%, Win Rate: ${stats.winRate}%, Max Drawdown: ${stats.maxDrawdown}%\n`;
         }
-        botContext += `\nThe user is asking about this specific bot. Provide context-aware answers about this bot's strategy and performance.`;
+        botContext += `\nThe user is asking about this specific bot. Provide context-aware answers.`;
       }
     } catch {}
   }
 
-  // 1. RAG: Retrieve user's personal knowledge
+  // 1. RAG: Retrieve user's personal knowledge (bot-specific first, then user-wide)
   let ragContext = '';
   try {
     const knowledge = await retrieveKnowledge({ userId, botId, query: message, topK: 8 });
     if (knowledge.length > 0) {
-      ragContext = '\n\n=== YOUR PERSONAL KNOWLEDGE BASE (from your previous uploads, videos, and training) ===\n' +
-        'IMPORTANT: Use this knowledge to answer the user\'s question. This is data they previously provided.\n\n' +
+      ragContext = '\n\n=== YOUR PERSONAL KNOWLEDGE BASE (from uploads, videos, training data) ===\n' +
+        'IMPORTANT: Use this knowledge to answer the user\'s question.\n\n' +
         knowledge.map(k => `[Source: ${k.sourceType}] ${k.content}`).join('\n---\n');
     }
   } catch (ragErr) {
     console.warn('[AI] RAG retrieval failed:', ragErr);
   }
 
-  // 2. Market data: Detect market queries
+  // 2a. Market overview: top lists, gainers, losers, trending
   let marketContext = '';
-  const marketPatterns = /top\s*\d+|best\s*(coins?|stocks?|crypto)|trending|market\s*(scan|overview|summary)|gainers|losers/i;
-  if (marketPatterns.test(message)) {
+  const marketOverviewPatterns = /top\s*\d+|best\s*(coins?|stocks?|crypto)|trending|market\s*(scan|overview|summary)|gainers|losers/i;
+  if (marketOverviewPatterns.test(message)) {
     try {
       const limit = parseInt(message.match(/top\s*(\d+)/i)?.[1] || '10');
-      const assets = await getTopAssets(Math.min(limit, 20));
-      marketContext = '\n\n=== LIVE MARKET DATA (RIGHT NOW) ===\n' +
-        assets.map((a, i) => `${i+1}. ${a.symbol}: $${a.price.toFixed(2)} | 24h: ${a.change24h > 0 ? '+' : ''}${a.change24h.toFixed(2)}% | Vol: $${(a.volume24h/1000000).toFixed(1)}M`).join('\n') +
-        '\n\nUse this REAL data to answer. Explain WHY each asset is trending based on momentum and volume.';
+      const isStock = /stock|equity|equities/i.test(message);
+      if (isStock) {
+        // Top stocks: use common watchlist
+        const topStockSymbols = ['AAPL', 'MSFT', 'NVDA', 'AMZN', 'GOOGL', 'META', 'TSLA', 'AMD', 'NFLX', 'SPY', 'QQQ', 'COIN'];
+        const quotes = await getStockQuotes(topStockSymbols.slice(0, Math.min(limit, 12)));
+        if (quotes.length > 0) {
+          const sorted = [...quotes].sort((a, b) => Math.abs(b.changePercent) - Math.abs(a.changePercent));
+          marketContext = '\n\n=== LIVE US STOCK DATA (RIGHT NOW) ===\n' +
+            sorted.map((q, i) => `${i+1}. ${q.symbol}: $${q.price.toFixed(2)} | ${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}% | Vol: ${(q.volume/1000000).toFixed(1)}M`).join('\n') +
+            '\n\nUse this REAL stock data in your answer.';
+        }
+      } else {
+        const assets = await getTopAssets(Math.min(limit, 20));
+        marketContext = '\n\n=== LIVE CRYPTO MARKET DATA (RIGHT NOW) ===\n' +
+          assets.map((a, i) => `${i+1}. ${a.symbol}: $${a.price.toFixed(4)} | 24h: ${a.change24h >= 0 ? '+' : ''}${a.change24h.toFixed(2)}% | Vol: $${(a.volume24h/1000000).toFixed(1)}M`).join('\n') +
+          '\n\nUse this REAL data. Explain WHY each asset is trending based on momentum and volume.';
+      }
     } catch {}
   }
 
-  // 3. YouTube: Detect YouTube URLs
+  // 2b. Specific price lookups — fires whenever ANY financial symbol or token is mentioned.
+  // Pipeline: known crypto → resolveTokenPrice (Binance → DexScreener fallback)
+  //           known stocks → Alpaca
+  //           unknown token → DexScreener search by name/ticker extracted from message
+  if (!marketContext) {
+    try {
+      const cryptoSymbols = extractCryptoPairs(message);
+      const stockSymbols = extractStockSymbols(message);
+
+      // ── Crypto: resolve each symbol (Binance first, DexScreener fallback) ──
+      if (cryptoSymbols.length > 0) {
+        const priceData = await Promise.all(
+          cryptoSymbols.slice(0, 6).map(sym => resolveTokenPrice(sym)),
+        );
+        const valid = priceData.filter(Boolean) as Awaited<ReturnType<typeof resolveTokenPrice>>[];
+        if (valid.length > 0) {
+          const lines = valid.map(d => {
+            const priceStr = d!.price < 0.01
+              ? `$${d!.price.toFixed(8)}`
+              : d!.price < 1
+              ? `$${d!.price.toFixed(6)}`
+              : `$${d!.price.toFixed(2)}`;
+            let line = `${d!.symbol}: ${priceStr} | 24h: ${d!.change24h >= 0 ? '+' : ''}${d!.change24h.toFixed(2)}%`;
+            if (d!.volume24h) line += ` | Vol: $${(d!.volume24h / 1_000_000).toFixed(1)}M`;
+            if (d!.source === 'dexscreener') {
+              if (d!.chain) line += ` | Chain: ${d!.chain}`;
+              if (d!.liquidity) line += ` | Liquidity: $${(d!.liquidity / 1_000).toFixed(0)}K`;
+              if (d!.marketCap && d!.marketCap > 0) line += ` | MCap: $${(d!.marketCap / 1_000_000).toFixed(1)}M`;
+              line += ` | Source: DexScreener`;
+            }
+            return line;
+          });
+          marketContext = '\n\n=== LIVE CRYPTO PRICES (fetched right now) ===\n' +
+            lines.join('\n') +
+            '\n\nIMPORTANT: This is REAL live data. Use these exact figures. Do NOT say you lack real-time access.';
+        }
+      }
+
+      // ── Stocks: Alpaca ──
+      if (stockSymbols.length > 0) {
+        const quotes = await getStockQuotes(stockSymbols.slice(0, 6));
+        if (quotes.length > 0) {
+          const stockLines = quotes.map(q =>
+            `${q.symbol}: $${q.price.toFixed(2)} | ${q.changePercent >= 0 ? '+' : ''}${q.changePercent.toFixed(2)}% | High: $${q.high.toFixed(2)} | Low: $${q.low.toFixed(2)} | Vol: ${(q.volume / 1_000_000).toFixed(1)}M`,
+          ).join('\n');
+          marketContext = (marketContext ? marketContext + '\n' : '') +
+            '\n=== LIVE STOCK PRICES (fetched right now) ===\n' +
+            stockLines +
+            '\n\nIMPORTANT: This is REAL live data. Use these exact figures. Do NOT say you lack real-time access.';
+        }
+      }
+
+      // ── Unknown/new token fallback: DexScreener search ──
+      // Triggered when no known symbol matched but message looks like a token query.
+      // Extract bare word(s) that look like token names/tickers from the message.
+      if (!marketContext && /price|how much|trading|worth|token|coin|launch|listed|chart|dex|pump|gem/i.test(message)) {
+        // Pull candidate token names: capitalized words, words in quotes, 3-10 char all-caps
+        const candidates: string[] = [];
+
+        // Quoted token: "what is XYZ price" → XYZ
+        const quotedMatch = message.match(/["']([^"']{2,20})["']/g);
+        if (quotedMatch) candidates.push(...quotedMatch.map(s => s.replace(/["']/g, '').trim()));
+
+        // All-caps tickers 2-10 chars
+        const capsMatches = message.match(/\b[A-Z]{2,10}\b/g) ?? [];
+        candidates.push(...capsMatches);
+
+        // Words directly before "price", "token", "coin", "crypto"
+        const beforeKeyword = message.match(/(\w+)\s+(?:price|token|coin|chart|project)/gi) ?? [];
+        candidates.push(...beforeKeyword.map(s => s.split(/\s+/)[0]));
+
+        const skip = new Set(['WHAT', 'HOW', 'THE', 'FOR', 'IS', 'ARE', 'AND', 'OR', 'NOT',
+          'BTC', 'ETH', 'SOL', 'BNB', 'PRICE', 'TOKEN', 'COIN', 'CRYPTO', 'TELL', 'CAN',
+          'LIVE', 'NOW', 'GET', 'NEW', 'JUST', 'LAUNCHED', 'ABOUT', 'CURRENT', 'USD', 'USDT']);
+
+        const toSearch = [...new Set(candidates.map(c => c.trim()).filter(c => c.length >= 2 && !skip.has(c.toUpperCase())))];
+
+        for (const candidate of toSearch.slice(0, 3)) {
+          const dexResults = await searchDexScreener(candidate);
+          if (dexResults.length > 0) {
+            const best = dexResults[0];
+            const priceStr = best.price < 0.01
+              ? `$${best.price.toFixed(8)}`
+              : best.price < 1
+              ? `$${best.price.toFixed(6)}`
+              : `$${best.price.toFixed(2)}`;
+
+            marketContext = `\n\n=== LIVE TOKEN DATA: ${best.name} (${best.symbol}) — via DexScreener ===\n` +
+              `Price: ${priceStr}\n` +
+              `24h Change: ${best.change24h >= 0 ? '+' : ''}${best.change24h.toFixed(2)}%\n` +
+              `24h Volume: $${(best.volume24h / 1_000).toFixed(0)}K\n` +
+              `Liquidity: $${(best.liquidity / 1_000).toFixed(0)}K\n` +
+              (best.marketCap > 0 ? `Market Cap: $${(best.marketCap / 1_000_000).toFixed(2)}M\n` : '') +
+              `Chain: ${best.chain} | DEX: ${best.dexName}\n` +
+              `24h Buys: ${best.txns24h.buys} | 24h Sells: ${best.txns24h.sells}\n` +
+              (dexResults.length > 1
+                ? `\nOther pairs found: ${dexResults.slice(1).map(d => `${d.symbol} on ${d.chain} @ $${d.price < 1 ? d.price.toFixed(6) : d.price.toFixed(4)}`).join(', ')}\n`
+                : '') +
+              '\nIMPORTANT: This is REAL live DEX data. Use these exact figures. Do NOT say you lack real-time access.';
+            break;
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[AI] Price lookup failed:', err);
+    }
+  }
+
+  // 3. YouTube: Detect YouTube URLs — store with botId for bot-specific RAG
   let youtubeContext = '';
   const youtubeUrlMatch = message.match(/(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)[a-zA-Z0-9_-]{11}[^\s]*/);
   const youtubeMatch = message.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
@@ -386,17 +518,26 @@ export async function chat(
       const transcript = await getTranscript(fullUrl);
       if (videoInfo) {
         youtubeContext = `\n\n=== YOUTUBE VIDEO ===\nTitle: ${videoInfo.title}\nChannel: ${videoInfo.channelTitle}\n`;
+
+        // Validate: only store trading-related content in RAG
+        const isTradingVideo = validateTrainingContent(`${videoInfo.title} ${videoInfo.description || ''} ${transcript?.substring(0, 500) || ''}`).valid;
+
         if (transcript) {
-          youtubeContext += `Transcript (summarize this for trading insights):\n${transcript.substring(0, 3000)}`;
-          // Store video knowledge in RAG
-          storeKnowledge({
-            userId,
-            sourceType: 'youtube',
-            sourceId: youtubeMatch[0],
-            content: `Video: ${videoInfo.title}\n${transcript.substring(0, 2000)}`,
-            summary: videoInfo.description?.substring(0, 500),
-            metadata: { title: videoInfo.title, channel: videoInfo.channelTitle },
-          }).catch(() => {});
+          youtubeContext += `Transcript (extract trading insights):\n${transcript.substring(0, 3000)}`;
+          if (isTradingVideo) {
+            // Store in RAG — associate with botId if in bot context
+            storeKnowledge({
+              userId,
+              botId: botId || undefined,
+              sourceType: 'youtube',
+              sourceId: youtubeMatch[0],
+              content: `Video: ${videoInfo.title}\nChannel: ${videoInfo.channelTitle}\n${transcript.substring(0, 2000)}`,
+              summary: videoInfo.description?.substring(0, 500),
+              metadata: { title: videoInfo.title, channel: videoInfo.channelTitle, botId: botId || null },
+            }).catch(() => {});
+          }
+        } else {
+          youtubeContext += `Description: ${videoInfo.description?.substring(0, 500) || 'N/A'}\n(No transcript available)`;
         }
       }
     } catch {}

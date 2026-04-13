@@ -31,7 +31,7 @@ async function processTradeNotifications() {
       const amount = parseFloat(trade.amount).toFixed(6);
       const price = parseFloat(trade.price).toFixed(2);
       const pnlStr = trade.pnl ? ` | P&L: $${parseFloat(trade.pnl).toFixed(2)}` : '';
-      const paperLabel = trade.isPaper ? ' (Paper)' : '';
+      const paperLabel = trade.isPaper ? ' (Shadow)' : '';
 
       await sendNotification(trade.userId, {
         type: 'trade',
@@ -53,14 +53,15 @@ async function processTradeNotifications() {
 
 async function processShadowCompletionNotifications() {
   try {
+    // Only fetch completed sessions where notification has NOT been sent yet
+    // Uses DB flag — survives backend restarts forever (same pattern as arena)
     const completedSessions = await db.select().from(shadowSessions)
-      .where(eq(shadowSessions.status, 'completed'));
+      .where(and(
+        eq(shadowSessions.status, 'completed'),
+        eq(shadowSessions.notificationSent, false),
+      ));
 
     for (const session of completedSessions) {
-      const notifKey = `notif:shadow:${session.id}`;
-      const alreadySent = await redisConnection.get(notifKey);
-      if (alreadySent) continue;
-
       const initial = parseFloat(session.virtualBalance);
       const final_ = parseFloat(session.currentBalance ?? session.virtualBalance);
       const returnPct = ((final_ - initial) / initial) * 100;
@@ -75,7 +76,10 @@ async function processShadowCompletionNotifications() {
         priority: returnPct >= 0 ? 'normal' : 'high',
       });
 
-      await redisConnection.set(notifKey, '1', 'EX', 86400);
+      // Mark as sent in DB — survives restarts forever
+      await db.update(shadowSessions)
+        .set({ notificationSent: true })
+        .where(eq(shadowSessions.id, session.id));
     }
   } catch (err: any) {
     console.error('[Notification] Error processing shadow notifications:', err.message);

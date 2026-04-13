@@ -69,7 +69,7 @@ export const bots = pgTable("bots", {
   subtitle: varchar("subtitle", { length: 200 }),
   description: text("description"),
   prompt: text("prompt"), // AI instruction prompt that defines bot behavior
-  strategy: varchar("strategy", { length: 50 }).notNull(),
+  strategy: varchar("strategy", { length: 200 }).notNull(),
   category: botCategoryEnum("category"),
   riskLevel: botRiskLevelEnum("risk_level"),
   priceMonthly: numeric("price_monthly", { precision: 10, scale: 2 }).default(
@@ -182,6 +182,7 @@ export const shadowSessions = pgTable(
     dailyPerformance: jsonb("daily_performance"),
     totalTrades: integer("total_trades").default(0),
     winCount: integer("win_count").default(0),
+    notificationSent: boolean("notification_sent").default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   },
   (t) => ({

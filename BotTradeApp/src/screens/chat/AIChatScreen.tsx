@@ -18,20 +18,15 @@ import MarkdownText from '../../components/MarkdownText';
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 const {width} = Dimensions.get('window');
 
+import {AIChatResponse} from '../../services/ai';
+
 interface Message {
   id: string;
   role: 'ai' | 'user';
   text: string;
   cleanPrompt?: string;
   hasStrategyCard?: boolean;
-  strategyData?: {
-    name: string;
-    description: string;
-    pairs: string[];
-    riskLevel: string;
-    indicators: string[];
-    backtestReturn?: number;
-  };
+  strategyData?: AIChatResponse['strategy'];
   imageUri?: string;
 }
 
@@ -427,11 +422,36 @@ export default function AIChatScreen() {
                 <View style={styles.strategyTopRow}>
                   <View style={{flex: 1, marginRight: 8}}>
                     <Text style={styles.strategyName}>{item.strategyData?.name || 'Strategy'}</Text>
-                    <Text style={styles.strategySubLabel}>STRATEGY PREVIEW</Text>
+                    <Text style={styles.strategySubLabel}>
+                      {(item.strategyData as any)?.assetClass === 'stocks' ? '📈 STOCKS STRATEGY' : '₿ CRYPTO STRATEGY'}
+                    </Text>
                   </View>
                   <View style={styles.backtestBadge}>
-                    <Text style={styles.backtestText}>{item.strategyData?.backtestReturn ? `+${item.strategyData.backtestReturn.toFixed(1)}%` : ''}{'\n'}BACKTEST</Text>
+                    <Text style={styles.backtestText}>
+                      {item.strategyData?.backtestReturn != null ? `+${item.strategyData.backtestReturn.toFixed(1)}%` : '--'}{'\n'}BACKTEST
+                    </Text>
                   </View>
+                </View>
+                {/* Mini stats row */}
+                <View style={{flexDirection: 'row', gap: 8, marginBottom: 6}}>
+                  {(item.strategyData as any)?.backtestWinRate != null && (
+                    <View style={styles.miniStat}>
+                      <Text style={styles.miniStatVal}>{(item.strategyData as any).backtestWinRate.toFixed(0)}%</Text>
+                      <Text style={styles.miniStatLabel}>WIN RATE</Text>
+                    </View>
+                  )}
+                  {(item.strategyData as any)?.backtestDrawdown != null && (
+                    <View style={styles.miniStat}>
+                      <Text style={[styles.miniStatVal, {color: '#EF4444'}]}>{(item.strategyData as any).backtestDrawdown.toFixed(0)}%</Text>
+                      <Text style={styles.miniStatLabel}>DRAWDOWN</Text>
+                    </View>
+                  )}
+                  {item.strategyData?.riskLevel && (
+                    <View style={styles.miniStat}>
+                      <Text style={styles.miniStatVal}>{item.strategyData.riskLevel}</Text>
+                      <Text style={styles.miniStatLabel}>RISK</Text>
+                    </View>
+                  )}
                 </View>
                 <Text style={styles.perfLabel}>30D PERFORMANCE</Text>
                 <StrategyBarChart chartWidth={strategyCardWidth} backtestReturn={item.strategyData?.backtestReturn} />
@@ -442,17 +462,17 @@ export default function AIChatScreen() {
                     strategyName: item.strategyData?.name || 'Custom Strategy',
                     strategyData: {
                       name: item.strategyData?.name,
-                      strategy: (item.strategyData as any)?.strategy,
-                      assetClass: (item.strategyData as any)?.assetClass,
+                      strategy: item.strategyData?.strategy,
+                      assetClass: item.strategyData?.assetClass,
                       pairs: item.strategyData?.pairs,
                       riskLevel: item.strategyData?.riskLevel,
-                      stopLoss: (item.strategyData as any)?.stopLoss,
-                      takeProfit: (item.strategyData as any)?.takeProfit,
+                      stopLoss: item.strategyData?.stopLoss,
+                      takeProfit: item.strategyData?.takeProfit,
                       prompt: item.cleanPrompt || item.text,
-                      tradingFrequency: (item.strategyData as any)?.tradingFrequency,
-                      aiMode: (item.strategyData as any)?.aiMode,
-                      maxOpenPositions: (item.strategyData as any)?.maxOpenPositions,
-                      tradingSchedule: (item.strategyData as any)?.tradingSchedule,
+                      tradingFrequency: item.strategyData?.tradingFrequency,
+                      aiMode: item.strategyData?.aiMode,
+                      maxOpenPositions: item.strategyData?.maxOpenPositions,
+                      tradingSchedule: item.strategyData?.tradingSchedule,
                     },
                   })}
                   activeOpacity={0.8}>
@@ -724,6 +744,12 @@ const styles = StyleSheet.create({
     paddingVertical: 10, alignItems: 'center',
   },
   deployBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
+  miniStat: {
+    flex: 1, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 8,
+    paddingVertical: 6, alignItems: 'center',
+  },
+  miniStatVal: {fontFamily: 'Inter-Bold', fontSize: 13, color: '#10B981'},
+  miniStatLabel: {fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.4)', marginTop: 2},
 
   // Suggestions
   suggestionsScroll: {height: 46},

@@ -1,213 +1,487 @@
 import React, {useEffect, useCallback, useState} from 'react';
-import {View, Text, StyleSheet, TouchableOpacity, Dimensions, Pressable} from 'react-native';
+import {
+  View, Text, StyleSheet, TouchableOpacity,
+  Dimensions, Pressable, ActivityIndicator,
+} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useToast} from '../../context/ToastContext';
 import Animated, {
-  useSharedValue, useAnimatedStyle, withSpring, runOnJS,
+  useSharedValue, useAnimatedStyle, withSpring,
+  withTiming, interpolate, Extrapolation, runOnJS,
 } from 'react-native-reanimated';
-import Svg, {Path, Rect, Circle, Line} from 'react-native-svg';
+import Svg, {Path, Rect, Circle, Defs, LinearGradient, Stop} from 'react-native-svg';
 import {RootStackParamList} from '../../types';
 import {botsService} from '../../services/bots';
-import EmergencyStopIcon from '../../components/icons/EmergencyStopIcon';
-import ChevronRightIcon from '../../components/icons/ChevronRightIcon';
-import XIcon from '../../components/icons/XIcon';
 
-function ActionIcon({type, color}: {type: string; color: string}) {
-  const size = 24;
-  if (type === 'mic') {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <Rect x={9} y={2} width={6} height={12} rx={3} stroke={color} strokeWidth={1.8} />
-        <Path d="M5 10C5 13.87 8.13 17 12 17C15.87 17 19 13.87 19 10" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
-        <Path d="M12 17V21" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
-        <Path d="M8 21H16" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
-      </Svg>
-    );
-  }
-  if (type === 'pause') {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <Rect x={6} y={5} width={4} height={14} rx={1} stroke={color} strokeWidth={2} />
-        <Rect x={14} y={5} width={4} height={14} rx={1} stroke={color} strokeWidth={2} />
-      </Svg>
-    );
-  }
-  if (type === 'capital') {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.8} />
-        <Path d="M12 7V17" stroke={color} strokeWidth={2} strokeLinecap="round" />
-        <Path d="M9 9.5C9 9.5 9.5 8.5 12 8.5C14.5 8.5 15 10 15 10.5C15 12.5 9 12.5 9 14.5C9 15.5 10 16 12 16C14 16 15 15 15 15" stroke={color} strokeWidth={1.6} strokeLinecap="round" />
-      </Svg>
-    );
-  }
-  if (type === 'trades') {
-    return (
-      <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-        <Rect x={4} y={14} width={4} height={6} rx={1} stroke={color} strokeWidth={1.8} />
-        <Rect x={10} y={9} width={4} height={11} rx={1} stroke={color} strokeWidth={1.8} />
-        <Rect x={16} y={4} width={4} height={16} rx={1} stroke={color} strokeWidth={1.8} />
-      </Svg>
-    );
-  }
-  // strategies / lightning
+const {width: SW, height: SH} = Dimensions.get('window');
+const CARD_W = Math.floor((SW - 48 - 12) / 2); // 2 columns, 24px side padding each, 12px gap
+
+// ─── Icons ─────────────────────────────────────────────────────────────────────
+
+function IconShadow({color}: {color: string}) {
   return (
-    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M13 2L4 14H12L11 22L20 10H12L13 2Z" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+    <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={9} stroke={color} strokeWidth={1.7} strokeDasharray="4 2.5" />
+      <Path d="M12 7.5v5l3.5 3.5" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+function IconArena({color}: {color: string}) {
+  return (
+    <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+        stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+function IconWallet({color}: {color: string}) {
+  return (
+    <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
+      <Rect x={2} y={6} width={20} height={14} rx={3} stroke={color} strokeWidth={1.7} />
+      <Path d="M2 10h20" stroke={color} strokeWidth={1.7} />
+      <Circle cx={17} cy={15.5} r={1.8} fill={color} />
+      <Path d="M6 6V4a2 2 0 012-2h8a2 2 0 012 2v2" stroke={color} strokeWidth={1.7} strokeLinecap="round" />
+    </Svg>
+  );
+}
+function IconTrades({color}: {color: string}) {
+  return (
+    <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
+      <Path d="M7 16V4m0 0L3 8m4-4l4 4" stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M17 8v12m0 0l4-4m-4 4l-4-4" stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+function IconBots({color}: {color: string}) {
+  return (
+    <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
+      <Rect x={5} y={8} width={14} height={11} rx={3} stroke={color} strokeWidth={1.7} />
+      <Path d="M12 8V5" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
+      <Circle cx={12} cy={4} r={1.2} fill={color} />
+      <Circle cx={9} cy={13.5} r={1.4} fill={color} />
+      <Circle cx={15} cy={13.5} r={1.4} fill={color} />
+      <Path d="M5 14.5H3M21 14.5h-2" stroke={color} strokeWidth={1.7} strokeLinecap="round" />
+    </Svg>
+  );
+}
+function IconPause({color}: {color: string}) {
+  return (
+    <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={10} stroke={color} strokeWidth={1.7} />
+      <Rect x={8.5} y={7} width={3} height={10} rx={1.5} fill={color} />
+      <Rect x={12.5} y={7} width={3} height={10} rx={1.5} fill={color} />
+    </Svg>
+  );
+}
+function IconStop({color}: {color: string}) {
+  return (
+    <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
+      <Circle cx={12} cy={12} r={10} stroke={color} strokeWidth={1.7} />
+      <Rect x={8} y={8} width={8} height={8} rx={2} fill={color} />
     </Svg>
   );
 }
 
-const {height} = Dimensions.get('window');
+// ─── Glow accent line at top of card ──────────────────────────────────────────
+
+function GlowLine({color}: {color: string}) {
+  return (
+    <View style={{
+      position: 'absolute', top: 0, left: 16, right: 16, height: 1.5,
+      borderRadius: 1,
+      backgroundColor: color,
+      opacity: 0.55,
+    }} />
+  );
+}
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 type Props = NativeStackScreenProps<RootStackParamList, 'QuickActions'>;
 
-const ACTIONS = [
-  {label: 'Pause All', subtitle: 'Pause all active bots', iconType: 'pause', bg: 'rgba(249,115,22,0.15)', color: '#F97316', screen: ''},
-  {label: 'Add Capital', subtitle: 'Deposit funds to trade', iconType: 'capital', bg: 'rgba(16,185,129,0.15)', color: '#10B981', screen: 'WalletFunds'},
-  {label: 'Live Trades', subtitle: 'View open positions', iconType: 'trades', bg: 'rgba(13,127,242,0.15)', color: '#0D7FF2', screen: 'LiveTrades'},
-  {label: 'Strategies', subtitle: 'Build & manage bots', iconType: 'strategies', bg: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.6)', screen: 'BotBuilder'},
-  // Voice AI — commented out until fully functional
-  // {label: 'Voice AI', subtitle: 'Talk to your assistant', iconType: 'mic', bg: 'rgba(168,85,247,0.15)', color: '#A855F7', screen: 'VoiceAssistant'},
-];
+interface Action {
+  id: string;
+  label: string;
+  subtitle: string;
+  tag?: string;
+  Icon: React.FC<{color: string}>;
+  color: string;
+  bg: string;
+  border: string;
+  onPress: () => void;
+}
+
+// ─── Animated card ────────────────────────────────────────────────────────────
+
+function ActionCard({action, index, ready}: {action: Action; index: number; ready: boolean}) {
+  const prog    = useSharedValue(0);
+  const pressed = useSharedValue(0);
+
+  useEffect(() => {
+    if (ready) prog.value = withTiming(1, {duration: 240 + index * 60});
+  }, [ready, index, prog]);
+
+  const anim = useAnimatedStyle(() => ({
+    opacity: interpolate(prog.value, [0, 1], [0, 1], Extrapolation.CLAMP),
+    transform: [
+      {translateY: interpolate(prog.value, [0, 1], [22, 0], Extrapolation.CLAMP)},
+      {scale: interpolate(pressed.value, [0, 1], [1, 0.955], Extrapolation.CLAMP)},
+    ],
+  }));
+
+  return (
+    <Animated.View style={[{flex: 1}, anim]}>
+      <Pressable
+        style={[styles.card, {backgroundColor: action.bg, borderColor: action.border}]}
+        onPressIn ={() => { pressed.value = withSpring(1, {damping: 12, stiffness: 350}); }}
+        onPressOut={() => { pressed.value = withSpring(0, {damping: 12, stiffness: 350}); }}
+        onPress={action.onPress}>
+
+        <GlowLine color={action.color} />
+
+        {/* Top row: icon + optional tag */}
+        <View style={styles.cardTop}>
+          <View style={[styles.iconBox, {backgroundColor: action.color + '1A'}]}>
+            <action.Icon color={action.color} />
+          </View>
+          {action.tag && (
+            <View style={[styles.tag, {backgroundColor: action.color + '22', borderColor: action.color + '44'}]}>
+              <Text style={[styles.tagTxt, {color: action.color}]}>{action.tag}</Text>
+            </View>
+          )}
+        </View>
+
+        {/* Labels */}
+        <Text style={[styles.cardLabel, {color: '#FFFFFF'}]}>{action.label}</Text>
+        <Text style={styles.cardSub}>{action.subtitle}</Text>
+
+        {/* Bottom arrow */}
+        <View style={styles.cardArrow}>
+          <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+            <Path d="M5 12h14M13 6l6 6-6 6" stroke={action.color} strokeWidth={2}
+              strokeLinecap="round" strokeLinejoin="round" opacity={0.7} />
+          </Svg>
+        </View>
+      </Pressable>
+    </Animated.View>
+  );
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function QuickActionsModal({navigation}: Props) {
   const {alert: showAlert, showConfirm} = useToast();
-  const [pausing, setPausing] = useState(false);
-  const translateY = useSharedValue(500);
+  const [pausing,   setPausing]   = useState(false);
+  const [ready,     setReady]     = useState(false);
+  const translateY  = useSharedValue(SH);
+  const backdropO   = useSharedValue(0);
 
-  const handlePauseAll = async () => {
+  const handleDismiss = useCallback(() => {
+    translateY.value = withSpring(SH, {damping: 24, stiffness: 220});
+    backdropO.value  = withTiming(0, {duration: 200}, (fin) => {
+      if (fin) runOnJS(navigation.goBack)();
+    });
+  }, [navigation, translateY, backdropO]);
+
+  const goTo = useCallback((screen: keyof RootStackParamList) => {
+    handleDismiss();
+    setTimeout(() => navigation.navigate(screen as any), 260);
+  }, [handleDismiss, navigation]);
+
+  const handlePauseAll = useCallback(async () => {
     setPausing(true);
     try {
-      const res = await botsService.getActive();
-      const activeBots = res?.subscriptions || [];
-      if (activeBots.length === 0) {
-        showAlert('No Active Bots', 'You have no active bots to pause.');
-        return;
-      }
-      await Promise.all(activeBots.map((sub: any) => botsService.pause(sub.id)));
-      showAlert('All Bots Paused', `${activeBots.length} bot(s) have been paused.`);
+      const res  = await botsService.getActive();
+      const subs = (res as any)?.subscriptions ?? (res as any)?.data?.subscriptions ?? [];
+      const live = subs.filter((s: any) => s.mode === 'live' && s.status === 'active');
+      if (live.length === 0) { showAlert('No Live Bots', 'You have no active live bots to pause.'); return; }
+      await Promise.all(live.map((s: any) => botsService.pause(s.id)));
+      showAlert('Bots Paused', `${live.length} bot${live.length > 1 ? 's' : ''} paused.`);
+      handleDismiss();
     } catch (e: any) {
-      showAlert('Error', e?.message || 'Could not pause bots.');
-    } finally {
-      setPausing(false);
-    }
-  };
+      showAlert('Error', e?.message ?? 'Could not pause bots.');
+    } finally { setPausing(false); }
+  }, [showAlert, handleDismiss]);
 
-  const handleEmergencyStop = () => {
+  const handleEmergencyStop = useCallback(() => {
     showConfirm({
       title: 'Emergency Stop',
-      message: 'This will close all positions and stop all bots. Are you sure?',
+      message: 'This will stop all bots and close all live positions immediately. This cannot be undone.',
       confirmText: 'Stop Everything',
       destructive: true,
       onConfirm: async () => {
         try {
-          const res = await botsService.getActive();
-          const activeBots = res?.subscriptions || [];
-          await Promise.all(activeBots.map((sub: any) => botsService.stop(sub.id)));
-          showAlert('All Stopped', 'All bots have been stopped.');
-          navigation.goBack();
-        } catch (e: any) {
-          showAlert('Error', e?.message || 'Could not stop bots.');
-        }
+          const res  = await botsService.getActive();
+          const subs = (res as any)?.subscriptions ?? (res as any)?.data?.subscriptions ?? [];
+          if (subs.length === 0) { showAlert('Nothing Running', 'No active bots found.'); return; }
+          await Promise.all(subs.map((s: any) => botsService.stop(s.id)));
+          showAlert('All Stopped', `${subs.length} bot${subs.length > 1 ? 's' : ''} stopped.`);
+          handleDismiss();
+        } catch (e: any) { showAlert('Error', e?.message ?? 'Could not stop bots.'); }
       },
     });
-  };
+  }, [showAlert, showConfirm, handleDismiss]);
 
   useEffect(() => {
-    translateY.value = withSpring(0, {damping: 22, stiffness: 180});
-  }, [translateY]);
-
-  const handleDismiss = useCallback(() => {
-    translateY.value = withSpring(500, {damping: 22, stiffness: 180}, (finished) => {
-      if (finished) runOnJS(navigation.goBack)();
+    translateY.value = withSpring(0, {damping: 20, stiffness: 160}, (fin) => {
+      if (fin) runOnJS(setReady)(true);
     });
-  }, [navigation, translateY]);
+    backdropO.value = withTiming(1, {duration: 260});
+  }, [translateY, backdropO]);
 
-  const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{translateY: translateY.value}],
-  }));
+  const sheetStyle    = useAnimatedStyle(() => ({transform: [{translateY: translateY.value}]}));
+  const backdropStyle = useAnimatedStyle(() => ({opacity: backdropO.value}));
+
+  const ACTIONS: Action[] = [
+    {
+      id: 'shadow', label: 'Shadow Mode', subtitle: 'Test bots risk-free',
+      tag: 'Free', Icon: IconShadow, color: '#A78BFA',
+      bg: 'rgba(167,139,250,0.07)', border: 'rgba(167,139,250,0.18)',
+      onPress: () => goTo('ShadowMode'),
+    },
+    {
+      id: 'arena', label: 'Bot Arena', subtitle: 'Battle bots head-to-head',
+      tag: 'Live', Icon: IconArena, color: '#F59E0B',
+      bg: 'rgba(245,158,11,0.07)', border: 'rgba(245,158,11,0.18)',
+      onPress: () => goTo('ArenaSetup'),
+    },
+    {
+      id: 'wallet', label: 'Wallet', subtitle: 'Deposit & withdraw funds',
+      Icon: IconWallet, color: '#10B981',
+      bg: 'rgba(16,185,129,0.07)', border: 'rgba(16,185,129,0.18)',
+      onPress: () => goTo('WalletFunds'),
+    },
+    {
+      id: 'trades', label: 'Trade History', subtitle: 'Review all past trades',
+      Icon: IconTrades, color: '#38BDF8',
+      bg: 'rgba(56,189,248,0.07)', border: 'rgba(56,189,248,0.18)',
+      onPress: () => goTo('TradeHistory'),
+    },
+    {
+      id: 'bots', label: 'My Bots', subtitle: 'View & manage bots',
+      Icon: IconBots, color: '#F472B6',
+      bg: 'rgba(244,114,182,0.07)', border: 'rgba(244,114,182,0.18)',
+      onPress: () => goTo('AllBots'),
+    },
+    {
+      id: 'pause',
+      label: pausing ? 'Pausing…' : 'Pause All',
+      subtitle: 'Pause all live bots',
+      Icon: pausing
+        ? (({color}) => <ActivityIndicator size={22} color={color} />)
+        : IconPause,
+      color: '#F97316',
+      bg: 'rgba(249,115,22,0.07)', border: 'rgba(249,115,22,0.18)',
+      onPress: handlePauseAll,
+    },
+  ];
 
   return (
-    <View style={styles.container}>
-      <Pressable style={styles.backdrop} onPress={handleDismiss} />
+    <View style={styles.root}>
+      {/* Dimmed backdrop */}
+      <Animated.View style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={handleDismiss} />
+      </Animated.View>
+
+      {/* Bottom sheet */}
       <Animated.View style={[styles.sheet, sheetStyle]}>
+
         {/* Drag handle */}
-        <View style={styles.dragHandle} />
+        <View style={styles.handle} />
 
         {/* Header */}
-        <View style={styles.sheetHeader}>
-          <View>
-            <Text style={styles.sheetTitle}>Quick Actions</Text>
-            <Text style={styles.sheetSubtitle}>Manage your active operations</Text>
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <View style={styles.headerDot} />
+            <View>
+              <Text style={styles.title}>Quick Actions</Text>
+              <Text style={styles.subtitle}>What would you like to do?</Text>
+            </View>
           </View>
-          <TouchableOpacity onPress={handleDismiss} style={styles.closeBtn}>
-            <XIcon size={18} color="rgba(255,255,255,0.6)" />
+          <TouchableOpacity onPress={handleDismiss} style={styles.closeBtn} activeOpacity={0.75}>
+            <Svg width={15} height={15} viewBox="0 0 24 24" fill="none">
+              <Path d="M18 6L6 18M6 6l12 12" stroke="rgba(255,255,255,0.55)"
+                strokeWidth={2.2} strokeLinecap="round" />
+            </Svg>
           </TouchableOpacity>
         </View>
 
-        {/* 2x2 action grid */}
-        <View style={styles.actionGrid}>
-          {ACTIONS.map(action => (
-            <TouchableOpacity key={action.label} style={[styles.actionCard, {backgroundColor: action.bg}]} activeOpacity={0.7} onPress={() => { if (action.label === 'Pause All') { handlePauseAll(); } else if (action.screen) { navigation.goBack(); setTimeout(() => navigation.navigate(action.screen as any), 100); } }}>
-              <View style={{marginBottom: 8}}>
-                <ActionIcon type={action.iconType} color={action.color} />
-              </View>
-              <Text style={[styles.actionLabel, {color: action.color}]}>{action.label}</Text>
-              <Text style={styles.actionSubtitle}>{action.subtitle}</Text>
-            </TouchableOpacity>
+        {/* 2×3 grid — explicit rows to guarantee 2 per row */}
+        <View style={styles.grid}>
+          {[0, 1, 2].map(row => (
+            <View key={row} style={styles.gridRow}>
+              {ACTIONS.slice(row * 2, row * 2 + 2).map((a, i) => (
+                <ActionCard key={a.id} action={a} index={row * 2 + i} ready={ready} />
+              ))}
+            </View>
           ))}
         </View>
 
         {/* Emergency stop */}
-        <TouchableOpacity style={styles.emergencyCard} activeOpacity={0.8} onPress={handleEmergencyStop}>
-          <View style={styles.emergencyLeft}>
-            <EmergencyStopIcon size={22} color="#EF4444" />
-            <View>
-              <Text style={styles.emergencyTitle}>Emergency Stop</Text>
-              <Text style={styles.emergencySubtitle}>Liquidate &amp; close all positions</Text>
+        <TouchableOpacity
+          style={styles.emergencyRow}
+          onPress={handleEmergencyStop}
+          activeOpacity={0.78}>
+          {/* red glow line */}
+          <View style={styles.emergencyGlow} />
+          <View style={styles.emergencyInner}>
+            <View style={styles.emergencyIconBox}>
+              <IconStop color="#EF4444" />
+            </View>
+            <View style={{flex: 1}}>
+              <Text style={styles.emergencyLabel}>Emergency Stop</Text>
+              <Text style={styles.emergencyHint}>Halts all bots · closes live positions</Text>
+            </View>
+            <View style={styles.emergencyArrow}>
+              <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                <Path d="M9 18l6-6-6-6" stroke="#EF4444" strokeWidth={2.3}
+                  strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
             </View>
           </View>
-          <ChevronRightIcon size={18} color="#EF4444" />
         </TouchableOpacity>
 
-        {/* Dismiss */}
-        <TouchableOpacity style={styles.dismissBtn} onPress={handleDismiss}>
-          <Text style={styles.dismissText}>Dismiss</Text>
+        {/* Dismiss pill */}
+        <TouchableOpacity onPress={handleDismiss} style={styles.dismissWrap} activeOpacity={0.6}>
+          <Text style={styles.dismissTxt}>Dismiss</Text>
         </TouchableOpacity>
+
       </Animated.View>
     </View>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {flex: 1, justifyContent: 'flex-end'},
-  backdrop: {position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)'},
+  root: {flex: 1, justifyContent: 'flex-end'},
+
+  backdrop: {
+    backgroundColor: 'rgba(0,0,0,0.72)',
+  },
+
   sheet: {
-    backgroundColor: '#161B22', borderTopLeftRadius: 28, borderTopRightRadius: 28,
-    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 40,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#0F1318',
+    borderTopLeftRadius: 30,
+    borderTopRightRadius: 30,
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 36,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    // subtle inner glow at top
+    shadowColor: '#10B981',
+    shadowOffset: {width: 0, height: -4},
+    shadowOpacity: 0.04,
+    shadowRadius: 20,
   },
-  dragHandle: {width: 36, height: 4, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 2, alignSelf: 'center', marginBottom: 20},
-  sheetHeader: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20},
-  sheetTitle: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF'},
-  sheetSubtitle: {fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginTop: 2},
-  closeBtn: {width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center'},
-  actionGrid: {flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 10},
-  actionCard: {
-    width: '48%', borderRadius: 16, padding: 16,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+
+  handle: {
+    width: 40, height: 4.5,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 3,
+    alignSelf: 'center',
+    marginBottom: 22,
   },
-  actionEmoji: {fontSize: 24, marginBottom: 8},
-  actionLabel: {fontFamily: 'Inter-SemiBold', fontSize: 14, marginBottom: 3},
-  actionSubtitle: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)'},
-  emergencyCard: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    backgroundColor: 'rgba(239,68,68,0.1)', borderRadius: 14, padding: 16, marginBottom: 12,
-    borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)',
+
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
   },
-  emergencyLeft: {flexDirection: 'row', alignItems: 'center', gap: 12},
-  emergencyTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#EF4444'},
-  emergencySubtitle: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(239,68,68,0.7)', marginTop: 1},
-  dismissBtn: {alignItems: 'center', paddingVertical: 8},
-  dismissText: {fontFamily: 'Inter-Medium', fontSize: 14, color: 'rgba(255,255,255,0.35)'},
+  headerLeft: {flexDirection: 'row', alignItems: 'center', gap: 12},
+  headerDot: {
+    width: 8, height: 8, borderRadius: 4,
+    backgroundColor: '#10B981',
+    shadowColor: '#10B981', shadowOffset: {width: 0, height: 0},
+    shadowOpacity: 0.9, shadowRadius: 6,
+  },
+  title:    {fontFamily: 'Inter-Bold',    fontSize: 19, color: '#FFFFFF', letterSpacing: -0.2},
+  subtitle: {fontFamily: 'Inter-Regular', fontSize: 12.5, color: 'rgba(255,255,255,0.35)', marginTop: 1},
+
+  closeBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+  },
+
+  // Grid
+  grid: {
+    gap: 12,
+    marginBottom: 18,
+  },
+  gridRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+
+  card: {
+    borderRadius: 20,
+    padding: 18,
+    paddingBottom: 14,
+    borderWidth: 1,
+    overflow: 'hidden',
+    minHeight: 148,
+    justifyContent: 'space-between',
+  },
+
+  cardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 14,
+  },
+  iconBox: {
+    width: 50, height: 50, borderRadius: 15,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  tag: {
+    paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 8, borderWidth: 1,
+  },
+  tagTxt: {fontFamily: 'Inter-SemiBold', fontSize: 10, letterSpacing: 0.3},
+
+  cardLabel: {fontFamily: 'Inter-SemiBold', fontSize: 15, letterSpacing: -0.1, marginBottom: 4},
+  cardSub:   {fontFamily: 'Inter-Regular',  fontSize: 11.5, color: 'rgba(255,255,255,0.38)', lineHeight: 16},
+
+  cardArrow: {marginTop: 10, alignSelf: 'flex-start'},
+
+  // Emergency
+  emergencyRow: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.25)',
+    backgroundColor: 'rgba(239,68,68,0.06)',
+    overflow: 'hidden',
+    marginBottom: 16,
+  },
+  emergencyGlow: {
+    position: 'absolute', top: 0, left: 20, right: 20,
+    height: 1.5, borderRadius: 1,
+    backgroundColor: '#EF4444', opacity: 0.45,
+  },
+  emergencyInner: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 14, padding: 18,
+  },
+  emergencyIconBox: {
+    width: 50, height: 50, borderRadius: 15,
+    backgroundColor: 'rgba(239,68,68,0.14)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  emergencyLabel: {fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#EF4444', letterSpacing: -0.1},
+  emergencyHint:  {fontFamily: 'Inter-Regular',  fontSize: 12, color: 'rgba(239,68,68,0.55)', marginTop: 2},
+  emergencyArrow: {
+    width: 30, height: 30, borderRadius: 10,
+    backgroundColor: 'rgba(239,68,68,0.1)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+
+  // Dismiss
+  dismissWrap: {alignItems: 'center', paddingVertical: 4},
+  dismissTxt: {fontFamily: 'Inter-Medium', fontSize: 13.5, color: 'rgba(255,255,255,0.25)'},
 });

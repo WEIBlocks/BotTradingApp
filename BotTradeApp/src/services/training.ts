@@ -101,6 +101,14 @@ export const trainingApi = {
     return res?.data ? mapUpload(res.data) : null;
   },
 
+  /** Submit a YouTube URL for bot training (transcript extracted + stored in RAG). */
+  async learnFromYoutube(botId: string, youtubeUrl: string): Promise<{title: string; chunksStored: number; hasTranscript: boolean}> {
+    const res = await api.post<DataWrap<{title: string; chunksStored: number; hasTranscript: boolean}>>('/ai/youtube/learn', {
+      url: youtubeUrl, botId,
+    } as Record<string, unknown>);
+    return res?.data ?? {title: 'Unknown', chunksStored: 0, hasTranscript: false};
+  },
+
   /** Start training a bot. */
   async startTraining(botId: string) {
     return api.post<DataWrap<{

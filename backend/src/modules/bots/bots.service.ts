@@ -74,7 +74,7 @@ export async function createBot(userId: string, data: CreateBotData) {
     .values({
       creatorId: userId,
       name: data.name,
-      strategy: data.strategy,
+      strategy: data.strategy?.substring(0, 200),
       category: data.category as any,
       riskLevel: data.risk_level as any,
       creatorFeePercent: data.creatorFeePercent !== undefined ? String(data.creatorFeePercent) : '10',
@@ -1318,8 +1318,8 @@ export async function getPublicLiveStats(botId: string) {
   `) as any[];
 
   let cumPnl = 0;
-  const equityCurve: number[] = [];
-  const equityDates: string[] = [];
+  const equityCurve: number[] = [0]; // baseline zero so chart always starts flat
+  const equityDates: string[] = [''];
   for (const row of allClosed) {
     cumPnl += parseFloat(row.pnl ?? '0');
     equityCurve.push(Math.round(cumPnl * 100) / 100);

@@ -12,11 +12,21 @@ export interface AIChatResponse {
   cleanPrompt?: string;
   strategy?: {
     name: string;
-    description: string;
+    description?: string;
+    strategy?: string;
+    assetClass?: 'crypto' | 'stocks';
     pairs: string[];
     riskLevel: string;
-    indicators: string[];
-    backtestReturn?: number;
+    indicators?: string[];
+    stopLoss?: number;
+    takeProfit?: number;
+    tradingFrequency?: string;
+    aiMode?: string;
+    maxOpenPositions?: number;
+    tradingSchedule?: string;
+    backtestReturn?: number; // normalized from backtestEstimate.return30d
+    backtestWinRate?: number;
+    backtestDrawdown?: number;
   };
 }
 
@@ -48,12 +58,19 @@ export const aiApi = {
     } as Record<string, unknown>);
     const d = res?.data;
     if (!d) return {reply: 'Sorry, I could not process your request.', conversationId: ''};
-    // Backend returns "strategyPreview", frontend uses "strategy"
+    // Backend returns "strategyPreview", normalize backtestEstimate → backtestReturn
+    const raw = d.strategyPreview ?? d.strategy;
+    const strategy = raw ? {
+      ...raw,
+      backtestReturn: raw.backtestReturn ?? raw.backtestEstimate?.return30d,
+      backtestWinRate: raw.backtestWinRate ?? raw.backtestEstimate?.winRate,
+      backtestDrawdown: raw.backtestDrawdown ?? raw.backtestEstimate?.maxDrawdown,
+    } : undefined;
     return {
       reply: d.reply,
       conversationId: d.conversationId,
       cleanPrompt: d.cleanPrompt,
-      strategy: d.strategyPreview ?? d.strategy,
+      strategy,
     };
   },
 
@@ -171,11 +188,18 @@ export const aiApi = {
     onProgress?.(100);
 
     const d = (json as any)?.data ?? json;
+    const rawS = d.strategyPreview ?? d.strategy;
+    const strategy = rawS ? {
+      ...rawS,
+      backtestReturn: rawS.backtestReturn ?? rawS.backtestEstimate?.return30d,
+      backtestWinRate: rawS.backtestWinRate ?? rawS.backtestEstimate?.winRate,
+      backtestDrawdown: rawS.backtestDrawdown ?? rawS.backtestEstimate?.maxDrawdown,
+    } : undefined;
     return {
       reply: d.reply || 'No response',
       conversationId: d.conversationId || '',
       cleanPrompt: d.cleanPrompt,
-      strategy: d.strategyPreview ?? d.strategy,
+      strategy,
     };
   },
 };

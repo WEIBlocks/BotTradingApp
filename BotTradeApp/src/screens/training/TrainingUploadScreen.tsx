@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Animated,
+  TextInput,
 } from 'react-native';
 import Svg, {Path, Rect, Circle, Line} from 'react-native-svg';
 import {useNavigation, useRoute, RouteProp} from '@react-navigation/native';
@@ -248,7 +249,7 @@ function getFileIcon(type: string) {
   }
 }
 
-function StatusBadge({status}: {status: string}) {
+function StatusBadge({status, analysisResult}: {status: string; analysisResult?: Record<string, unknown> | null}) {
   let bg = '#10B981';
   let label = 'Complete';
 
@@ -260,7 +261,7 @@ function StatusBadge({status}: {status: string}) {
     label = 'Analyzing...';
   } else if (status === 'error') {
     bg = '#EF4444';
-    label = 'Error';
+    label = (analysisResult as any)?.rejected ? 'Rejected' : 'Failed';
   }
 
   return (
@@ -332,7 +333,7 @@ function AnalysisCard({upload}: {upload: TrainingUpload}) {
           </View>
         </View>
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
-          <StatusBadge status={upload.status} />
+          <StatusBadge status={upload.status} analysisResult={upload.analysisResult} />
           <Text style={analysisStyles.chevron}>{expanded ? '▲' : '▼'}</Text>
         </View>
       </TouchableOpacity>
@@ -340,11 +341,20 @@ function AnalysisCard({upload}: {upload: TrainingUpload}) {
       {expanded && (
         <View style={analysisStyles.body}>
           {upload.status === 'error' && (
-            <View style={analysisStyles.errorBox}>
+            <View style={[analysisStyles.errorBox, (upload.analysisResult as any)?.rejected && {backgroundColor: 'rgba(249,115,22,0.08)'}]}>
               <AlertTriangleIcon />
-              <Text style={analysisStyles.errorText}>
-                {upload.errorMessage || 'Analysis failed'}
-              </Text>
+              <View style={{flex: 1}}>
+                <Text style={[analysisStyles.errorText, (upload.analysisResult as any)?.rejected && {color: '#F97316'}]}>
+                  {(upload.analysisResult as any)?.rejected
+                    ? 'This file is not relevant to trading and was not added to the bot\'s knowledge base.'
+                    : (upload.errorMessage || 'Analysis failed')}
+                </Text>
+                {(upload.analysisResult as any)?.reason && (
+                  <Text style={[analysisStyles.errorText, {color: 'rgba(249,115,22,0.7)', marginTop: 4, fontSize: 11}]}>
+                    {(upload.analysisResult as any).reason}
+                  </Text>
+                )}
+              </View>
             </View>
           )}
 
@@ -628,6 +638,8 @@ export default function TrainingUploadScreen() {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [training, setTraining] = useState(false);
+  const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [youtubeLoading, setYoutubeLoading] = useState(false);
   const [selectedBotId, setSelectedBotId] = useState<string | null>(paramBotId || null);
   const [userBots, setUserBots] = useState<CreatorBot[]>([]);
   const [screenView, setScreenView] = useState<ScreenView>('upload');
@@ -735,6 +747,31 @@ export default function TrainingUploadScreen() {
       if (DocumentPicker.isCancel(err)) return;
       setUploading(false);
       showAlert('Error', err?.message || 'Could not open file picker.');
+    }
+  };
+
+  const handleLearnFromYoutube = async () => {
+    if (!selectedBotId) { showAlert('Select a Bot', 'Please select a bot to train first.'); return; }
+    const url = youtubeUrl.trim();
+    if (!url) { showAlert('Enter URL', 'Please enter a YouTube video URL.'); return; }
+    const isYouTube = /youtube\.com\/watch\?v=|youtu\.be\//.test(url);
+    if (!isYouTube) { showAlert('Invalid URL', 'Please enter a valid YouTube video URL.'); return; }
+
+    setYoutubeLoading(true);
+    try {
+      const result = await trainingApi.learnFromYoutube(selectedBotId, url);
+      setYoutubeUrl('');
+      if (result.chunksStored > 0) {
+        showAlert('Video Learned!', `"${result.title}" has been added to your bot's knowledge base (${result.chunksStored} chunks stored).`);
+      } else if (!result.hasTranscript) {
+        showAlert('No Transcript', `"${result.title}" was analyzed but no transcript was available. Try a video with captions enabled.`);
+      } else {
+        showAlert('Processed', `"${result.title}" has been processed.`);
+      }
+    } catch (err: any) {
+      showAlert('Error', err?.message || 'Could not process the YouTube video. Check the URL and try again.');
+    } finally {
+      setYoutubeLoading(false);
     }
   };
 
@@ -926,16 +963,33 @@ export default function TrainingUploadScreen() {
             </View>
           )}
 
-          {/* Per-File Analysis Details */}
-          <Text style={styles.sectionTitle}>File Analysis Details</Text>
-          {uploads.filter(u => u.status === 'complete' || u.status === 'error').length === 0 ? (
+          {/* Per-File Analysis Details — completed (accepted) only */}
+          {uploads.filter(u => u.status === 'complete').length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>Accepted & Trained</Text>
+              {uploads
+                .filter(u => u.status === 'complete')
+                .map(u => <AnalysisCard key={u.id} upload={u} />)}
+            </>
+          )}
+
+          {/* Rejected / errored files — shown separately so user knows what failed */}
+          {uploads.filter(u => u.status === 'error').length > 0 && (
+            <>
+              <Text style={[styles.sectionTitle, {color: '#EF4444', marginTop: 18}]}>Rejected Files</Text>
+              <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', marginBottom: 10, marginTop: -8}}>
+                These files were not added to your bot's knowledge base.
+              </Text>
+              {uploads
+                .filter(u => u.status === 'error')
+                .map(u => <AnalysisCard key={u.id} upload={u} />)}
+            </>
+          )}
+
+          {uploads.filter(u => u.status === 'complete' || u.status === 'error').length === 0 && (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyText}>No analysis results yet. Train your bot first.</Text>
             </View>
-          ) : (
-            uploads
-              .filter(u => u.status === 'complete' || u.status === 'error')
-              .map(u => <AnalysisCard key={u.id} upload={u} />)
           )}
 
           {/* Back to Upload Button */}
@@ -1066,26 +1120,73 @@ export default function TrainingUploadScreen() {
             </View>
 
             {/* Upload Area */}
-            <TouchableOpacity
-              style={styles.uploadArea}
-              activeOpacity={0.7}
-              onPress={handleUploadTap}
-              disabled={uploading}>
-              {uploading ? (
-                <>
-                  <ActivityIndicator size="small" color="#10B981" />
-                  <Text style={styles.uploadTitle}>Uploading...</Text>
-                </>
-              ) : (
-                <>
-                  <UploadArrowIcon />
-                  <Text style={styles.uploadTitle}>Tap to upload</Text>
-                  <Text style={styles.uploadSubtitle}>
-                    Supports PNG, JPG, MP4, PDF, CSV, TXT
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
+            {activeTab === 'Videos' ? (
+              <View style={styles.youtubeCard}>
+                <Text style={styles.youtubeSectionTitle}>📺 Add YouTube Video</Text>
+                <Text style={styles.youtubeHint}>
+                  Paste a trading/finance YouTube URL and the AI will extract the transcript and add it to your bot's knowledge base.
+                </Text>
+                <TextInput
+                  style={styles.youtubeInput}
+                  placeholder="https://youtube.com/watch?v=..."
+                  placeholderTextColor="rgba(255,255,255,0.3)"
+                  value={youtubeUrl}
+                  onChangeText={setYoutubeUrl}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  keyboardType="url"
+                />
+                <TouchableOpacity
+                  style={[styles.youtubeBtn, youtubeLoading && {opacity: 0.6}]}
+                  onPress={handleLearnFromYoutube}
+                  disabled={youtubeLoading}
+                  activeOpacity={0.8}>
+                  {youtubeLoading
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Text style={styles.youtubeBtnText}>Add to Bot Knowledge</Text>}
+                </TouchableOpacity>
+                <Text style={styles.youtubeOr}>— or upload a local video file —</Text>
+                <TouchableOpacity
+                  style={[styles.uploadArea, {marginTop: 0}]}
+                  activeOpacity={0.7}
+                  onPress={handleUploadTap}
+                  disabled={uploading}>
+                  {uploading ? (
+                    <>
+                      <ActivityIndicator size="small" color="#10B981" />
+                      <Text style={styles.uploadTitle}>Uploading...</Text>
+                    </>
+                  ) : (
+                    <>
+                      <UploadArrowIcon />
+                      <Text style={styles.uploadTitle}>Tap to upload video</Text>
+                      <Text style={styles.uploadSubtitle}>Supports MP4, MOV, AVI</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.uploadArea}
+                activeOpacity={0.7}
+                onPress={handleUploadTap}
+                disabled={uploading}>
+                {uploading ? (
+                  <>
+                    <ActivityIndicator size="small" color="#10B981" />
+                    <Text style={styles.uploadTitle}>Uploading...</Text>
+                  </>
+                ) : (
+                  <>
+                    <UploadArrowIcon />
+                    <Text style={styles.uploadTitle}>Tap to upload</Text>
+                    <Text style={styles.uploadSubtitle}>
+                      {activeTab === 'Images' ? 'Supports PNG, JPG, WEBP' : 'Supports PDF, CSV, TXT, DOC'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
 
             {/* Previous Uploads */}
             <View style={styles.sectionHeader}>
@@ -1123,7 +1224,7 @@ export default function TrainingUploadScreen() {
                           {upload.createdAt ? timeAgo(upload.createdAt) : ''}
                         </Text>
                       </View>
-                      <StatusBadge status={upload.status} />
+                      <StatusBadge status={upload.status} analysisResult={upload.analysisResult} />
                     </View>
                     {index < uploads.length - 1 && (
                       <View style={styles.divider} />
@@ -1546,6 +1647,42 @@ const styles = StyleSheet.create({
   },
   botChipTextActive: {
     color: '#10B981',
+  },
+  youtubeCard: {
+    backgroundColor: 'rgba(255,0,0,0.06)',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,80,80,0.2)',
+    padding: 16,
+    marginBottom: 16,
+    gap: 10,
+  },
+  youtubeSectionTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
+  youtubeHint: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 18},
+  youtubeInput: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontFamily: 'Inter-Regular',
+    fontSize: 13,
+    color: '#FFFFFF',
+  },
+  youtubeBtn: {
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  youtubeBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
+  youtubeOr: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.3)',
+    textAlign: 'center',
+    marginVertical: 4,
   },
   noBotsBanner: {
     backgroundColor: 'rgba(245,158,11,0.08)',
