@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // In dev: Vite proxies /api → backend (see vite.config.ts proxy).
 // In production (Vercel): VITE_API_URL env var, fallback to deployed server IP.
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://206.81.2.59';
+const API_BASE = import.meta.env.VITE_API_URL ?? 'https://206.81.2.59';
 
 const api = axios.create({
   baseURL: API_BASE,
