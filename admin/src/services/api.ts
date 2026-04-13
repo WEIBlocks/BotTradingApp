@@ -1,9 +1,8 @@
 import axios from 'axios';
 
 // In dev: Vite proxies /api → backend (see vite.config.ts proxy).
-// In production (Vercel): set VITE_API_URL env var on Vercel dashboard to the backend URL.
-// Fallback: Cloudflare tunnel URL (trusted HTTPS, no cert warnings).
-const API_BASE = import.meta.env.VITE_API_URL ?? 'https://beats-blank-senators-bunny.trycloudflare.com';
+// In production (Vercel): VITE_API_URL env var, fallback to deployed server IP.
+const API_BASE = import.meta.env.VITE_API_URL ?? 'https://206.81.2.59';
 
 const api = axios.create({
   baseURL: API_BASE,
