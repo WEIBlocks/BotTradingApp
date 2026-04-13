@@ -58,11 +58,10 @@ export async function buildApp() {
   app.setErrorHandler(errorHandler);
 
 
-  // CORS
+  // CORS — allow all origins for now (no domain configured yet)
+  // Once a domain is set, replace true with: (process.env.CORS_ORIGINS || 'https://yourdomain.com').split(',')
   await app.register(cors, {
-    origin: process.env.NODE_ENV === 'production'
-      ? (process.env.CORS_ORIGINS || 'https://bottrade.app').split(',')
-      : true,
+    origin: true,
     credentials: true,
   });
 
