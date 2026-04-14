@@ -264,8 +264,8 @@ async function releaseLock(key: string) {
 
 // ─── Strategy Detection ─────────────────────────────────────────────────────
 
-function isRuleOnlyStrategy(strategy: string): boolean {
-  const s = strategy.toLowerCase();
+function isRuleOnlyStrategy(strategy: string | null | undefined): boolean {
+  const s = (strategy ?? '').toLowerCase();
   return s.includes('dca') || s.includes('dollar') || s.includes('grid');
 }
 
@@ -293,17 +293,18 @@ Operators: <, >, <=, >=, crosses_above, crosses_below
 Weight: 0-1 (importance, 0.5+ = must-match)`;
 
 export async function generateRules(
-  botPrompt: string, strategy: string, riskLevel: string,
+  botPrompt: string, strategy: string | null | undefined, riskLevel: string,
   stopLoss?: number, takeProfit?: number, maxPosition?: number,
 ): Promise<TradingRules> {
+  const safeStrategy = strategy ?? '';
   // DCA/Grid: skip AI, use pure defaults
-  if (isRuleOnlyStrategy(strategy) && !botPrompt) {
-    return getDefaultRules(strategy, riskLevel, stopLoss, takeProfit, maxPosition);
+  if (isRuleOnlyStrategy(safeStrategy) && !botPrompt) {
+    return getDefaultRules(safeStrategy, riskLevel, stopLoss, takeProfit, maxPosition);
   }
 
-  const prompt = `Strategy: ${strategy} | Risk: ${riskLevel}
+  const prompt = `Strategy: ${safeStrategy || 'Balanced'} | Risk: ${riskLevel}
 ${stopLoss ? `Stop loss: ${stopLoss}%` : ''}${takeProfit ? ` | Take profit: ${takeProfit}%` : ''}${maxPosition ? ` | Max position: ${maxPosition}%` : ''}
-Instructions: ${botPrompt || `Standard ${strategy} with ${riskLevel} risk.`}
+Instructions: ${botPrompt || `Standard ${safeStrategy || 'balanced'} with ${riskLevel} risk.`}
 Generate trading rules JSON.`;
 
   try {
@@ -350,11 +351,11 @@ function applyRiskLevel(rules: TradingRules, riskLevel: string) {
   rules.cooldownMinutes = Math.max(1, Math.round(rules.cooldownMinutes * m.cooldown));
 }
 
-function getDefaultRules(strategy: string, riskLevel: string, sl?: number, tp?: number, mp?: number): TradingRules {
+function getDefaultRules(strategy: string | null | undefined, riskLevel: string, sl?: number, tp?: number, mp?: number): TradingRules {
   const stopLoss = sl ?? (riskLevel === 'Very Low' ? 1 : riskLevel === 'Low' ? 2 : riskLevel === 'Med' ? 3 : riskLevel === 'High' ? 5 : 8);
   const takeProfit = tp ?? stopLoss * 2.5;
   const maxPos = mp ?? (riskLevel === 'Very Low' ? 5 : riskLevel === 'Low' ? 10 : riskLevel === 'Med' ? 20 : riskLevel === 'High' ? 30 : 40);
-  const strat = strategy.toLowerCase();
+  const strat = (strategy ?? '').toLowerCase();
 
   let rules: TradingRules;
 
@@ -479,11 +480,11 @@ LEARNING:
 Return ONLY valid JSON: {"action":"BUY"|"SELL"|"HOLD","confidence":0-100,"sizePercent":1-100,"reasoning":"Short explanation"}`;
 
 async function getAIDecision(
-  symbol: string, snap: IndicatorSnapshot, botPrompt: string, strategy: string,
+  symbol: string, snap: IndicatorSnapshot, botPrompt: string, strategy: string | null | undefined,
   riskLevel: string, hasPosition: boolean, positionPnlPct: number | null,
   triggerReasons: string[], trainingContext: string, recentDecisions: string,
 ) {
-  const prompt = `Bot Profile: ${strategy} strategy with ${riskLevel} risk level.
+  const prompt = `Bot Profile: ${strategy || 'Balanced'} strategy with ${riskLevel} risk level.
 ${symbol} @ $${snap.currentPrice.toFixed(2)} | RSI: ${snap.rsi?.toFixed(1) ?? 'N/A'} | EMA20: ${snap.ema20?.toFixed(2) ?? 'N/A'} | MACD: ${snap.macd?.histogram.toFixed(4) ?? 'N/A'}
 BB: ${snap.bollingerBands ? `${snap.bollingerBands.lower.toFixed(2)}-${snap.bollingerBands.upper.toFixed(2)}` : 'N/A'} | 24h: $${snap.high24h.toFixed(2)}/$${snap.low24h.toFixed(2)}
 Position: ${hasPosition ? `LONG P&L:${positionPnlPct?.toFixed(2)}%` : 'None'} | Trigger: ${triggerReasons.join('; ')}
@@ -546,7 +547,9 @@ export async function processSymbol(opts: {
   maxOpenPositions?: number;
   riskMultiplier?: number;
 }): Promise<EngineDecision> {
-  const { sessionKey, symbol, botId, userId, botPrompt, strategy, riskLevel, balance, stopLoss, takeProfit, maxPositionPct, mode } = opts;
+  const { sessionKey, symbol, botId, userId, botPrompt, riskLevel, balance, stopLoss, takeProfit, maxPositionPct, mode } = opts;
+  // Guard: strategy may be null/undefined from DB — default to empty string so .toLowerCase()/.includes() never crash
+  const strategy = opts.strategy ?? '';
   const tradeDirection = opts.tradeDirection ?? 'both';
   const dailyLossLimit = opts.dailyLossLimit ?? 0;
   const cacheKey = `${sessionKey}:${symbol}`;
@@ -1034,20 +1037,27 @@ export async function executeLiveTrade(
     let amount: number;
     let tradeValue: number;
 
+    if (decision.price <= 0) {
+      await adapter.disconnect();
+      return { success: false, error: `Invalid price ($${decision.price}) — price sync may not have run yet` };
+    }
+
     if (decision.action === 'BUY') {
       const quoteBalance = balances.find(b => b.currency === quoteCurrency)?.free ?? 0;
+      if (quoteBalance <= 0) {
+        await adapter.disconnect();
+        return { success: false, error: `No ${quoteCurrency} balance available. Fund your ${conn.provider}${conn.sandbox ? ' testnet' : ''} account first.` };
+      }
       const sizePercent = decision.sizePercent && decision.sizePercent > 0 ? decision.sizePercent : 10;
       tradeValue = quoteBalance * sizePercent / 100;
       amount = tradeValue / decision.price;
 
-      // Log balance info for debugging
       console.log(`[BotEngine] BUY ${decision.symbol}: quoteBalance=${quoteBalance} ${quoteCurrency}, sizePercent=${sizePercent}%, tradeValue=$${tradeValue.toFixed(2)}`);
     } else {
       const base = isStock ? decision.symbol : decision.symbol.split('/')[0];
       amount = balances.find(b => b.currency === base)?.free ?? 0;
       tradeValue = amount * decision.price;
 
-      // Log balance info for debugging
       console.log(`[BotEngine] SELL ${decision.symbol}: base balance=${amount} ${base}, tradeValue=$${tradeValue.toFixed(2)}`);
     }
 
@@ -1055,7 +1065,7 @@ export async function executeLiveTrade(
     const MIN_ORDER_VALUE = isStock ? 1 : 10;
     if (tradeValue < MIN_ORDER_VALUE) {
       await adapter.disconnect();
-      return { success: false, error: `Order too small ($${tradeValue.toFixed(2)}). Min: $${MIN_ORDER_VALUE}` };
+      return { success: false, error: `Insufficient balance for ${decision.symbol} (${quoteCurrency} balance too low for min $${MIN_ORDER_VALUE} order)` };
     }
 
     if (amount <= 0) {

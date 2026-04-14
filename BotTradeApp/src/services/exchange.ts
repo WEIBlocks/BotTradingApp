@@ -90,16 +90,18 @@ export const exchangeApi = {
 
   /** Test API key connection without saving. */
   async testConnection(provider: string, apiKey: string, apiSecret: string, sandbox = false) {
+    // Exchange test connects to a live external API — allow up to 45s for slow exchanges
     return api.post<DataWrap<{success: boolean; provider: string; message: string}>>('/exchange/test-connection', {
       provider, apiKey, apiSecret, sandbox,
-    });
+    }, {timeout: 45000});
   },
 
   /** Connect via API key. */
   async connectApiKey(provider: string, apiKey: string, apiSecret: string, sandbox = false) {
+    // Balance sync runs in background on backend — response is fast after credential test
     return api.post<DataWrap<ConnectionRow>>('/exchange/connect', {
       provider, apiKey, apiSecret, sandbox,
-    });
+    }, {timeout: 45000});
   },
 
   /** Initiate OAuth flow. */

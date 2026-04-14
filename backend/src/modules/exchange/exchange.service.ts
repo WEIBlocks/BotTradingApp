@@ -39,6 +39,16 @@ export async function getAvailableExchanges() {
   return SUPPORTED_EXCHANGES;
 }
 
+/** Wraps a promise with a timeout — rejects with AppError if it takes too long */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new AppError(408, message, 'TIMEOUT')), ms),
+    ),
+  ]);
+}
+
 export async function connectWithApiKey(
   userId: string,
   provider: string,
@@ -73,10 +83,21 @@ export async function connectWithApiKey(
   }
 
   if (adapter) {
-    await adapter.connect({ apiKey, apiSecret, sandbox });
-    const success = await adapter.testConnection();
+    // connect() can be slow on Binance (KuCoin market pre-load) — cap at 30s
+    await withTimeout(
+      adapter.connect({ apiKey, apiSecret, sandbox }),
+      30_000,
+      `Connection to ${provider} timed out. The exchange may be slow — please try again.`,
+    );
+
+    const success = await withTimeout(
+      adapter.testConnection(),
+      15_000,
+      `${provider} did not respond in time. Please try again.`,
+    );
+
     if (!success) {
-      await adapter.disconnect();
+      await adapter.disconnect().catch(() => {});
       await sendNotification(userId, {
         type: 'alert',
         title: 'Exchange Connection Failed',
@@ -85,6 +106,8 @@ export async function connectWithApiKey(
       }).catch(() => {});
       throw new AppError(400, `Failed to connect to ${provider}. Please check your API credentials.`);
     }
+    // Disconnect test adapter — balance sync uses a fresh adapter instance below
+    await adapter.disconnect().catch(() => {});
   }
 
   // Encrypt credentials
@@ -109,10 +132,15 @@ export async function connectWithApiKey(
     })
     .returning();
 
-  // Fetch initial balances and create exchange_assets records
-  if (adapter) {
+  // Fetch initial balances in the background — do NOT await this.
+  // The connection is already saved; balance sync is best-effort and should
+  // not block the response (avoids client timeout on slow exchanges).
+  setImmediate(async () => {
+    let bgAdapter;
     try {
-      const balances = await adapter.getBalances();
+      bgAdapter = createAdapter(provider);
+      await bgAdapter.connect({ apiKey, apiSecret, sandbox });
+      const balances = await bgAdapter.getBalances();
       let totalUsd = 0;
 
       for (const bal of balances) {
@@ -121,10 +149,9 @@ export async function connectWithApiKey(
           if (['USDT', 'USDC', 'USD', 'BUSD', 'DAI'].includes(bal.currency)) {
             valueUsd = bal.total;
           } else if (assetClass === 'stocks') {
-            // Stock positions: Alpaca returns market_value as total
             valueUsd = bal.total;
           } else {
-            const ticker = await adapter.getTicker(`${bal.currency}/USDT`);
+            const ticker = await bgAdapter.getTicker(`${bal.currency}/USDT`);
             valueUsd = bal.total * ticker.last;
           }
         } catch {
@@ -133,31 +160,30 @@ export async function connectWithApiKey(
 
         totalUsd += valueUsd;
 
-        // For stocks: amount = share count (free), for crypto: amount = total holdings
         const assetAmount = assetClass === 'stocks' && !['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes(bal.currency)
-          ? bal.free  // share count
-          : bal.total; // crypto amount or cash
+          ? bal.free
+          : bal.total;
 
         await db.insert(exchangeAssets).values({
           exchangeConnId: connection.id,
           symbol: bal.currency,
           amount: String(assetAmount),
           valueUsd: String(valueUsd.toFixed(2)),
-        });
+        }).catch(() => {});
       }
 
-      // Update totalBalance on the connection
       await db
         .update(exchangeConnections)
         .set({ totalBalance: String(totalUsd.toFixed(2)) })
         .where(eq(exchangeConnections.id, connection.id));
 
-      await adapter.disconnect();
+      await bgAdapter.disconnect().catch(() => {});
+      console.log(`[Exchange] Background balance sync complete for ${provider} (${connection.id.slice(0, 8)})`);
     } catch (err) {
-      console.warn('Failed to fetch initial balances:', (err as Error).message);
-      await adapter.disconnect().catch(() => {});
+      console.warn(`[Exchange] Background balance sync failed for ${provider}:`, (err as Error).message);
+      if (bgAdapter) await bgAdapter.disconnect().catch(() => {});
     }
-  }
+  });
 
   await sendNotification(userId, {
     type: 'system',
@@ -182,9 +208,20 @@ export async function testConnection(
   }
 
   try {
-    await adapter.connect({ apiKey, apiSecret, sandbox });
-    const success = await adapter.testConnection();
-    await adapter.disconnect();
+    // connect() can be slow on Binance (KuCoin market pre-load) — cap at 30s
+    await withTimeout(
+      adapter.connect({ apiKey, apiSecret, sandbox }),
+      30_000,
+      `Connection to ${provider} timed out. The exchange may be slow — please try again.`,
+    );
+
+    const success = await withTimeout(
+      adapter.testConnection(),
+      15_000,
+      `${provider} did not respond in time. Please try again.`,
+    );
+
+    await adapter.disconnect().catch(() => {});
 
     if (!success) {
       throw new AppError(400, `Failed to connect to ${provider}. Please check your API credentials.`);
