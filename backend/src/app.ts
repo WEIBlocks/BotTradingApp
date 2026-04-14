@@ -117,9 +117,7 @@ export async function buildApp() {
     reply.header('X-Frame-Options', 'DENY');
     reply.header('X-XSS-Protection', '1; mode=block');
     reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-    if (process.env.NODE_ENV === 'production') {
-      reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-    }
+    // HSTS removed — no domain/SSL configured yet, would cause browser to force HTTPS permanently
   });
 
   // Health check
