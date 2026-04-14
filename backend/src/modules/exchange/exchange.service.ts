@@ -280,8 +280,14 @@ export async function resync(connectionId: string, userId: string) {
       throw new Error('Missing encrypted credentials');
     }
 
-    const apiKey = decrypt(conn.apiKeyEnc);
-    const apiSecret = decrypt(conn.apiSecretEnc);
+    let apiKey: string;
+    let apiSecret: string;
+    try {
+      apiKey = decrypt(conn.apiKeyEnc);
+      apiSecret = decrypt(conn.apiSecretEnc);
+    } catch {
+      throw new Error('Credentials are corrupted — please disconnect and reconnect your exchange.');
+    }
 
     adapter = createAdapter(conn.provider);
     await adapter.connect({ apiKey, apiSecret, sandbox: conn.sandbox ?? false });

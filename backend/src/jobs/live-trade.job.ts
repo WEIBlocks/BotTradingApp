@@ -83,7 +83,7 @@ async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
         const pairs = config.pairs?.length ? config.pairs : ['BTC/USDT'];
         const isStockBot = bot.category === 'Stocks' || pairs.some(p => p.endsWith('/USD') && !p.endsWith('/USDT'));
 
-        // Get the RIGHT exchange connection — Alpaca for stocks, Binance for crypto
+        // Get the RIGHT exchange connection — Alpaca for stocks, any crypto exchange for crypto
         let exchangeConnId = subscription.exchangeConnId;
 
         if (isStockBot) {
@@ -107,11 +107,26 @@ async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
             }).catch(() => {});
             continue;
           }
-        }
+        } else if (!exchangeConnId) {
+          // Crypto bot — auto-find any connected crypto exchange for this user
+          const [cryptoConn] = await db.select({ id: exchangeConnections.id })
+            .from(exchangeConnections)
+            .where(and(
+              eq(exchangeConnections.userId, subscription.userId),
+              eq(exchangeConnections.assetClass, 'crypto'),
+              eq(exchangeConnections.status, 'connected'),
+            )).limit(1);
 
-        if (!exchangeConnId) {
-          console.warn(`[LiveTrade] Subscription ${subscription.id} has no exchange connection`);
-          continue;
+          if (cryptoConn) {
+            exchangeConnId = cryptoConn.id;
+            // Persist so we don't re-lookup every tick
+            await db.update(botSubscriptions)
+              .set({ exchangeConnId: cryptoConn.id, updatedAt: new Date() })
+              .where(eq(botSubscriptions.id, subscription.id));
+          } else {
+            console.warn(`[LiveTrade] Subscription ${subscription.id} has no exchange connection`);
+            continue;
+          }
         }
 
         // Check subscription expiry

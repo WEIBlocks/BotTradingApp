@@ -468,7 +468,7 @@ export default function AIChatScreen() {
                       riskLevel: item.strategyData?.riskLevel,
                       stopLoss: item.strategyData?.stopLoss,
                       takeProfit: item.strategyData?.takeProfit,
-                      prompt: item.cleanPrompt || item.text,
+                      prompt: (item.cleanPrompt || item.text).slice(0, 4500),
                       tradingFrequency: item.strategyData?.tradingFrequency,
                       aiMode: item.strategyData?.aiMode,
                       maxOpenPositions: item.strategyData?.maxOpenPositions,

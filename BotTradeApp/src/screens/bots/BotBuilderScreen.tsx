@@ -243,7 +243,8 @@ export default function BotBuilderScreen() {
     dailyLossLimit: dailyLossLimit ? parseFloat(dailyLossLimit) : undefined,
     orderType,
     creatorFeePercent: creatorFee ? parseFloat(creatorFee) : 10,
-    prompt: prompt.trim() || undefined,
+    // Truncate prompt to 4500 chars — AI chat conversations can be very long
+    prompt: prompt.trim() ? prompt.trim().slice(0, 4500) : undefined,
     tradingFrequency,
     aiMode,
     maxHoldsBeforeAI: maxHoldsBeforeAI ? parseInt(maxHoldsBeforeAI, 10) : undefined,

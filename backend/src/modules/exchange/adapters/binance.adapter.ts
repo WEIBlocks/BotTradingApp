@@ -88,22 +88,44 @@ export class BinanceAdapter implements ExchangeAdapter {
       this.exchange.setSandboxMode(true);
     }
 
-    // Pre-populate markets from KuCoin so ccxt never calls Binance's geo-blocked public API.
-    // This prevents the 451 error on loadMarkets() / exchangeInfo during fetchBalance / createOrder.
-    try {
-      const kucoinMarkets = await getKucoinMarkets();
-      const adapted = adaptMarketsForBinance(kucoinMarkets);
-      if (Object.keys(adapted).length > 0) {
-        this.exchange.markets = adapted;
-        this.exchange.marketsById = {};
-        for (const [sym, mkt] of Object.entries(adapted) as [string, any][]) {
-          this.exchange.marketsById[mkt.id] = mkt;
-        }
-        this.exchange.symbols = Object.keys(adapted);
+    if (useTestnet) {
+      // Testnet public endpoints (testnet.binance.vision) are NOT geo-blocked.
+      // Load real market data directly — this gives correct lot sizes and filters
+      // so createOrder amounts are properly rounded and won't fail LOT_SIZE filter.
+      try {
+        await this.exchange.loadMarkets();
+      } catch {
+        // Fall back to KuCoin pre-population if testnet loadMarkets fails
+        try {
+          const kucoinMarkets = await getKucoinMarkets();
+          const adapted = adaptMarketsForBinance(kucoinMarkets);
+          if (Object.keys(adapted).length > 0) {
+            this.exchange.markets = adapted;
+            this.exchange.marketsById = {};
+            for (const [sym, mkt] of Object.entries(adapted) as [string, any][]) {
+              this.exchange.marketsById[mkt.id] = mkt;
+            }
+            this.exchange.symbols = Object.keys(adapted);
+          }
+        } catch {}
       }
-    } catch {
-      // If KuCoin fails, proceed without pre-populated markets.
-      // Trade may still fail if Binance's exchangeInfo is blocked, but that's unavoidable.
+    } else {
+      // Live Binance public API (api.binance.com/exchangeInfo) is geo-blocked on DigitalOcean NYC.
+      // Pre-populate markets from KuCoin so ccxt never calls the blocked endpoint.
+      try {
+        const kucoinMarkets = await getKucoinMarkets();
+        const adapted = adaptMarketsForBinance(kucoinMarkets);
+        if (Object.keys(adapted).length > 0) {
+          this.exchange.markets = adapted;
+          this.exchange.marketsById = {};
+          for (const [sym, mkt] of Object.entries(adapted) as [string, any][]) {
+            this.exchange.marketsById[mkt.id] = mkt;
+          }
+          this.exchange.symbols = Object.keys(adapted);
+        }
+      } catch {
+        // KuCoin fallback failed — live trades may fail on geo-blocked exchangeInfo
+      }
     }
   }
 
@@ -206,9 +228,14 @@ export class BinanceAdapter implements ExchangeAdapter {
   ): Promise<OrderResult> {
     if (!this.exchange) throw new Error('Not connected');
 
+    // Round amount to exchange lot size — prevents LOT_SIZE filter failures
+    const roundedAmount = this.exchange.markets?.[symbol]
+      ? parseFloat(this.exchange.amountToPrecision(symbol, amount))
+      : amount;
+
     const order = type === 'limit'
-      ? await this.exchange.createOrder(symbol, type, side, amount, price)
-      : await this.exchange.createOrder(symbol, type, side, amount);
+      ? await this.exchange.createOrder(symbol, type, side, roundedAmount, price)
+      : await this.exchange.createOrder(symbol, type, side, roundedAmount);
 
     return {
       id: order.id,

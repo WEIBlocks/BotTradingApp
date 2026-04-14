@@ -18,10 +18,34 @@ async function syncConnectionBalances(conn: typeof exchangeConnections.$inferSel
     return repriceCachedAssets(conn);
   }
 
+  // Guard: legacy or corrupted encrypted values fail with "Invalid authentication tag length"
+  // Safely attempt decrypt — if it fails, mark connection as needing re-auth and fall back
+  let apiKey: string;
+  let apiSecret: string;
+  try {
+    apiKey = decrypt(conn.apiKeyEnc);
+    apiSecret = decrypt(conn.apiSecretEnc);
+  } catch (decryptErr: any) {
+    console.warn(`[PortfolioUpdate] Decryption failed for ${conn.provider} connection ${conn.id.slice(0, 8)}: ${decryptErr.message} — credentials need re-entering`);
+    await db.update(exchangeConnections).set({
+      status: 'error',
+      errorMessage: 'Credentials need to be re-entered (encryption key changed)',
+      updatedAt: new Date(),
+    }).where(eq(exchangeConnections.id, conn.id)).catch(() => {});
+    return repriceCachedAssets(conn);
+  }
+
+  // Binance's authenticated API (api.binance.com) is geo-blocked on DigitalOcean NYC (HTTP 451).
+  // The live trade engine uses ccxt with KuCoin market pre-population to bypass public API geo-block,
+  // but fetchBalance hits the authenticated endpoint which is also blocked from this region.
+  // Skip live balance fetch for Binance — reprice cached assets instead.
+  // Users can resync manually from the app (which goes through user-triggered path, not this server job).
+  if (conn.provider.toLowerCase() === 'binance' && !conn.sandbox) {
+    return repriceCachedAssets(conn);
+  }
+
   let adapter;
   try {
-    const apiKey = decrypt(conn.apiKeyEnc);
-    const apiSecret = decrypt(conn.apiSecretEnc);
     adapter = createAdapter(conn.provider);
     await adapter.connect({ apiKey, apiSecret, sandbox: conn.sandbox ?? false });
 
