@@ -186,7 +186,7 @@ async function processArenaTick() {
               takeProfit: config.takeProfit,
               maxPositionPct: config.maxPositionSize ?? 20,
               tradeDirection: config.tradeDirection ?? 'both',
-              mode: isLiveMode ? 'live' : 'paper',
+              mode: isLiveMode ? 'live' : 'shadow',
               exchangeConnId: liveExchangeConnId,
               // Link positions to this arena session for scoped equity tracking
               shadowSessionId: gladiator.id,

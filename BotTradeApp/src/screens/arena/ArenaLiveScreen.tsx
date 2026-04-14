@@ -215,7 +215,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
   const statusText = `${formatTime(Math.floor(elapsedSec))} / ${formatTime(totalSec)}`;
 
   const ranked = [...activeGladiators].sort((a, b) => (b.currentReturn || 0) - (a.currentReturn || 0));
-  const chartWidth = width - 40;
+  const chartWidth = width - 32;
 
   if (loading) {
     return (
@@ -311,7 +311,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
           const perStockBot = session?.perStockBotAlloc ? parseFloat(session.perStockBotAlloc) : null;
           const perBot = session?.perBotAllocation ? parseFloat(session.perBotAllocation) : totalPool / Math.max(1, ranked.length);
           return (
-            <View style={{marginHorizontal: 16, marginBottom: 10, gap: 6}}>
+            <View style={{marginBottom: 10, gap: 6}}>
               {/* Shared pool row */}
               <View style={{backgroundColor: '#111827', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#1F2937'}}>
                 <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
@@ -371,7 +371,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
           const totalPnl = ranked.reduce((s, g) => s + (g.currentPnl ?? 0), 0);
           const isPos = totalPnl >= 0;
           return (
-            <View style={{marginHorizontal: 16, marginBottom: 12, backgroundColor: '#111827', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#1F2937'}}>
+            <View style={{marginBottom: 12, backgroundColor: '#111827', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#1F2937'}}>
               <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
                 <View>
                   <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>TOTAL P&L (ALL BOTS)</Text>
@@ -415,24 +415,37 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
         })()}
 
         {/* ── CHART SECTION ── */}
-        <View style={styles.chartSection}>
-          <View style={styles.chartHeader}>
-            <Text style={styles.chartTitle}>Live Performance</Text>
-            {/* Dots-only legend */}
-            <View style={styles.dotsRow}>
-              {activeGladiators.map((g, i) => (
-                <View key={g.id} style={[styles.legendDot, {backgroundColor: LINE_COLORS[i]}]} />
-              ))}
+        {(() => {
+          // Only render chart when at least 2 equity points exist for at least one bot
+          const hasChartData = datasets.some(d => d.length >= 2);
+          return (
+            <View style={styles.chartSection}>
+              <View style={styles.chartHeader}>
+                <Text style={styles.chartTitle}>Live Performance</Text>
+                <View style={styles.dotsRow}>
+                  {activeGladiators.map((g, i) => (
+                    <View key={g.id} style={[styles.legendDot, {backgroundColor: LINE_COLORS[i]}]} />
+                  ))}
+                </View>
+              </View>
+              {hasChartData ? (
+                <>
+                  <ArenaMultilineChart datasets={datasets} width={chartWidth} height={220} />
+                  <View style={styles.xAxis}>
+                    <Text style={styles.xLabel}>START</Text>
+                    <Text style={[styles.xLabel, styles.xLabelNow]}>{formatTime(Math.floor(elapsedSec))} (NOW)</Text>
+                    <Text style={styles.xLabel}>{formatTime(totalSec)}</Text>
+                  </View>
+                </>
+              ) : (
+                <View style={{height: 110, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: 12, borderWidth: 1, borderColor: '#1F2937', borderStyle: 'dashed'}}>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.25)', marginBottom: 4}}>Collecting equity data…</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.15)'}}>Chart appears after first tick (~10s)</Text>
+                </View>
+              )}
             </View>
-          </View>
-          <ArenaMultilineChart datasets={datasets} width={chartWidth} height={220} />
-          {/* X-axis labels */}
-          <View style={styles.xAxis}>
-            <Text style={styles.xLabel}>START</Text>
-            <Text style={[styles.xLabel, styles.xLabelNow]}>{formatTime(Math.floor(elapsedSec))} (NOW)</Text>
-            <Text style={styles.xLabel}>{formatTime(totalSec)}</Text>
-          </View>
-        </View>
+          );
+        })()}
 
         {/* ── BATTLE LEADERBOARD ── */}
         <View style={styles.leaderboardHeader}>
@@ -540,7 +553,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
         {activeGladiators.length > 0 && (
           <>
             {/* Tab toggle: Decisions vs Trades */}
-            <View style={{flexDirection: 'row', marginHorizontal: 16, marginBottom: 12, backgroundColor: '#111827', borderRadius: 10, padding: 3}}>
+            <View style={{flexDirection: 'row', marginBottom: 12, backgroundColor: '#111827', borderRadius: 10, padding: 3}}>
               <TouchableOpacity
                 style={{flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', backgroundColor: feedTab === 'decisions' ? '#1F2937' : 'transparent'}}
                 onPress={() => { setFeedTab('decisions'); setDecisionPage(0); }}>
@@ -554,7 +567,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
             </View>
 
             {/* Bot filter tabs */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 12, paddingHorizontal: 16}}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginBottom: 12}}>
               <TouchableOpacity
                 style={[styles.decisionFilterChip, !decisionFilter && styles.decisionFilterChipActive]}
                 onPress={() => setDecisionFilter(null)}>
@@ -587,7 +600,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
               const totalPnl = activeGladiators.reduce((s, g) => s + ((g as any).currentPnl ?? 0), 0);
               const pnlColor = totalPnl >= 0 ? '#10B981' : '#EF4444';
               return (
-                <View style={{flexDirection: 'row', marginHorizontal: 16, marginBottom: 12, backgroundColor: '#111827', borderRadius: 10, padding: 10, gap: 4}}>
+                <View style={{flexDirection: 'row', marginBottom: 12, backgroundColor: '#111827', borderRadius: 10, padding: 10, gap: 4}}>
                   <View style={{flex: 1, alignItems: 'center'}}>
                     <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#FFFFFF'}}>{realTotalTrades}</Text>
                     <Text style={{fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.5)'}}>Total</Text>
@@ -649,7 +662,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
                     const pnlVal = t.pnl ?? 0;
                     const pnlPct = t.pnlPercent ?? 0;
                     return (
-                      <View key={`trade-${i}`} style={{marginHorizontal: 16, marginBottom: 8, backgroundColor: '#111827', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#1F2937', borderLeftWidth: 3, borderLeftColor: borderColor}}>
+                      <View key={`trade-${i}`} style={{marginBottom: 8, backgroundColor: '#111827', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#1F2937', borderLeftWidth: 3, borderLeftColor: borderColor}}>
                         <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4}}>
                           <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
                             <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: t.botColor}} />
@@ -730,7 +743,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
                     Showing {decisionPage * DECISIONS_PER_PAGE + 1}-{Math.min((decisionPage + 1) * DECISIONS_PER_PAGE, allDecisions.length)} of {allDecisions.length} decisions
                   </Text>
                   {paged.map((d, i) => (
-                    <View key={`dec-${decisionPage}-${i}`} style={{marginHorizontal: 16, marginBottom: 8, backgroundColor: '#111827', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#1F2937', borderLeftWidth: d.action !== 'HOLD' ? 3 : 1, borderLeftColor: d.action === 'BUY' ? '#10B981' : d.action === 'SELL' ? '#EF4444' : '#1F2937'}}>
+                    <View key={`dec-${decisionPage}-${i}`} style={{marginBottom: 8, backgroundColor: '#111827', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#1F2937', borderLeftWidth: d.action !== 'HOLD' ? 3 : 1, borderLeftColor: d.action === 'BUY' ? '#10B981' : d.action === 'SELL' ? '#EF4444' : '#1F2937'}}>
                       <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4}}>
                         <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
                           <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: d.botColor}} />
@@ -799,7 +812,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.8, textTransform: 'uppercase',
   },
 
-  scroll: {paddingHorizontal: 20, paddingBottom: 20},
+  scroll: {paddingHorizontal: 16, paddingBottom: 20},
 
   // Status
   statusSection: {marginBottom: 20},

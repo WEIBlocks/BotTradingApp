@@ -11,7 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { users } from "./users.js";
-import { bots, botSubscriptions, shadowSessions } from "./bots.js";
+import { bots, botSubscriptions } from "./bots.js";
 
 export const positionSideEnum = pgEnum("position_side", ["long", "short"]);
 export const positionStatusEnum = pgEnum("position_status", [
@@ -35,9 +35,7 @@ export const botPositions = pgTable(
     subscriptionId: uuid("subscription_id").references(
       () => botSubscriptions.id
     ),
-    shadowSessionId: uuid("shadow_session_id").references(
-      () => shadowSessions.id
-    ),
+    shadowSessionId: uuid("shadow_session_id"),
     symbol: varchar("symbol", { length: 20 }).notNull(),
     side: positionSideEnum("side").notNull(),
     entryPrice: numeric("entry_price", { precision: 18, scale: 8 }).notNull(),

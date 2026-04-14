@@ -13,7 +13,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { users } from "./users.js";
-import { bots, botSubscriptions, shadowSessions } from "./bots.js";
+import { bots, botSubscriptions } from "./bots.js";
 
 export const decisionActionEnum = pgEnum("decision_action", [
   "BUY",
@@ -22,6 +22,7 @@ export const decisionActionEnum = pgEnum("decision_action", [
 ]);
 
 export const decisionModeEnum = pgEnum("decision_mode", [
+  "shadow",
   "paper",
   "live",
 ]);
@@ -41,9 +42,7 @@ export const botDecisions = pgTable(
     subscriptionId: uuid("subscription_id").references(
       () => botSubscriptions.id
     ),
-    shadowSessionId: uuid("shadow_session_id").references(
-      () => shadowSessions.id
-    ),
+    shadowSessionId: uuid("shadow_session_id"),
     symbol: varchar("symbol", { length: 20 }).notNull(),
     action: decisionActionEnum("action").notNull(),
     confidence: integer("confidence").default(0),
