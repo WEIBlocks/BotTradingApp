@@ -4,7 +4,7 @@
 const DEV_API_URL = 'http://192.168.1.16:3000';
 
 // Production backend — DigitalOcean server (update to domain once available)
-const PROD_API_URL = 'https://206.81.2.59';
+const PROD_API_URL = 'http://206.81.2.59';
 
 export const API_BASE_URL = __DEV__ ? DEV_API_URL : PROD_API_URL;
 
