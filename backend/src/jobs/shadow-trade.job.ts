@@ -190,9 +190,15 @@ async function processShadowTrades() {
           if (decision.action === 'HOLD') continue;
 
           // Calculate trade values
-          const positionValue = currentBalance * (decision.sizePercent ?? 20) / 100;
+          // Use at least 10% of balance, minimum $10 virtual value so amount is never 0
+          const sizePercent = decision.sizePercent && decision.sizePercent > 0 ? decision.sizePercent : 20;
+          const rawPositionValue = currentBalance * sizePercent / 100;
+          const positionValue = Math.max(rawPositionValue, 10); // minimum $10 virtual trade
           const amount = positionValue / priceData.price;
           const totalValue = amount * priceData.price;
+
+          // Skip if amount rounds to zero (price data issue)
+          if (amount <= 0 || totalValue <= 0) continue;
           const fee = totalValue * feeRate;
           let pnl: number | null = null;
           let pnlPercent: number | null = null;

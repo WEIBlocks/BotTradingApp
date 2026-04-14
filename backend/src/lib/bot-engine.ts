@@ -27,7 +27,7 @@ import { getPrice } from '../jobs/price-sync.job.js';
 import { botDecisions } from '../db/schema/decisions.js';
 import { botPositions } from '../db/schema/positions.js';
 import { trades } from '../db/schema/trades.js';
-import { bots, botSubscriptions, shadowSessions } from '../db/schema/bots.js';
+import { bots } from '../db/schema/bots.js';
 import { exchangeConnections } from '../db/schema/exchanges.js';
 import { decrypt } from './encryption.js';
 import { createAdapter } from '../modules/exchange/adapters/adapter.factory.js';
@@ -150,7 +150,7 @@ function checkAIRateLimit(botId: string): boolean {
 
 // ─── Position Management (DB-backed) ────────────────────────────────────────
 
-async function getOpenPosition(botId: string, symbol: string, shadowSessionId?: string) {
+async function getOpenPosition(botId: string, symbol: string, shadowSessionId?: string, isPaper?: boolean) {
   const conditions = [
     eq(botPositions.botId, botId),
     eq(botPositions.symbol, symbol),
@@ -160,6 +160,11 @@ async function getOpenPosition(botId: string, symbol: string, shadowSessionId?: 
       ? eq(botPositions.shadowSessionId, shadowSessionId)
       : isNull(botPositions.shadowSessionId),
   ];
+
+  // Critical: filter by isPaper so live positions don't block paper/shadow trades and vice versa
+  if (isPaper !== undefined) {
+    conditions.push(eq(botPositions.isPaper, isPaper));
+  }
 
   const [pos] = await db.select().from(botPositions).where(and(...conditions)).limit(1);
   return pos;
@@ -528,7 +533,7 @@ export async function processSymbol(opts: {
   tradeDirection?: 'buy' | 'sell' | 'both';
   dailyLossLimit?: number;
   orderType?: 'market' | 'limit';
-  mode: 'paper' | 'live';
+  mode: 'shadow' | 'paper' | 'live';
   exchangeConnId?: string;
   subscriptionId?: string;
   shadowSessionId?: string;
@@ -624,8 +629,9 @@ export async function processSymbol(opts: {
     const freqMult = freqCooldownMap[opts.tradingFrequency ?? 'balanced'] ?? 1;
     rules.cooldownMinutes = Math.max(1, Math.round(rules.cooldownMinutes * freqMult));
 
-    // 4. Get position from DB (persistent, survives restarts) — scoped to session
-    const existingPos = await getOpenPosition(botId, symbol, opts.shadowSessionId);
+    // 4. Get position from DB (persistent, survives restarts) — scoped to session and mode
+    // shadow + paper are both virtual (isPaper=true); only live is real (isPaper=false)
+    const existingPos = await getOpenPosition(botId, symbol, opts.shadowSessionId, mode !== 'live');
     const positionPnlPct = existingPos
       ? ((priceData.price - parseFloat(existingPos.entryPrice)) / parseFloat(existingPos.entryPrice)) * 100
       : null;
@@ -764,21 +770,24 @@ export async function processSymbol(opts: {
       ? eq(botPositions.shadowSessionId, opts.shadowSessionId)
       : isNull(botPositions.shadowSessionId);
 
-    // maxOpenPositions check for BUY — scoped to this session
+    // Mode filter: shadow+paper are virtual (isPaper=true), live is real (isPaper=false)
+    const isPaperFilter = eq(botPositions.isPaper, mode !== 'live');
+
+    // maxOpenPositions check for BUY — scoped to this session and mode
     let atMaxPositions = false;
     if (opts.maxOpenPositions !== undefined) {
       const [openRow] = await db
         .select({ cnt: sql<number>`COUNT(*)::int` })
         .from(botPositions)
-        .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open'), sessionScopeFilter));
+        .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open'), sessionScopeFilter, isPaperFilter));
       if (Number(openRow?.cnt ?? 0) >= opts.maxOpenPositions) atMaxPositions = true;
     }
 
-    // Portfolio-level exposure check — scoped to this session
+    // Portfolio-level exposure check — scoped to this session and mode
     if (!atMaxPositions) {
       try {
         const openPositions = await db.select({ entryValue: botPositions.entryValue }).from(botPositions)
-          .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open'), sessionScopeFilter));
+          .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open'), sessionScopeFilter, isPaperFilter));
         const totalExposure = openPositions.reduce((sum, p) => sum + parseFloat(p.entryValue ?? '0'), 0);
         const exposurePct = balance > 0 ? (totalExposure / balance) * 100 : 0;
         if (exposurePct > 80) {
@@ -921,7 +930,7 @@ export async function processSymbol(opts: {
 
       await openPosition({
         userId, botId, symbol, entryPrice: priceData.price, amount, entryValue: posValue,
-        stopLoss: slPrice, takeProfit: tpPrice, isPaper: mode === 'paper',
+        stopLoss: slPrice, takeProfit: tpPrice, isPaper: mode !== 'live',
         reasoning: decision.reasoning, subscriptionId: opts.subscriptionId, shadowSessionId: opts.shadowSessionId,
       });
       decision.reasoning += ` | Size: $${posValue.toFixed(2)}`;
@@ -949,7 +958,7 @@ export async function processSymbol(opts: {
 
 async function logDecision(
   decision: EngineDecision,
-  opts: { botId: string; userId: string; mode: 'paper' | 'live'; subscriptionId?: string; shadowSessionId?: string },
+  opts: { botId: string; userId: string; mode: 'shadow' | 'paper' | 'live'; subscriptionId?: string; shadowSessionId?: string },
 ) {
   // Persist ALL decisions to DB so Live Feed always has data to show
   try {
@@ -1027,12 +1036,19 @@ export async function executeLiveTrade(
 
     if (decision.action === 'BUY') {
       const quoteBalance = balances.find(b => b.currency === quoteCurrency)?.free ?? 0;
-      tradeValue = quoteBalance * (decision.sizePercent ?? 10) / 100;
+      const sizePercent = decision.sizePercent && decision.sizePercent > 0 ? decision.sizePercent : 10;
+      tradeValue = quoteBalance * sizePercent / 100;
       amount = tradeValue / decision.price;
+
+      // Log balance info for debugging
+      console.log(`[BotEngine] BUY ${decision.symbol}: quoteBalance=${quoteBalance} ${quoteCurrency}, sizePercent=${sizePercent}%, tradeValue=$${tradeValue.toFixed(2)}`);
     } else {
       const base = isStock ? decision.symbol : decision.symbol.split('/')[0];
       amount = balances.find(b => b.currency === base)?.free ?? 0;
       tradeValue = amount * decision.price;
+
+      // Log balance info for debugging
+      console.log(`[BotEngine] SELL ${decision.symbol}: base balance=${amount} ${base}, tradeValue=$${tradeValue.toFixed(2)}`);
     }
 
     // Minimum order size: $1 for stocks (fractional shares), $10 for crypto
