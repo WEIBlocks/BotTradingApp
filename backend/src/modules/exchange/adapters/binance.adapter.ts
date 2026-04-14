@@ -7,14 +7,69 @@ import type {
   OrderResult,
 } from './base.adapter.js';
 
+// Binance public REST (exchangeInfo, klines, etc.) is geo-blocked on DigitalOcean NYC (HTTP 451).
+// ccxt internally calls loadMarkets() → exchangeInfo before any authenticated call.
+// Fix: pre-populate ccxt's markets cache from KuCoin (same symbols) so ccxt never needs
+// to call Binance's public endpoint. All authenticated trade calls (createOrder, fetchBalance)
+// go directly to Binance via the user's API key — those are never geo-blocked.
+
+// Shared KuCoin markets cache (loaded once, reused across all adapter instances)
+let kucoinMarketsCache: any = null;
+let kucoinMarketsCacheTime = 0;
+const KUCOIN_CACHE_TTL = 3600_000; // 1 hour
+
+async function getKucoinMarkets(): Promise<any> {
+  if (kucoinMarketsCache && Date.now() - kucoinMarketsCacheTime < KUCOIN_CACHE_TTL) {
+    return kucoinMarketsCache;
+  }
+  try {
+    const ccxt = await import('ccxt');
+    const kucoin = new ccxt.default.kucoin({ enableRateLimit: true });
+    const markets = await kucoin.loadMarkets();
+    kucoinMarketsCache = markets;
+    kucoinMarketsCacheTime = Date.now();
+    return markets;
+  } catch {
+    return kucoinMarketsCache ?? {};
+  }
+}
+
+// Convert KuCoin market entries to Binance-compatible format so ccxt accepts them
+function adaptMarketsForBinance(kucoinMarkets: any): any {
+  const adapted: any = {};
+  for (const [symbol, market] of Object.entries(kucoinMarkets) as [string, any][]) {
+    // Only USDT spot pairs — what Binance bot trading uses
+    if (!symbol.endsWith('/USDT') || market.type !== 'spot') continue;
+    adapted[symbol] = {
+      ...market,
+      // Binance-specific fields ccxt needs
+      id: symbol.replace('/', '').replace('-', ''),
+      symbol,
+      base: market.base,
+      quote: market.quote,
+      active: true,
+      type: 'spot',
+      spot: true,
+      future: false,
+      swap: false,
+      limits: market.limits ?? {
+        amount: { min: 0.00001, max: 999999 },
+        price: { min: 0.00000001, max: 999999 },
+        cost: { min: 1, max: 999999 },
+      },
+      precision: market.precision ?? { amount: 8, price: 8 },
+      info: market.info ?? {},
+    };
+  }
+  return adapted;
+}
+
 export class BinanceAdapter implements ExchangeAdapter {
   readonly name = 'binance';
   private exchange: any = null;
 
   async connect(credentials: ExchangeCredentials): Promise<void> {
     const ccxt = await import('ccxt');
-    // sandbox is per-user — set when they connect their exchange in the app.
-    // true = Binance testnet, false = Binance live. Never driven by a global env var.
     const useTestnet = credentials.sandbox === true;
 
     const options: Record<string, any> = {
@@ -31,6 +86,24 @@ export class BinanceAdapter implements ExchangeAdapter {
 
     if (useTestnet) {
       this.exchange.setSandboxMode(true);
+    }
+
+    // Pre-populate markets from KuCoin so ccxt never calls Binance's geo-blocked public API.
+    // This prevents the 451 error on loadMarkets() / exchangeInfo during fetchBalance / createOrder.
+    try {
+      const kucoinMarkets = await getKucoinMarkets();
+      const adapted = adaptMarketsForBinance(kucoinMarkets);
+      if (Object.keys(adapted).length > 0) {
+        this.exchange.markets = adapted;
+        this.exchange.marketsById = {};
+        for (const [sym, mkt] of Object.entries(adapted) as [string, any][]) {
+          this.exchange.marketsById[mkt.id] = mkt;
+        }
+        this.exchange.symbols = Object.keys(adapted);
+      }
+    } catch {
+      // If KuCoin fails, proceed without pre-populated markets.
+      // Trade may still fail if Binance's exchangeInfo is blocked, but that's unavoidable.
     }
   }
 
@@ -79,7 +152,6 @@ export class BinanceAdapter implements ExchangeAdapter {
     if (symbols.length === 0) return priceMap;
 
     // Use KuCoin public API for pricing — Binance public API is geo-blocked on DigitalOcean NYC.
-    // KuCoin has no geo-restrictions and covers the same major pairs.
     const ccxt = await import('ccxt');
     const publicExchange = new ccxt.default.kucoin({ enableRateLimit: true });
 
@@ -111,9 +183,9 @@ export class BinanceAdapter implements ExchangeAdapter {
 
   async getMarkets(): Promise<Market[]> {
     if (!this.exchange) throw new Error('Not connected');
-    await this.exchange.loadMarkets();
+    // Return pre-populated markets (from KuCoin cache) to avoid geo-blocked Binance call
     const markets: Market[] = [];
-    for (const market of Object.values(this.exchange.markets) as any[]) {
+    for (const market of Object.values(this.exchange.markets ?? {}) as any[]) {
       markets.push({
         symbol: market.symbol,
         base: market.base,

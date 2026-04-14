@@ -243,7 +243,8 @@ async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
           if (decision.action !== 'HOLD' && decision.confidence >= (config.aiConfidenceThreshold ?? 60)) {
             console.log(`[LiveTrade] Executing ${decision.action} for ${pair} (confidence: ${decision.confidence}%)`);
 
-            const result = await executeLiveTrade(
+            // Retry once on failure (transient exchange/network errors)
+            let result = await executeLiveTrade(
               decision,
               subscription.userId,
               bot.id,
@@ -252,18 +253,33 @@ async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
               config.orderType ?? 'market',
             );
 
+            if (!result.success) {
+              console.warn(`[LiveTrade] First attempt failed (${result.error}), retrying in 3s...`);
+              await new Promise(r => setTimeout(r, 3000));
+              result = await executeLiveTrade(
+                decision,
+                subscription.userId,
+                bot.id,
+                subscription.id,
+                exchangeConnId,
+                config.orderType ?? 'market',
+              );
+            }
+
             if (result.success) {
               console.log(`[LiveTrade] Order filled: ${result.orderId}`);
-              // Refresh portfolio immediately after trade execution
               refreshUserPortfolio(subscription.userId).catch(() => {});
-              const priceDisplay = decision.price >= 1000 ? `$${decision.price.toLocaleString('en-US', {maximumFractionDigits: 2})}` : `$${decision.price.toFixed(2)}`;
+              const priceDisplay = decision.price >= 1000
+                ? `$${decision.price.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+                : `$${decision.price.toFixed(2)}`;
               await sendNotification(subscription.userId, {
                 type: 'trade',
                 title: `${decision.action} ${pair} @ ${priceDisplay}`,
                 body: `${bot.name}: ${decision.reasoning}`,
               }).catch(() => {});
             } else {
-              console.error(`[LiveTrade] Order failed: ${result.error}`);
+              // Persistent failure — notify only, do NOT insert a trade record (keeps stats clean)
+              console.error(`[LiveTrade] Order failed after retry: ${result.error}`);
               await sendNotification(subscription.userId, {
                 type: 'alert',
                 title: `Trade Failed — ${pair}`,
