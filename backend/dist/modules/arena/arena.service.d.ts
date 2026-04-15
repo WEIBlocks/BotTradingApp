@@ -115,6 +115,8 @@ export declare function getSession(sessionId: string, userId: string): Promise<{
     hasCrypto: boolean | null;
     hasStocks: boolean | null;
     perBotAllocation: string | null;
+    perCryptoBotAlloc: string | null;
+    perStockBotAlloc: string | null;
     marketOpen: boolean;
     id: string;
     userId: string;
@@ -185,6 +187,8 @@ export declare function getActiveSession(userId: string): Promise<{
     hasCrypto: boolean | null;
     hasStocks: boolean | null;
     perBotAllocation: string | null;
+    perCryptoBotAlloc: string | null;
+    perStockBotAlloc: string | null;
     marketOpen: boolean;
     id: string;
     userId: string;
@@ -264,6 +268,7 @@ export declare function getSessionResults(sessionId: string, userId: string): Pr
             symbol: string;
             entryPrice: number;
             exitPrice: number;
+            amount: number;
             pnl: number;
             pnlPercent: number;
             entryReasoning: string;
@@ -327,6 +332,7 @@ export declare function getSessionResults(sessionId: string, userId: string): Pr
             symbol: string;
             entryPrice: number;
             exitPrice: number;
+            amount: number;
             pnl: number;
             pnlPercent: number;
             entryReasoning: string;

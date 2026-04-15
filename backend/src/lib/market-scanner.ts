@@ -346,7 +346,7 @@ export interface DexToken {
 }
 
 const dexCache = new Map<string, { data: DexToken[]; at: number }>();
-const DEX_CACHE_TTL = 20_000; // 20 seconds
+const DEX_CACHE_TTL = 60_000; // 60 seconds — reduces DexScreener throttling risk
 
 /**
  * Search DexScreener for a token by symbol or name.
@@ -436,32 +436,41 @@ export interface ResolvedPrice {
   source: 'binance' | 'dexscreener';
 }
 
+const priceCache = new Map<string, { data: ResolvedPrice; at: number }>();
+const PRICE_CACHE_TTL = 30_000; // 30s for live prices
+
 /**
- * Try Binance first (fast, reliable for top coins).
- * If not listed on Binance, fall back to DexScreener (covers all DEX tokens).
+ * Try Binance/KuCoin first (fast, reliable for top coins).
+ * If not listed, fall back to DexScreener (covers all DEX tokens).
+ * Results cached 30s to reduce API calls.
  */
 export async function resolveTokenPrice(symbol: string): Promise<ResolvedPrice | null> {
-  // 1. Try Binance
+  const cacheKey = symbol.toUpperCase();
+  const cached = priceCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < PRICE_CACHE_TTL) return cached.data;
+  // 1. Try KuCoin/exchange
   try {
     const pair = symbol.includes('/') ? symbol : `${symbol.toUpperCase()}/USDT`;
     const ticker = await exchange.fetchTicker(pair);
     if (ticker.last && ticker.last > 0) {
-      return {
+      const result: ResolvedPrice = {
         symbol: symbol.toUpperCase(),
         price: ticker.last,
         change24h: ticker.percentage ?? 0,
         volume24h: ticker.quoteVolume ?? 0,
         source: 'binance',
       };
+      priceCache.set(cacheKey, { data: result, at: Date.now() });
+      return result;
     }
   } catch {
-    // Not on Binance — fall through to DexScreener
+    // Not on exchange — fall through to DexScreener
   }
 
   // 2. Fall back to DexScreener
   const dex = await getDexPrice(symbol);
   if (dex && dex.price > 0) {
-    return {
+    const result: ResolvedPrice = {
       symbol: dex.symbol,
       name: dex.name,
       price: dex.price,
@@ -472,6 +481,8 @@ export async function resolveTokenPrice(symbol: string): Promise<ResolvedPrice |
       chain: dex.chain,
       source: 'dexscreener',
     };
+    priceCache.set(cacheKey, { data: result, at: Date.now() });
+    return result;
   }
 
   return null;

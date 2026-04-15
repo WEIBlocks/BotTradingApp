@@ -14,24 +14,23 @@ export declare function chat(userId: string, message: string, conversationId?: s
     provider: string;
     model: string;
     error?: undefined;
-    errorDetail?: undefined;
 } | {
     reply: string;
     conversationId: string;
     provider: string;
     model: string;
     error: string;
-    errorDetail: any;
 } | {
     strategyPreview?: Record<string, unknown> | undefined;
     reply: string;
     conversationId: string;
-    provider: import("../../config/ai.js").LLMProvider;
+    provider: string;
     model: string;
     cleanPrompt: string;
+    toolsUsed: string[] | undefined;
     error?: undefined;
-    errorDetail?: undefined;
 }>;
+export declare function chatStream(userId: string, message: string, conversationId?: string, attachmentUrl?: string, botId?: string): AsyncGenerator<string>;
 export declare function voiceCommand(userId: string, transcript: string): Promise<{
     transcript: string;
     intent: string;

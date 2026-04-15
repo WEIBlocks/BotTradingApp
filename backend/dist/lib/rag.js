@@ -2,6 +2,14 @@ import { db } from '../config/database.js';
 import { knowledgeEmbeddings } from '../db/schema/embeddings.js';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { generateEmbedding, cosineSimilarity } from './embeddings.js';
+import { env } from '../config/env.js';
+function resolveEmbeddingModel() {
+    if (env.GEMINI_API_KEY)
+        return 'gemini-embedding-2-preview';
+    if (env.OPENAI_API_KEY)
+        return 'text-embedding-3-small';
+    return 'hash-fallback';
+}
 // Store a knowledge chunk with embedding
 export async function storeKnowledge(opts) {
     const embedding = await generateEmbedding(opts.content);
@@ -13,6 +21,7 @@ export async function storeKnowledge(opts) {
         content: opts.content,
         summary: opts.summary,
         embedding,
+        embeddingModel: resolveEmbeddingModel(),
         metadata: opts.metadata || {},
     }).returning();
     return row;
@@ -21,10 +30,13 @@ export async function storeKnowledge(opts) {
 export async function retrieveKnowledge(opts) {
     const topK = opts.topK || 5;
     const queryEmbedding = await generateEmbedding(opts.query);
-    // Fetch embeddings: bot-specific first, then user-level (no botId)
+    // RAG isolation:
+    //   With botId  → return that bot's rows + user-level rows (botId IS NULL)
+    //   Without botId → return ONLY user-level rows (botId IS NULL) so bot training
+    //                   data never bleeds into the general chatbot
     const whereClause = opts.botId
         ? and(eq(knowledgeEmbeddings.userId, opts.userId), sql `(${knowledgeEmbeddings.botId} = ${opts.botId} OR ${knowledgeEmbeddings.botId} IS NULL)`)
-        : eq(knowledgeEmbeddings.userId, opts.userId);
+        : and(eq(knowledgeEmbeddings.userId, opts.userId), sql `${knowledgeEmbeddings.botId} IS NULL`);
     const rows = await db
         .select({
         content: knowledgeEmbeddings.content,

@@ -1005,57 +1005,61 @@ export async function getPublicLiveStats(botId) {
     const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
     if (!bot)
         throw new NotFoundError('Bot');
-    // All positions (live only, including stopped subscriptions) for this bot.
-    // Only count positions that had a real exchange trade: entry_trade_id IS NOT NULL
-    // (positions without entry_trade_id were rolled back due to a failed exchange order)
+    // All positions (live only, including stopped subscriptions) for this bot
     const [posStats] = await db.execute(sql `
     SELECT
-      COUNT(*) FILTER (WHERE status = 'closed' AND entry_trade_id IS NOT NULL)::int    AS total_trades,
-      COUNT(*) FILTER (WHERE status = 'closed' AND entry_trade_id IS NOT NULL AND pnl::numeric > 0)::int AS wins,
-      COUNT(*) FILTER (WHERE status = 'open'   AND entry_trade_id IS NOT NULL)::int    AS open_positions,
-      COALESCE(SUM(pnl::numeric)         FILTER (WHERE status = 'closed' AND entry_trade_id IS NOT NULL), 0) AS total_pnl,
-      COALESCE(AVG(pnl_percent::numeric) FILTER (WHERE status = 'closed' AND entry_trade_id IS NOT NULL), 0) AS avg_return,
-      MAX(pnl_percent::numeric)          FILTER (WHERE status = 'closed' AND entry_trade_id IS NOT NULL)     AS best_trade_pct,
-      MIN(pnl_percent::numeric)          FILTER (WHERE status = 'closed' AND entry_trade_id IS NOT NULL)     AS worst_trade_pct,
-      COUNT(DISTINCT user_id)::int                                                      AS live_traders
+      COUNT(*) FILTER (WHERE status = 'closed')::int                            AS total_trades,
+      COUNT(*) FILTER (WHERE status = 'closed' AND pnl::numeric > 0)::int       AS wins,
+      COUNT(*) FILTER (WHERE status = 'open')::int                              AS open_positions,
+      COALESCE(SUM(pnl::numeric) FILTER (WHERE status = 'closed'), 0)           AS total_pnl,
+      COALESCE(AVG(pnl_percent::numeric) FILTER (WHERE status = 'closed'), 0)   AS avg_return,
+      MAX(pnl_percent::numeric) FILTER (WHERE status = 'closed')                AS best_trade_pct,
+      MIN(pnl_percent::numeric) FILTER (WHERE status = 'closed')                AS worst_trade_pct,
+      COUNT(DISTINCT user_id)::int                                               AS live_traders
     FROM bot_positions
     WHERE bot_id = ${botId} AND is_paper = false
   `);
     const total = posStats?.total_trades ?? 0;
     const wins = posStats?.wins ?? 0;
     const winRate = total > 0 ? (wins / total) * 100 : 0;
-    // 30-day window stats — only real executed trades
+    // 30-day window stats
     const [pos30d] = await db.execute(sql `
     SELECT
-      COUNT(*) FILTER (WHERE status = 'closed' AND entry_trade_id IS NOT NULL)::int                               AS trades_30d,
-      COUNT(*) FILTER (WHERE status = 'closed' AND entry_trade_id IS NOT NULL AND pnl::numeric > 0)::int          AS wins_30d,
-      COALESCE(SUM(pnl::numeric)         FILTER (WHERE status = 'closed' AND entry_trade_id IS NOT NULL), 0)      AS pnl_30d,
-      COALESCE(AVG(pnl_percent::numeric) FILTER (WHERE status = 'closed' AND entry_trade_id IS NOT NULL), 0)      AS avg_return_30d
+      COUNT(*) FILTER (WHERE status = 'closed')::int                                AS trades_30d,
+      COUNT(*) FILTER (WHERE status = 'closed' AND pnl::numeric > 0)::int           AS wins_30d,
+      COALESCE(SUM(pnl::numeric) FILTER (WHERE status = 'closed'), 0)               AS pnl_30d,
+      COALESCE(AVG(pnl_percent::numeric) FILTER (WHERE status = 'closed'), 0)       AS avg_return_30d
     FROM bot_positions
     WHERE bot_id = ${botId} AND is_paper = false AND opened_at >= now() - interval '30 days'
   `);
-    // Cumulative P&L equity curve — one point per REAL closed trade (entry_trade_id NOT NULL)
+    // Cumulative P&L equity curve — one point per closed trade, sorted by close time
+    // This shows the bot's cumulative live P&L across ALL users over time
     const allClosed = await db.execute(sql `
     SELECT
       closed_at,
-      opened_at,
       pnl::numeric AS pnl
     FROM bot_positions
-    WHERE bot_id = ${botId} AND is_paper = false AND status = 'closed'
-      AND closed_at IS NOT NULL AND entry_trade_id IS NOT NULL
+    WHERE bot_id = ${botId} AND is_paper = false AND status = 'closed' AND closed_at IS NOT NULL
     ORDER BY closed_at ASC
     LIMIT 200
   `);
+    const toIso = (v) => {
+        if (!v)
+            return null;
+        if (v instanceof Date)
+            return v.toISOString();
+        const d = new Date(String(v).replace(' ', 'T').replace(/(\+\d{2})$/, '$1:00'));
+        return isNaN(d.getTime()) ? null : d.toISOString();
+    };
     let cumPnl = 0;
-    const equityCurve = [0];
+    const equityCurve = [0]; // baseline zero so chart always starts flat
     const equityDates = [''];
     for (const row of allClosed) {
         cumPnl += parseFloat(row.pnl ?? '0');
         equityCurve.push(Math.round(cumPnl * 100) / 100);
-        const dt = row.closed_at;
-        equityDates.push(dt instanceof Date ? dt.toISOString() : (typeof dt === 'string' && dt ? dt : new Date().toISOString()));
+        equityDates.push(toIso(row.closed_at) ?? '');
     }
-    // Recent live trades (last 20, real trades only, most recent first)
+    // Recent live trades (last 20, across all users, most recent first)
     const recentRows = await db.execute(sql `
     SELECT
       id,
@@ -1063,35 +1067,28 @@ export async function getPublicLiveStats(botId) {
       side,
       entry_price::numeric  AS entry_price,
       exit_price::numeric   AS exit_price,
+      amount::numeric        AS amount,
       pnl::numeric          AS pnl,
       pnl_percent::numeric  AS pnl_percent,
       opened_at,
       closed_at
     FROM bot_positions
-    WHERE bot_id = ${botId} AND is_paper = false AND status = 'closed'
-      AND closed_at IS NOT NULL AND entry_trade_id IS NOT NULL
+    WHERE bot_id = ${botId} AND is_paper = false AND status = 'closed' AND closed_at IS NOT NULL
     ORDER BY closed_at DESC
     LIMIT 20
   `);
-    const recentTrades = recentRows.map((r) => {
-        const closedAt = r.closed_at instanceof Date
-            ? r.closed_at.toISOString()
-            : (typeof r.closed_at === 'string' && r.closed_at ? r.closed_at : null);
-        const openedAt = r.opened_at instanceof Date
-            ? r.opened_at.toISOString()
-            : (typeof r.opened_at === 'string' && r.opened_at ? r.opened_at : null);
-        return {
-            id: r.id,
-            symbol: r.symbol,
-            side: r.side,
-            entryPrice: parseFloat(r.entry_price ?? '0'),
-            exitPrice: r.exit_price ? parseFloat(r.exit_price) : null,
-            pnl: parseFloat(r.pnl ?? '0'),
-            pnlPercent: parseFloat(r.pnl_percent ?? '0'),
-            openedAt,
-            closedAt,
-        };
-    });
+    const recentTrades = recentRows.map((r) => ({
+        id: r.id,
+        symbol: r.symbol,
+        side: r.side,
+        entryPrice: parseFloat(r.entry_price ?? '0'),
+        exitPrice: r.exit_price ? parseFloat(r.exit_price) : null,
+        amount: parseFloat(r.amount ?? '0'),
+        pnl: parseFloat(r.pnl ?? '0'),
+        pnlPercent: parseFloat(r.pnl_percent ?? '0'),
+        openedAt: toIso(r.opened_at),
+        closedAt: toIso(r.closed_at),
+    }));
     return {
         liveTraders: posStats?.live_traders ?? 0,
         totalTrades: total,
@@ -1118,10 +1115,8 @@ export async function getMyLiveStats(userId, botId) {
         .orderBy(desc(botSubscriptions.createdAt))
         .limit(1);
     // All live positions for this user+bot (is_paper=false), oldest first for equity curve
-    // Only include positions with a real entry trade (entry_trade_id IS NOT NULL)
-    // to exclude ghost positions from failed exchange orders
     const positions = await db.select().from(botPositions)
-        .where(and(eq(botPositions.botId, botId), eq(botPositions.userId, userId), eq(botPositions.isPaper, false), sql `${botPositions.entryTradeId} IS NOT NULL`))
+        .where(and(eq(botPositions.botId, botId), eq(botPositions.userId, userId), eq(botPositions.isPaper, false)))
         .orderBy(asc(botPositions.openedAt));
     const open = positions.filter(p => p.status === 'open');
     const closed = positions.filter(p => p.status === 'closed');
@@ -1160,21 +1155,18 @@ export async function getMyLiveStats(userId, botId) {
     const bestTrade = closed.length > 0 ? closed.reduce((b, p) => parseFloat(p.pnlPercent ?? '0') > parseFloat(b.pnlPercent ?? '0') ? p : b) : null;
     const worstTrade = closed.length > 0 ? closed.reduce((w, p) => parseFloat(p.pnlPercent ?? '0') < parseFloat(w.pnlPercent ?? '0') ? p : w) : null;
     // Closed trades: show both sides (entry and exit info) — most recent first
-    const closedTrades = [...closed].reverse().slice(0, 50).map(p => {
-        const toISO = (v) => v instanceof Date ? v.toISOString() : (typeof v === 'string' && v ? v : null);
-        return {
-            id: p.id,
-            symbol: p.symbol,
-            side: 'buy/sell',
-            entryPrice: parseFloat(p.entryPrice),
-            exitPrice: p.exitPrice ? parseFloat(p.exitPrice) : null,
-            amount: parseFloat(p.amount),
-            pnl: parseFloat(p.pnl ?? '0'),
-            pnlPercent: parseFloat(p.pnlPercent ?? '0'),
-            openedAt: toISO(p.openedAt),
-            closedAt: toISO(p.closedAt),
-        };
-    });
+    const closedTrades = [...closed].reverse().slice(0, 50).map(p => ({
+        id: p.id,
+        symbol: p.symbol,
+        side: 'buy/sell', // each position is a complete round trip
+        entryPrice: parseFloat(p.entryPrice),
+        exitPrice: p.exitPrice ? parseFloat(p.exitPrice) : null,
+        amount: parseFloat(p.amount),
+        pnl: parseFloat(p.pnl ?? '0'),
+        pnlPercent: parseFloat(p.pnlPercent ?? '0'),
+        openedAt: p.openedAt,
+        closedAt: p.closedAt,
+    }));
     const openPositions = open.map(p => ({
         id: p.id,
         symbol: p.symbol,

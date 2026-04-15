@@ -1,39 +1,112 @@
 import ccxt from 'ccxt';
 import { redisConnection } from '../../config/queue.js';
 import { env } from '../../config/env.js';
-// ─── Direct Binance REST (no ccxt market loading overhead) ──────────────────
-const BINANCE_TF_MAP = {
-    '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d', '1w': '1w',
-};
-async function fetchBinanceCandles(symbol, tf, limit) {
-    const interval = BINANCE_TF_MAP[tf];
-    if (!interval)
-        throw new Error(`Invalid Binance timeframe: ${tf}`);
-    // e.g. BTC/USDT → BTCUSDT
-    const binanceSymbol = symbol.replace('/', '');
-    const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${limit}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
-    try {
-        const res = await fetch(url, { signal: controller.signal });
-        if (!res.ok)
-            throw new Error(`Binance HTTP ${res.status}`);
-        const data = await res.json();
-        return data.map((c) => ({
-            timestamp: Number(c[0]),
-            open: parseFloat(c[1]),
-            high: parseFloat(c[2]),
-            low: parseFloat(c[3]),
-            close: parseFloat(c[4]),
-            volume: parseFloat(c[5]),
-        }));
-    }
-    finally {
-        clearTimeout(timeout);
-    }
-}
-// ccxt only used for Alpaca fallback — Binance now uses direct REST
+// ─── Crypto Candles — KuCoin primary, Kraken fallback ───────────────────────
+// Binance public API is geo-blocked on DigitalOcean NYC (HTTP 451).
+// KuCoin and Kraken have no such geo-restrictions.
 const VALID_CRYPTO_TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d', '1w'];
+// KuCoin timeframe mapping
+const KUCOIN_TF_MAP = {
+    '1m': '1min', '5m': '5min', '15m': '15min', '1h': '1hour',
+    '4h': '4hour', '1d': '1day', '1w': '1week',
+};
+// Kraken timeframe mapping (minutes)
+const KRAKEN_TF_MAP = {
+    '1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1d': 1440, '1w': 10080,
+};
+// KuCoin symbol mapping: BTC/USDT → BTC-USDT
+function toKucoinSymbol(symbol) {
+    return symbol.replace('/', '-');
+}
+// Kraken symbol mapping: BTC/USDT → XBTUSD, ETH/USDT → ETHUSD, etc.
+const KRAKEN_SYMBOL_MAP = {
+    'BTC/USDT': 'XBTUSD', 'ETH/USDT': 'ETHUSD', 'SOL/USDT': 'SOLUSD',
+    'BNB/USDT': 'BNBUSD', 'XRP/USDT': 'XRPUSD', 'ADA/USDT': 'ADAUSD',
+    'DOGE/USDT': 'XDGUSD', 'LTC/USDT': 'LTCUSD', 'LINK/USDT': 'LINKUSD',
+    'DOT/USDT': 'DOTUSD', 'AVAX/USDT': 'AVAXUSD', 'MATIC/USDT': 'MATICUSD',
+    'ATOM/USDT': 'ATOMUSD', 'UNI/USDT': 'UNIUSD',
+};
+async function fetchKucoinCandles(symbol, tf, limit) {
+    const interval = KUCOIN_TF_MAP[tf];
+    if (!interval)
+        throw new Error(`Invalid KuCoin timeframe: ${tf}`);
+    const kcSymbol = toKucoinSymbol(symbol);
+    const endAt = Math.floor(Date.now() / 1000);
+    // KuCoin returns max 1500 candles per request
+    const url = `https://api.kucoin.com/api/v1/market/candles?type=${interval}&symbol=${kcSymbol}&endAt=${endAt}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok)
+        throw new Error(`KuCoin HTTP ${res.status}`);
+    const json = await res.json();
+    if (json.code !== '200000' || !Array.isArray(json.data)) {
+        throw new Error(`KuCoin error: ${json.msg ?? json.code}`);
+    }
+    // KuCoin returns newest first: [time, open, close, high, low, volume, turnover]
+    const candles = json.data
+        .slice(0, limit)
+        .reverse()
+        .map((c) => ({
+        timestamp: Number(c[0]) * 1000,
+        open: parseFloat(c[1]),
+        close: parseFloat(c[2]),
+        high: parseFloat(c[3]),
+        low: parseFloat(c[4]),
+        volume: parseFloat(c[5]),
+    }));
+    return candles;
+}
+async function fetchKrakenCandles(symbol, tf, limit) {
+    const interval = KRAKEN_TF_MAP[tf];
+    if (!interval)
+        throw new Error(`Invalid Kraken timeframe: ${tf}`);
+    const krakenPair = KRAKEN_SYMBOL_MAP[symbol] ?? symbol.replace('/USDT', 'USD').replace('/', '');
+    const since = Math.floor((Date.now() - limit * interval * 60 * 1000) / 1000);
+    const url = `https://api.kraken.com/0/public/OHLC?pair=${krakenPair}&interval=${interval}&since=${since}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok)
+        throw new Error(`Kraken HTTP ${res.status}`);
+    const json = await res.json();
+    if (json.error?.length)
+        throw new Error(`Kraken error: ${json.error[0]}`);
+    const pairKey = Object.keys(json.result).find(k => k !== 'last');
+    if (!pairKey)
+        throw new Error('Kraken: no pair data in response');
+    return json.result[pairKey]
+        .slice(-limit)
+        .map((c) => ({
+        timestamp: Number(c[0]) * 1000,
+        open: parseFloat(c[1]),
+        high: parseFloat(c[2]),
+        low: parseFloat(c[3]),
+        close: parseFloat(c[4]),
+        volume: parseFloat(c[6]),
+    }));
+}
+async function fetchCryptoCandles(symbol, tf, limit) {
+    // Try KuCoin first (wider coin coverage, no geo-block)
+    try {
+        const candles = await fetchKucoinCandles(symbol, tf, limit);
+        if (candles.length > 0) {
+            console.log(`[Market] ${symbol} candles from KuCoin (${candles.length} bars)`);
+            return candles;
+        }
+    }
+    catch (err) {
+        console.warn(`[Market] KuCoin candles failed for ${symbol}: ${err.message}`);
+    }
+    // Fallback: Kraken (most major pairs)
+    try {
+        const candles = await fetchKrakenCandles(symbol, tf, limit);
+        if (candles.length > 0) {
+            console.log(`[Market] ${symbol} candles from Kraken (${candles.length} bars)`);
+            return candles;
+        }
+    }
+    catch (err) {
+        console.warn(`[Market] Kraken candles failed for ${symbol}: ${err.message}`);
+    }
+    return [];
+}
 // Alpaca timeframe mapping for REST API
 const ALPACA_TF_MAP = {
     '1m': '1Min', '5m': '5Min', '15m': '15Min',
@@ -144,11 +217,10 @@ export async function getCandles(symbol, timeframe = '4h', limit = 100) {
         candles = await fetchStockBars(cleanSymbol, alpacaTF, limit);
     }
     else {
-        // Fetch from Binance directly (no ccxt market loading)
         if (!VALID_CRYPTO_TIMEFRAMES.includes(tf)) {
             throw new Error(`Invalid timeframe: ${tf}. Valid: ${VALID_CRYPTO_TIMEFRAMES.join(', ')}`);
         }
-        candles = await fetchBinanceCandles(symbol, tf, limit);
+        candles = await fetchCryptoCandles(symbol, tf, limit);
     }
     // Cache: stocks 60s (market hours data changes), crypto varies by TF
     const ttl = isStock ? 60 : (tf === '1m' ? 60 : tf === '5m' ? 120 : 300);

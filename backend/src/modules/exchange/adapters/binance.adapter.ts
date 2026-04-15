@@ -88,41 +88,40 @@ export class BinanceAdapter implements ExchangeAdapter {
       this.exchange.setSandboxMode(true);
     }
 
+    // Helper to populate KuCoin markets and block ccxt from re-fetching the blocked endpoint
+    const populateFromKuCoin = async () => {
+      const kucoinMarkets = await getKucoinMarkets();
+      const adapted = adaptMarketsForBinance(kucoinMarkets);
+      if (Object.keys(adapted).length > 0) {
+        this.exchange.markets = adapted;
+        this.exchange.marketsById = {};
+        for (const [, mkt] of Object.entries(adapted) as [string, any][]) {
+          this.exchange.marketsById[mkt.id] = mkt;
+        }
+        this.exchange.symbols = Object.keys(adapted);
+        // Prevent ccxt from re-calling loadMarkets() on subsequent API calls
+        this.exchange.marketsLastFetched = Date.now();
+        // Override loadMarkets to no-op so ccxt never hits the geo-blocked endpoint again
+        this.exchange.loadMarkets = async () => this.exchange.markets;
+      }
+    };
+
     if (useTestnet) {
-      // Testnet public endpoints (testnet.binance.vision) are NOT geo-blocked.
-      // Load real market data directly — this gives correct lot sizes and filters
-      // so createOrder amounts are properly rounded and won't fail LOT_SIZE filter.
+      // Testnet public endpoints (testnet.binance.vision) may be geo-blocked on DigitalOcean NYC.
+      // Try to load real market data for correct lot sizes; fall back to KuCoin if blocked.
       try {
         await this.exchange.loadMarkets();
       } catch {
-        // Fall back to KuCoin pre-population if testnet loadMarkets fails
+        // Fall back to KuCoin pre-population if testnet loadMarkets fails (geo-blocked)
         try {
-          const kucoinMarkets = await getKucoinMarkets();
-          const adapted = adaptMarketsForBinance(kucoinMarkets);
-          if (Object.keys(adapted).length > 0) {
-            this.exchange.markets = adapted;
-            this.exchange.marketsById = {};
-            for (const [sym, mkt] of Object.entries(adapted) as [string, any][]) {
-              this.exchange.marketsById[mkt.id] = mkt;
-            }
-            this.exchange.symbols = Object.keys(adapted);
-          }
+          await populateFromKuCoin();
         } catch {}
       }
     } else {
       // Live Binance public API (api.binance.com/exchangeInfo) is geo-blocked on DigitalOcean NYC.
       // Pre-populate markets from KuCoin so ccxt never calls the blocked endpoint.
       try {
-        const kucoinMarkets = await getKucoinMarkets();
-        const adapted = adaptMarketsForBinance(kucoinMarkets);
-        if (Object.keys(adapted).length > 0) {
-          this.exchange.markets = adapted;
-          this.exchange.marketsById = {};
-          for (const [sym, mkt] of Object.entries(adapted) as [string, any][]) {
-            this.exchange.marketsById[mkt.id] = mkt;
-          }
-          this.exchange.symbols = Object.keys(adapted);
-        }
+        await populateFromKuCoin();
       } catch {
         // KuCoin fallback failed — live trades may fail on geo-blocked exchangeInfo
       }

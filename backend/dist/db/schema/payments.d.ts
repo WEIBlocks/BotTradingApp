@@ -1,4 +1,4 @@
-export declare const paymentTypeEnum: import("drizzle-orm/pg-core").PgEnum<["subscription", "subscription_renewal", "deposit", "withdrawal"]>;
+export declare const paymentTypeEnum: import("drizzle-orm/pg-core").PgEnum<["subscription", "subscription_renewal", "deposit", "withdrawal", "bot_purchase"]>;
 export declare const paymentStatusEnum: import("drizzle-orm/pg-core").PgEnum<["pending", "succeeded", "failed", "refunded"]>;
 export declare const paymentMethods: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "payment_methods";
@@ -156,14 +156,14 @@ export declare const payments: import("drizzle-orm/pg-core").PgTableWithColumns<
             tableName: "payments";
             dataType: "string";
             columnType: "PgEnumColumn";
-            data: "withdrawal" | "deposit" | "subscription" | "subscription_renewal";
+            data: "withdrawal" | "deposit" | "subscription" | "subscription_renewal" | "bot_purchase";
             driverParam: string;
             notNull: false;
             hasDefault: false;
             isPrimaryKey: false;
             isAutoincrement: false;
             hasRuntimeDefault: false;
-            enumValues: ["subscription", "subscription_renewal", "deposit", "withdrawal"];
+            enumValues: ["subscription", "subscription_renewal", "deposit", "withdrawal", "bot_purchase"];
             baseColumn: never;
             identity: undefined;
             generated: undefined;

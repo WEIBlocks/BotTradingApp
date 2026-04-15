@@ -4,14 +4,72 @@ import { db } from '../config/database.js';
 import { env } from '../config/env.js';
 import { exchangeAssets, exchangeConnections } from '../db/schema/exchanges.js';
 import { eq, sql } from 'drizzle-orm';
+// Map common ticker symbols to CoinGecko IDs (covers the most popular tokens)
+const COINGECKO_ID_MAP = {
+    BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binancecoin',
+    XRP: 'ripple', ADA: 'cardano', AVAX: 'avalanche-2', DOT: 'polkadot',
+    MATIC: 'matic-network', LINK: 'chainlink', UNI: 'uniswap', LTC: 'litecoin',
+    ATOM: 'cosmos', NEAR: 'near', ARB: 'arbitrum', OP: 'optimism',
+    DOGE: 'dogecoin', SHIB: 'shiba-inu', PEPE: 'pepe', FLOKI: 'floki',
+    TRX: 'tron', TON: 'the-open-network', APT: 'aptos', SUI: 'sui',
+    INJ: 'injective-protocol', SEI: 'sei-network', FET: 'fetch-ai',
+    RENDER: 'render-token', WLD: 'worldcoin-wld', JUP: 'jupiter-exchange-solana',
+};
+async function fetchCoinGeckoPriceById(symbol) {
+    const ticker = symbol.replace('/USDT', '').replace('/USD', '').toUpperCase();
+    const id = COINGECKO_ID_MAP[ticker] ?? ticker.toLowerCase();
+    try {
+        const url = `https://api.coingecko.com/api/v3/simple/price?ids=${id}&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true&include_high_low=true`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (!res.ok)
+            return null;
+        const json = await res.json();
+        const data = json[id];
+        if (!data?.usd)
+            return null;
+        return {
+            price: data.usd,
+            change24h: data.usd_24h_change ?? 0,
+            volume: data.usd_24h_vol ?? 0,
+            high24h: data.usd_high_24h ?? data.usd,
+            low24h: data.usd_low_24h ?? data.usd,
+            timestamp: Date.now(),
+        };
+    }
+    catch {
+        return null;
+    }
+}
 // Base symbols always tracked
 const BASE_CRYPTO_SYMBOLS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'];
 const BASE_STOCK_SYMBOLS = ['AAPL', 'MSFT', 'TSLA', 'AMZN', 'GOOGL', 'NVDA', 'META', 'AMD'];
 const STABLECOINS = new Set(['USDT', 'USDC', 'USD', 'BUSD', 'DAI', 'TUSD', 'FDUSD']);
+// Binance public API is geo-blocked on DigitalOcean NYC (HTTP 451).
+// Kraken is the primary price source; CoinGecko covers any token Kraken doesn't list.
+// Binance is still used for actual trade execution via user API keys (that's per-user, not public).
 const binance = new ccxt.binance({
     enableRateLimit: true,
     options: { defaultType: 'spot' },
 });
+const kraken = new ccxt.kraken({ enableRateLimit: true });
+const KRAKEN_SYMBOL_MAP = {
+    'BTC/USDT': 'BTC/USD',
+    'ETH/USDT': 'ETH/USD',
+    'SOL/USDT': 'SOL/USD',
+    'BNB/USDT': 'BNB/USD',
+    'XRP/USDT': 'XRP/USD',
+    'ADA/USDT': 'ADA/USD',
+    'DOGE/USDT': 'DOGE/USD',
+    'AVAX/USDT': 'AVAX/USD',
+    'DOT/USDT': 'DOT/USD',
+    'LINK/USDT': 'LINK/USD',
+    'MATIC/USDT': 'MATIC/USD',
+    'ATOM/USDT': 'ATOM/USD',
+    'LTC/USDT': 'LTC/USD',
+    'UNI/USDT': 'UNI/USD',
+};
+// Always true on DigitalOcean NYC — Binance public API returns 451
+const binanceGeoBlocked = true;
 // Lazy-init Alpaca client for market data (no auth needed for free tier snapshots)
 let alpacaClient = null;
 async function getAlpacaClient() {
@@ -45,7 +103,10 @@ async function getValidBinanceSymbols() {
         validSymbolsCacheTime = Date.now();
     }
     catch {
+        // Silently fall back — Binance may be geo-restricted on this server (e.g. DigitalOcean NYC)
         validSymbolsCache = validSymbolsCache ?? new Set(BASE_CRYPTO_SYMBOLS);
+        // Mark cache time so we don't retry loadMarkets every 30s — retry once per hour
+        validSymbolsCacheTime = Date.now();
     }
     return validSymbolsCache;
 }
@@ -83,9 +144,7 @@ async function discoverUserSymbols() {
         return { crypto: [], stocks: [] };
     }
 }
-async function syncCryptoPrices(symbols) {
-    if (symbols.length === 0)
-        return 0;
+async function syncCryptoPricesViaBinance(symbols) {
     const validSymbols = await getValidBinanceSymbols();
     const fetchSymbols = symbols.filter(s => validSymbols.has(s));
     if (fetchSymbols.length === 0)
@@ -110,6 +169,57 @@ async function syncCryptoPrices(symbols) {
         }
     }
     return fetchSymbols.length;
+}
+async function syncCryptoPricesViaKraken(symbols) {
+    let count = 0;
+    for (const symbol of symbols) {
+        try {
+            const krakenSym = KRAKEN_SYMBOL_MAP[symbol] ?? symbol.replace('/USDT', '/USD');
+            const ticker = await kraken.fetchTicker(krakenSym);
+            if (!ticker || !ticker.last)
+                continue;
+            const data = {
+                price: ticker.last ?? 0,
+                change24h: ticker.percentage ?? 0,
+                volume: ticker.quoteVolume ?? 0,
+                high24h: ticker.high ?? 0,
+                low24h: ticker.low ?? 0,
+                timestamp: Date.now(),
+            };
+            await redisConnection.set(`price:${symbol.replace('/', ':')}`, JSON.stringify(data), 'EX', 120);
+            count++;
+        }
+        catch {
+            // skip individual symbol failures
+        }
+    }
+    return count;
+}
+async function syncCryptoPrices(symbols) {
+    if (symbols.length === 0)
+        return 0;
+    // Kraken is primary (Binance public API is geo-blocked on DigitalOcean NYC)
+    const krakenCount = await syncCryptoPricesViaKraken(symbols);
+    // Use CoinGecko for any symbols not listed on Kraken
+    if (krakenCount < symbols.length) {
+        const krakenMapped = new Set(Object.values(KRAKEN_SYMBOL_MAP));
+        const notOnKraken = symbols.filter(s => {
+            const mapped = KRAKEN_SYMBOL_MAP[s] ?? s.replace('/USDT', '/USD');
+            return !krakenMapped.has(mapped) && !krakenMapped.has(s);
+        });
+        let cgCount = 0;
+        for (const sym of notOnKraken) {
+            const data = await fetchCoinGeckoPriceById(sym);
+            if (data) {
+                const key = `price:${sym.replace('/', ':')}`;
+                await redisConnection.set(key, JSON.stringify(data), 'EX', 120);
+                cgCount++;
+            }
+        }
+        if (cgCount > 0)
+            console.log(`[PriceSync] CoinGecko filled ${cgCount} tokens not on Kraken`);
+    }
+    return krakenCount;
 }
 async function syncStockPrices(symbols) {
     if (symbols.length === 0)
@@ -225,25 +335,33 @@ export async function getPrice(symbol) {
             return null;
         }
     }
-    // Crypto fallback via Binance
+    // Crypto: try Kraken first (Binance public API is geo-blocked on this server)
     try {
-        const ticker = await binance.fetchTicker(symbol);
-        if (!ticker)
-            return null;
-        const data = {
-            price: ticker.last ?? 0,
-            change24h: ticker.percentage ?? 0,
-            volume: ticker.quoteVolume ?? 0,
-            high24h: ticker.high ?? 0,
-            low24h: ticker.low ?? 0,
-            timestamp: Date.now(),
-        };
-        await redisConnection.set(redisKey, JSON.stringify(data), 'EX', 120);
-        return data;
+        const krakenSym = KRAKEN_SYMBOL_MAP[symbol] ?? symbol.replace('/USDT', '/USD');
+        const ticker = await kraken.fetchTicker(krakenSym);
+        if (ticker?.last) {
+            const data = {
+                price: ticker.last ?? 0,
+                change24h: ticker.percentage ?? 0,
+                volume: ticker.quoteVolume ?? 0,
+                high24h: ticker.high ?? 0,
+                low24h: ticker.low ?? 0,
+                timestamp: Date.now(),
+            };
+            await redisConnection.set(redisKey, JSON.stringify(data), 'EX', 120);
+            return data;
+        }
     }
     catch {
-        return null;
+        // fall through to CoinGecko
     }
+    // Final fallback: CoinGecko free public API — covers 10,000+ tokens, no credentials needed
+    const cgData = await fetchCoinGeckoPriceById(symbol);
+    if (cgData) {
+        await redisConnection.set(redisKey, JSON.stringify(cgData), 'EX', 120);
+        return cgData;
+    }
+    return null;
 }
 /** Check if US stock market is currently open */
 export async function isUSMarketOpen() {

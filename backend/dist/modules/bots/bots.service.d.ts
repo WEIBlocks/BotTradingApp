@@ -453,7 +453,7 @@ export declare function getBotDecisions(userId: string, botId: string, limit?: n
         price: string;
         aiCalled: boolean | null;
         tokensCost: number | null;
-        mode: "live" | "paper" | null;
+        mode: "shadow" | "live" | "paper" | null;
         createdAt: Date | null;
     }[];
     pagination: {
@@ -596,10 +596,11 @@ export declare function getPublicLiveStats(botId: string): Promise<{
         side: any;
         entryPrice: number;
         exitPrice: number | null;
+        amount: number;
         pnl: number;
         pnlPercent: number;
-        openedAt: any;
-        closedAt: any;
+        openedAt: string | null;
+        closedAt: string | null;
     }[];
 }>;
 export declare function getMyLiveStats(userId: string, botId: string): Promise<{
@@ -637,8 +638,8 @@ export declare function getMyLiveStats(userId: string, botId: string): Promise<{
         amount: number;
         pnl: number;
         pnlPercent: number;
-        openedAt: string | null;
-        closedAt: string | null;
+        openedAt: Date | null;
+        closedAt: Date | null;
     }[];
     openPositions: {
         id: string;

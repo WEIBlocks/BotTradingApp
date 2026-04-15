@@ -4,8 +4,8 @@
  * Includes both closed P&L and unrealized P&L from open positions.
  */
 import { db } from '../config/database.js';
-import { botStatistics, bots, botSubscriptions, shadowSessions } from '../db/schema/bots';
-import { botPositions } from '../db/schema/positions';
+import { botStatistics, bots, botSubscriptions, shadowSessions } from '../db/schema/bots.js';
+import { botPositions } from '../db/schema/positions.js';
 import { eq, and, sql } from 'drizzle-orm';
 import { getPrice } from './price-sync.job.js';
 async function calculateBotStats() {

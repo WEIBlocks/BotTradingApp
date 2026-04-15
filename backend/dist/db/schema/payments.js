@@ -1,11 +1,12 @@
 import { pgTable, pgEnum, uuid, varchar, boolean, numeric, timestamp, jsonb, } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
+import { users } from "./users.js";
 export const paymentTypeEnum = pgEnum("payment_type", [
     "subscription",
     "subscription_renewal",
     "deposit",
     "withdrawal",
+    "bot_purchase",
 ]);
 export const paymentStatusEnum = pgEnum("payment_status", [
     "pending",

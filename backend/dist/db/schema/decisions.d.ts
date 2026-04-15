@@ -1,5 +1,5 @@
 export declare const decisionActionEnum: import("drizzle-orm/pg-core").PgEnum<["BUY", "SELL", "HOLD"]>;
-export declare const decisionModeEnum: import("drizzle-orm/pg-core").PgEnum<["paper", "live"]>;
+export declare const decisionModeEnum: import("drizzle-orm/pg-core").PgEnum<["shadow", "paper", "live"]>;
 export declare const botDecisions: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "bot_decisions";
     schema: undefined;
@@ -232,14 +232,14 @@ export declare const botDecisions: import("drizzle-orm/pg-core").PgTableWithColu
             tableName: "bot_decisions";
             dataType: "string";
             columnType: "PgEnumColumn";
-            data: "live" | "paper";
+            data: "shadow" | "live" | "paper";
             driverParam: string;
             notNull: false;
             hasDefault: true;
             isPrimaryKey: false;
             isAutoincrement: false;
             hasRuntimeDefault: false;
-            enumValues: ["paper", "live"];
+            enumValues: ["shadow", "paper", "live"];
             baseColumn: never;
             identity: undefined;
             generated: undefined;

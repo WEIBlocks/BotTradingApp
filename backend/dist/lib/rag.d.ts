@@ -16,6 +16,7 @@ export declare function storeKnowledge(opts: {
     sourceType: string;
     sourceId: string | null;
     embedding: unknown;
+    embeddingModel: string | null;
     metadata: unknown;
 }>;
 export declare function retrieveKnowledge(opts: {

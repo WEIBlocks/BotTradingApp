@@ -11,15 +11,18 @@ export async function getUserPaymentMethods(userId) {
     return methods;
 }
 export async function addPaymentMethod(userId, data) {
+    // Encode extra details (last4, network, cryptoAddress) into label since schema only has label
+    let label = data.label ?? null;
+    if (!label && data.last4)
+        label = `****${data.last4}${data.network ? ` (${data.network})` : ''}`;
+    if (!label && data.cryptoAddress)
+        label = data.cryptoAddress.slice(0, 8) + '…';
     const [method] = await db
         .insert(paymentMethods)
         .values({
         userId,
         type: data.type,
-        label: data.label ?? null,
-        last4: data.last4 ?? null,
-        network: data.network ?? null,
-        cryptoAddress: data.cryptoAddress ?? null,
+        label,
     })
         .returning();
     return method;

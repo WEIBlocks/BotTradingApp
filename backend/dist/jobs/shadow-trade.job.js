@@ -1,9 +1,9 @@
 import { eq, sql, and } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { shadowSessions, bots, botSubscriptions } from '../db/schema/bots';
-import { trades } from '../db/schema/trades';
-import { activityLog } from '../db/schema/training';
-import { botDecisions } from '../db/schema/decisions';
+import { shadowSessions, bots, botSubscriptions } from '../db/schema/bots.js';
+import { trades } from '../db/schema/trades.js';
+import { activityLog } from '../db/schema/training.js';
+import { botDecisions } from '../db/schema/decisions.js';
 import { getPrice, isUSMarketOpen } from './price-sync.job.js';
 import { processSymbol } from '../lib/bot-engine.js';
 async function processShadowTrades() {
@@ -144,9 +144,15 @@ async function processShadowTrades() {
                     if (decision.action === 'HOLD')
                         continue;
                     // Calculate trade values
-                    const positionValue = currentBalance * (decision.sizePercent ?? 20) / 100;
+                    // Use at least 10% of balance, minimum $10 virtual value so amount is never 0
+                    const sizePercent = decision.sizePercent && decision.sizePercent > 0 ? decision.sizePercent : 20;
+                    const rawPositionValue = currentBalance * sizePercent / 100;
+                    const positionValue = Math.max(rawPositionValue, 10); // minimum $10 virtual trade
                     const amount = positionValue / priceData.price;
                     const totalValue = amount * priceData.price;
+                    // Skip if amount rounds to zero (price data issue)
+                    if (amount <= 0 || totalValue <= 0)
+                        continue;
                     const fee = totalValue * feeRate;
                     let pnl = null;
                     let pnlPercent = null;

@@ -163,6 +163,7 @@ export default function AIChatScreen() {
   const [inputText, setInputText] = useState('');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [isTyping, setIsTyping] = useState(false);
+  const [stageText, setStageText] = useState<string>('');
   const [historyLoading, setHistoryLoading] = useState(true);
   const [attachedImage, setAttachedImage] = useState<string | null>(null);
   const [attachedImageName, setAttachedImageName] = useState<string>('');
@@ -321,6 +322,17 @@ export default function AIChatScreen() {
     } catch {}
   }, [conversationId, handleNewConversation]);
 
+  // Simulated stage animation — cycles through stages while YouTube request is in-flight
+  const animateStages = useCallback((stages: string[], intervalMs = 1800): (() => void) => {
+    let i = 0;
+    setStageText(stages[0]);
+    const timer = setInterval(() => {
+      i = Math.min(i + 1, stages.length - 1);
+      setStageText(stages[i]);
+    }, intervalMs);
+    return () => clearInterval(timer);
+  }, []);
+
   const sendMessage = useCallback(async () => {
     if (!inputText.trim() || isUploading) return;
     const text = inputText.trim();
@@ -329,6 +341,7 @@ export default function AIChatScreen() {
     setMessages(prev => [...prev, userMsg]);
     setInputText('');
     setIsTyping(true);
+    setStageText('');
 
     // Clear attachment immediately
     const preUploadedUrl = uploadedUrl;
@@ -336,49 +349,121 @@ export default function AIChatScreen() {
     setAttachedImageName('');
     setUploadedUrl(null);
 
-    try {
-      let response;
-      if (imgUri) {
+    // YouTube URLs — show staged animation while the backend processes
+    const hasYouTubeUrl = /(?:youtube\.com\/watch\?v=|youtu\.be\/)[a-zA-Z0-9_-]{11}/.test(text);
+    let stopYoutubeAnimation: (() => void) | null = null;
+    if (hasYouTubeUrl) {
+      stopYoutubeAnimation = animateStages([
+        'Fetching video info...',
+        'Getting transcript...',
+        'Analyzing with AI...',
+        'Storing knowledge...',
+      ]);
+    }
+
+    // Image uploads use the non-streaming path (multipart)
+    if (imgUri) {
+      try {
+        let response;
         if (preUploadedUrl) {
-          // Use pre-uploaded URL — send as regular chat with attachmentUrl
           response = await aiApi.chat(text, conversationId, preUploadedUrl, botId);
         } else {
-          // Fallback: upload and chat in one request
           response = await aiApi.chatWithImage(text, imgUri, conversationId, () => {});
         }
-      } else {
-        response = await aiApi.chat(text, conversationId, undefined, botId);
+        setConversationId(response.conversationId);
+        const cleanReply = response.reply.replace(/```strategy-json[\s\S]*?```/g, '').trim();
+        setMessages(prev => [...prev, {
+          id: (Date.now() + 1).toString(),
+          role: 'ai',
+          text: cleanReply,
+          cleanPrompt: response.cleanPrompt,
+          hasStrategyCard: !!response.strategy,
+          strategyData: response.strategy,
+        }]);
+      } catch (e: any) {
+        setMessages(prev => [...prev, {id: (Date.now() + 1).toString(), role: 'ai', text: e?.message || 'Sorry, I encountered an error.'}]);
+      } finally {
+        setIsTyping(false);
+        setStageText('');
       }
-      setConversationId(response.conversationId);
-
-      // Strip strategy-json fence from display text
-      const cleanReply = response.reply
-        .replace(/```strategy-json[\s\S]*?```/g, '')
-        .trim();
-
-      const aiMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'ai',
-        text: cleanReply,
-        cleanPrompt: response.cleanPrompt,
-        hasStrategyCard: !!response.strategy,
-        strategyData: response.strategy,
-      };
-      setMessages(prev => [...prev, aiMsg]);
-    } catch (e: any) {
-      setUploadProgress(0);
-      const msg = e?.message || 'Sorry, I encountered an error. Please try again.';
-      const errorMsg: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'ai',
-        text: msg,
-      };
-      setMessages(prev => [...prev, errorMsg]);
-    } finally {
-      setIsTyping(false);
-      // Inverted list auto-shows new messages at bottom
+      return;
     }
-  }, [inputText, conversationId, attachedImage, isUploading, botId]);
+
+    // Streaming path — insert placeholder bubble, fill it as tokens arrive
+    const streamMsgId = (Date.now() + 1).toString();
+    setMessages(prev => [...prev, {id: streamMsgId, role: 'ai', text: ''}]);
+
+    try {
+      let accumulated = '';
+      let firstToken = true;
+      // Batch token renders: flush at most every 30ms so we don't re-render on every word
+      let flushTimer: ReturnType<typeof setTimeout> | null = null;
+      let pendingFlush = false;
+
+      const flushToUI = () => {
+        flushTimer = null;
+        pendingFlush = false;
+        const display = accumulated.replace(/```strategy-json[\s\S]*?```/g, '').trim();
+        setMessages(prev => prev.map(m => m.id === streamMsgId ? {...m, text: display} : m));
+      };
+
+      const scheduleFlush = () => {
+        if (pendingFlush) return; // already scheduled
+        pendingFlush = true;
+        flushTimer = setTimeout(flushToUI, 30);
+      };
+
+      await aiApi.chatStream(
+        text,
+        conversationId,
+        // onToken — batch updates so React renders every ~30ms not every word
+        (token) => {
+          if (firstToken) {
+            firstToken = false;
+            setIsTyping(false);
+            stopYoutubeAnimation?.();
+            setStageText('');
+          }
+          accumulated += token;
+          scheduleFlush();
+          shouldScrollToEnd.current = true;
+        },
+        // onTool — show which tool is running in the stage label
+        (toolName) => {
+          setStageText(toolName.replace(/_/g, ' '));
+        },
+        // onDone — flush immediately then finalize with strategy card
+        (meta) => {
+          if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+          setConversationId(meta.conversationId);
+          stopYoutubeAnimation?.();
+          setStageText('');
+          const finalDisplay = accumulated.replace(/```strategy-json[\s\S]*?```/g, '').trim();
+          setMessages(prev => prev.map(m =>
+            m.id === streamMsgId ? {
+              ...m,
+              text: finalDisplay,
+              cleanPrompt: meta.cleanPrompt,
+              hasStrategyCard: !!meta.strategyPreview,
+              strategyData: meta.strategyPreview as any,
+            } : m,
+          ));
+        },
+        undefined,
+        botId,
+      );
+      // Final flush in case last tokens haven't rendered yet
+      if (flushTimer) { clearTimeout(flushTimer); flushToUI(); }
+    } catch (e: any) {
+      stopYoutubeAnimation?.();
+      const errText = e?.message || 'Sorry, I encountered an error. Please try again.';
+      setMessages(prev => prev.map(m => m.id === streamMsgId ? {...m, text: errText} : m));
+    } finally {
+      stopYoutubeAnimation?.();
+      setIsTyping(false);
+      setStageText('');
+    }
+  }, [inputText, conversationId, attachedImage, isUploading, botId, animateStages]);
 
   // Strategy card width = bubble max width - padding
   const strategyCardWidth = width * 0.72 - 32;
@@ -409,6 +494,9 @@ export default function AIChatScreen() {
         </View>
       );
     }
+
+    // Don't render empty streaming placeholder — let the typing indicator handle that moment
+    if (!item.text && item.role === 'ai') return null;
 
     return (
       <View style={styles.aiRow}>
@@ -528,7 +616,18 @@ export default function AIChatScreen() {
       {isTyping && (
         <View style={{flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8, gap: 8}}>
           <AiBotAvatar size={24} />
-          <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)'}}>AI is thinking...</Text>
+          <View style={{flex: 1}}>
+            <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)'}}>
+              {stageText || 'AI is thinking...'}
+            </Text>
+            {!!stageText && (
+              <View style={{flexDirection: 'row', gap: 4, marginTop: 4}}>
+                {[0, 1, 2].map(i => (
+                  <View key={i} style={{width: 5, height: 5, borderRadius: 3, backgroundColor: '#10B981', opacity: 0.6 + i * 0.2}} />
+                ))}
+              </View>
+            )}
+          </View>
         </View>
       )}
 
@@ -666,7 +765,7 @@ const convStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: '#0A0E14'},
   messageList: {flex: 1},
-  bottomBar: {backgroundColor: '#0A0E14'},
+  bottomBar: {backgroundColor: '#0A0E14', paddingBottom: 12},
 
   // Header
   header: {
@@ -682,7 +781,7 @@ const styles = StyleSheet.create({
   activeText: {fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#10B981', letterSpacing: 0.5},
 
   // Messages list
-  messagesList: {paddingHorizontal: 16, paddingTop: 16, paddingBottom: 10},
+  messagesList: {paddingHorizontal: 16, paddingTop: 8, paddingBottom: 20},
 
   // AI message
   aiRow: {flexDirection: 'row', alignItems: 'flex-start', marginBottom: 18, maxWidth: '100%'},

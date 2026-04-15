@@ -4,10 +4,10 @@
  */
 import { eq, and, sql } from 'drizzle-orm';
 import { db } from '../config/database.js';
-import { bots, botSubscriptions } from '../db/schema/bots';
-import { exchangeConnections } from '../db/schema/exchanges';
-import { botDecisions } from '../db/schema/decisions';
-import { processSymbol, executeLiveTrade, rollbackPosition } from '../lib/bot-engine.js';
+import { bots, botSubscriptions } from '../db/schema/bots.js';
+import { exchangeConnections } from '../db/schema/exchanges.js';
+import { botDecisions } from '../db/schema/decisions.js';
+import { processSymbol, executeLiveTrade } from '../lib/bot-engine.js';
 import { sendNotification } from '../lib/notify.js';
 import { refreshUserPortfolio } from './portfolio-update.job.js';
 import { isUSMarketOpen, getPrice } from './price-sync.job.js';
@@ -42,7 +42,7 @@ async function processLiveTrades(frequencyFilter) {
                 const userConfig = (subscription.userConfig ?? {});
                 const pairs = config.pairs?.length ? config.pairs : ['BTC/USDT'];
                 const isStockBot = bot.category === 'Stocks' || pairs.some(p => p.endsWith('/USD') && !p.endsWith('/USDT'));
-                // Get the RIGHT exchange connection — Alpaca for stocks, Binance for crypto
+                // Get the RIGHT exchange connection — Alpaca for stocks, any crypto exchange for crypto
                 let exchangeConnId = subscription.exchangeConnId;
                 if (isStockBot) {
                     // Find user's Alpaca connection
@@ -62,9 +62,22 @@ async function processLiveTrades(frequencyFilter) {
                         continue;
                     }
                 }
-                if (!exchangeConnId) {
-                    console.warn(`[LiveTrade] Subscription ${subscription.id} has no exchange connection`);
-                    continue;
+                else if (!exchangeConnId) {
+                    // Crypto bot — auto-find any connected crypto exchange for this user
+                    const [cryptoConn] = await db.select({ id: exchangeConnections.id })
+                        .from(exchangeConnections)
+                        .where(and(eq(exchangeConnections.userId, subscription.userId), eq(exchangeConnections.assetClass, 'crypto'), eq(exchangeConnections.status, 'connected'))).limit(1);
+                    if (cryptoConn) {
+                        exchangeConnId = cryptoConn.id;
+                        // Persist so we don't re-lookup every tick
+                        await db.update(botSubscriptions)
+                            .set({ exchangeConnId: cryptoConn.id, updatedAt: new Date() })
+                            .where(eq(botSubscriptions.id, subscription.id));
+                    }
+                    else {
+                        console.warn(`[LiveTrade] Subscription ${subscription.id} has no exchange connection`);
+                        continue;
+                    }
                 }
                 // Check subscription expiry
                 if (subscription.expiresAt && new Date() >= new Date(subscription.expiresAt)) {
@@ -180,12 +193,19 @@ async function processLiveTrades(frequencyFilter) {
                     // Execute real trade if BUY/SELL with high confidence
                     if (decision.action !== 'HOLD' && decision.confidence >= (config.aiConfidenceThreshold ?? 60)) {
                         console.log(`[LiveTrade] Executing ${decision.action} for ${pair} (confidence: ${decision.confidence}%)`);
-                        const result = await executeLiveTrade(decision, subscription.userId, bot.id, subscription.id, exchangeConnId, config.orderType ?? 'market');
+                        // Retry once on failure (transient exchange/network errors)
+                        let result = await executeLiveTrade(decision, subscription.userId, bot.id, subscription.id, exchangeConnId, config.orderType ?? 'market');
+                        if (!result.success) {
+                            console.warn(`[LiveTrade] First attempt failed (${result.error}), retrying in 3s...`);
+                            await new Promise(r => setTimeout(r, 3000));
+                            result = await executeLiveTrade(decision, subscription.userId, bot.id, subscription.id, exchangeConnId, config.orderType ?? 'market');
+                        }
                         if (result.success) {
                             console.log(`[LiveTrade] Order filled: ${result.orderId}`);
-                            // Refresh portfolio immediately after trade execution
                             refreshUserPortfolio(subscription.userId).catch(() => { });
-                            const priceDisplay = decision.price >= 1000 ? `$${decision.price.toLocaleString('en-US', { maximumFractionDigits: 2 })}` : `$${decision.price.toFixed(2)}`;
+                            const priceDisplay = decision.price >= 1000
+                                ? `$${decision.price.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+                                : `$${decision.price.toFixed(2)}`;
                             await sendNotification(subscription.userId, {
                                 type: 'trade',
                                 title: `${decision.action} ${pair} @ ${priceDisplay}`,
@@ -193,54 +213,14 @@ async function processLiveTrades(frequencyFilter) {
                             }).catch(() => { });
                         }
                         else {
-                            console.error(`[LiveTrade] Order failed: ${result.error}`);
-                            // ── CRITICAL: Roll back the DB position that processSymbol already opened/closed
-                            // before the exchange trade failed. Without this, ghost positions pollute stats.
-                            if (decision.action === 'BUY') {
-                                // BUY failed: delete the orphaned open position
-                                await rollbackPosition(bot.id, pair, subscription.userId, subscription.id);
-                            }
-                            else if (decision.action === 'SELL') {
-                                // SELL failed: re-open the position by reverting it back to 'open'
-                                // (the closePosition call already set it to 'closed' — undo that)
-                                try {
-                                    const { db: database } = await import('../config/database.js');
-                                    const { botPositions } = await import('../db/schema/positions.js');
-                                    const { eq: eqOp, and: andOp, desc: descOp } = await import('drizzle-orm');
-                                    const [recentlyClosed] = await database
-                                        .select()
-                                        .from(botPositions)
-                                        .where(andOp(eqOp(botPositions.botId, bot.id), eqOp(botPositions.symbol, pair), eqOp(botPositions.userId, subscription.userId), eqOp(botPositions.status, 'closed'), eqOp(botPositions.isPaper, false)))
-                                        .orderBy(descOp(botPositions.closedAt))
-                                        .limit(1);
-                                    if (recentlyClosed && !recentlyClosed.exitTradeId) {
-                                        // No real exit trade linked — revert to open
-                                        await database.update(botPositions).set({
-                                            status: 'open',
-                                            exitPrice: null,
-                                            exitValue: null,
-                                            pnl: null,
-                                            pnlPercent: null,
-                                            exitReasoning: null,
-                                            closedAt: null,
-                                        }).where(eqOp(botPositions.id, recentlyClosed.id));
-                                        console.log(`[LiveTrade] Reverted closed position ${recentlyClosed.id} back to open (SELL failed)`);
-                                    }
-                                }
-                                catch (revertErr) {
-                                    console.error('[LiveTrade] Could not revert closed position:', revertErr.message);
-                                }
-                            }
-                            // Only notify for non-trivial errors (suppress "market closed" spam)
-                            const isMinorError = result.error?.includes('market is currently closed') || result.error?.includes('Market closed');
-                            if (!isMinorError) {
-                                await sendNotification(subscription.userId, {
-                                    type: 'alert',
-                                    title: `Trade Failed — ${pair}`,
-                                    body: `${bot.name}: ${result.error}`,
-                                    priority: 'high',
-                                }).catch(() => { });
-                            }
+                            // Persistent failure — notify only, do NOT insert a trade record (keeps stats clean)
+                            console.error(`[LiveTrade] Order failed after retry: ${result.error}`);
+                            await sendNotification(subscription.userId, {
+                                type: 'alert',
+                                title: `Trade Failed — ${pair}`,
+                                body: `${bot.name}: ${result.error}`,
+                                priority: 'high',
+                            }).catch(() => { });
                         }
                     }
                 }

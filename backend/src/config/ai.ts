@@ -76,7 +76,7 @@ function getOpenAIClient(): OpenAI {
 const DEFAULT_MODELS: Record<LLMProvider, string> = {
   anthropic: 'claude-sonnet-4-20250514',
   gemini: 'gemini-2.5-flash',
-  openai: 'gpt-4.1', // Best OpenAI model — primary for all chatbot calls
+  openai: 'gpt-5.4-mini', // Best OpenAI model — primary for all chatbot calls
 };
 
 // ─── Provider Resolution ────────────────────────────────────────────────────

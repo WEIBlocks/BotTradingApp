@@ -34,7 +34,7 @@ export declare function confirmCheckout(userId: string, data: {
     amount: string;
     paymentMethodId?: string;
 }): Promise<{
-    type: "withdrawal" | "deposit" | "subscription" | "subscription_renewal" | null;
+    type: "withdrawal" | "deposit" | "subscription" | "subscription_renewal" | "bot_purchase" | null;
     status: "pending" | "failed" | "succeeded" | "refunded" | null;
     id: string;
     createdAt: Date | null;

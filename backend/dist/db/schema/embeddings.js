@@ -1,7 +1,7 @@
 import { pgTable, uuid, text, varchar, integer, timestamp, jsonb } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { users } from './users';
-import { bots } from './bots';
+import { users } from './users.js';
+import { bots } from './bots.js';
 // Note: pgvector extension must be enabled on the database
 // We store embeddings as JSONB arrays since drizzle doesn't natively support vector type
 // The actual similarity search will use raw SQL with pgvector
@@ -14,6 +14,7 @@ export const knowledgeEmbeddings = pgTable('knowledge_embeddings', {
     content: text('content').notNull(), // the text chunk
     summary: text('summary'), // AI-generated summary of this chunk
     embedding: jsonb('embedding'), // vector as JSON array (will use raw SQL for pgvector ops)
+    embeddingModel: varchar('embedding_model', { length: 64 }).default('gemini-text-embedding-004'), // tracks which model generated this embedding
     metadata: jsonb('metadata'), // extra info: filename, youtube title, timestamp, etc.
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 });

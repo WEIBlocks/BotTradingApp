@@ -1,7 +1,7 @@
 import { pgTable, pgEnum, uuid, integer, numeric, boolean, timestamp, jsonb, index, } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
-import { bots } from "./bots";
+import { users } from "./users.js";
+import { bots } from "./bots.js";
 export const arenaStatusEnum = pgEnum("arena_status", [
     "setup",
     "running",

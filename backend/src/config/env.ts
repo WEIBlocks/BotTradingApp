@@ -79,6 +79,10 @@ const envSchema = z.object({
   YOUTUBE_API_KEY: z.string().optional().default(''),
   AI_MODE: z.enum(['development', 'production']).optional().default('development'),
 
+  // Brave Search API key (free tier: 2000 req/month) for search_web tool
+  // Get from: https://api.search.brave.com/
+  BRAVE_SEARCH_API_KEY: z.string().default(''),
+
   // Firebase Cloud Messaging (push notifications)
   FIREBASE_PROJECT_ID: z.string().default(''),
   FIREBASE_CLIENT_EMAIL: z.string().default(''),

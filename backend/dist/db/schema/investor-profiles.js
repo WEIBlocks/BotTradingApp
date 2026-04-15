@@ -1,6 +1,6 @@
 import { pgTable, pgEnum, uuid, varchar, integer, timestamp, } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
+import { users } from "./users.js";
 export const riskLevelEnum = pgEnum("risk_level", [
     "conservative",
     "moderate",

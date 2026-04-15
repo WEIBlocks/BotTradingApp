@@ -20,5 +20,5 @@ export declare function getActiveProSubscription(userId: string): Promise<{
     currentPeriodEnd: Date | null;
     tier: "free" | "pro" | null;
 } | null>;
-/** Fastify preHandler — throws 403 if not Pro */
+/** Fastify preHandler — throws 403 if not Pro. Admin role always passes. */
 export declare function requireSubscription(request: FastifyRequest, _reply: FastifyReply): Promise<void>;

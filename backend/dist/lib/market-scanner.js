@@ -1,5 +1,7 @@
 import ccxt from 'ccxt';
-const exchange = new ccxt.binance({ enableRateLimit: true });
+// Binance public API is geo-blocked on DigitalOcean NYC (HTTP 451).
+// KuCoin has no such restriction and covers the same major pairs.
+const exchange = new ccxt.kucoin({ enableRateLimit: true });
 // Cache stock quotes for 30 seconds
 const stockCache = new Map();
 const STOCK_CACHE_TTL = 30000;
@@ -229,7 +231,7 @@ export function extractStockSymbols(message) {
 // Cache for 60 seconds
 let cachedRankings = [];
 let cacheTime = 0;
-export async function getTopAssets(limit = 10, type = 'crypto') {
+export async function getTopAssets(limit = 10, _type = 'crypto') {
     // Return cached if fresh
     if (Date.now() - cacheTime < 60000 && cachedRankings.length > 0) {
         return cachedRankings.slice(0, limit);
@@ -272,7 +274,7 @@ export async function getTopAssets(limit = 10, type = 'crypto') {
     }
 }
 const dexCache = new Map();
-const DEX_CACHE_TTL = 20_000; // 20 seconds
+const DEX_CACHE_TTL = 60_000; // 60 seconds — reduces DexScreener throttling risk
 /**
  * Search DexScreener for a token by symbol or name.
  * Returns the top matching pairs sorted by liquidity (most liquid = most reliable price).
@@ -344,32 +346,41 @@ export async function getDexPrice(symbolOrName) {
     const results = await searchDexScreener(symbolOrName);
     return results[0] ?? null;
 }
+const priceCache = new Map();
+const PRICE_CACHE_TTL = 30_000; // 30s for live prices
 /**
- * Try Binance first (fast, reliable for top coins).
- * If not listed on Binance, fall back to DexScreener (covers all DEX tokens).
+ * Try Binance/KuCoin first (fast, reliable for top coins).
+ * If not listed, fall back to DexScreener (covers all DEX tokens).
+ * Results cached 30s to reduce API calls.
  */
 export async function resolveTokenPrice(symbol) {
-    // 1. Try Binance
+    const cacheKey = symbol.toUpperCase();
+    const cached = priceCache.get(cacheKey);
+    if (cached && Date.now() - cached.at < PRICE_CACHE_TTL)
+        return cached.data;
+    // 1. Try KuCoin/exchange
     try {
         const pair = symbol.includes('/') ? symbol : `${symbol.toUpperCase()}/USDT`;
         const ticker = await exchange.fetchTicker(pair);
         if (ticker.last && ticker.last > 0) {
-            return {
+            const result = {
                 symbol: symbol.toUpperCase(),
                 price: ticker.last,
                 change24h: ticker.percentage ?? 0,
                 volume24h: ticker.quoteVolume ?? 0,
                 source: 'binance',
             };
+            priceCache.set(cacheKey, { data: result, at: Date.now() });
+            return result;
         }
     }
     catch {
-        // Not on Binance — fall through to DexScreener
+        // Not on exchange — fall through to DexScreener
     }
     // 2. Fall back to DexScreener
     const dex = await getDexPrice(symbol);
     if (dex && dex.price > 0) {
-        return {
+        const result = {
             symbol: dex.symbol,
             name: dex.name,
             price: dex.price,
@@ -380,6 +391,8 @@ export async function resolveTokenPrice(symbol) {
             chain: dex.chain,
             source: 'dexscreener',
         };
+        priceCache.set(cacheKey, { data: result, at: Date.now() });
+        return result;
     }
     return null;
 }

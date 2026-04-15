@@ -51,7 +51,95 @@ export interface StrategyResponse {
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export const aiApi = {
-  /** Chat with AI trading assistant. */
+  /**
+   * Streaming chat via XMLHttpRequest (required for React Native — fetch has no ReadableStream).
+   * Uses SSE: each event is "data: {...}\n\n"
+   * onToken: called with each streamed text delta
+   * onTool:  called when a tool round fires (e.g. "get_crypto_price")
+   * onDone:  called with final metadata once stream ends
+   */
+  chatStream(
+    message: string,
+    conversationId: string | undefined,
+    onToken: (token: string) => void,
+    onTool: (toolName: string) => void,
+    onDone: (meta: { conversationId: string; model: string; toolsUsed?: string[]; cleanPrompt?: string; strategyPreview?: AIChatResponse['strategy'] }) => void,
+    attachmentUrl?: string,
+    botId?: string,
+  ): Promise<void> {
+    return new Promise(async (resolve, reject) => {
+      const authToken = await storage.getAccessToken();
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${API_BASE_URL}/ai/chat/stream`, true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.setRequestHeader('Authorization', `Bearer ${authToken}`);
+
+      let processedLen = 0; // how many chars of responseText we've already parsed
+      let buf = '';
+
+      function parseChunk(raw: string) {
+        buf += raw;
+        // SSE events are separated by "\n\n"
+        const events = buf.split('\n\n');
+        buf = events.pop() ?? ''; // keep the incomplete trailing chunk
+        for (const event of events) {
+          const line = event.trim();
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const parsed = JSON.parse(line.slice(6));
+            if (parsed.token !== undefined) {
+              onToken(parsed.token);
+            } else if (parsed.tool) {
+              onTool(parsed.tool);
+            } else if (parsed.done) {
+              const raw = parsed.strategyPreview;
+              const strategy = raw ? {
+                ...raw,
+                backtestReturn: raw.backtestReturn ?? raw.backtestEstimate?.return30d,
+                backtestWinRate: raw.backtestWinRate ?? raw.backtestEstimate?.winRate,
+                backtestDrawdown: raw.backtestDrawdown ?? raw.backtestEstimate?.maxDrawdown,
+              } : undefined;
+              onDone({ conversationId: parsed.conversationId, model: parsed.model, toolsUsed: parsed.toolsUsed, cleanPrompt: parsed.cleanPrompt, strategyPreview: strategy });
+            } else if (parsed.error) {
+              reject(new Error(parsed.error));
+            }
+          } catch { /* ignore malformed SSE lines */ }
+        }
+      }
+
+      // onprogress fires as each chunk arrives — this is the key for RN streaming
+      xhr.onprogress = () => {
+        const newText = xhr.responseText.slice(processedLen);
+        processedLen = xhr.responseText.length;
+        if (newText) parseChunk(newText);
+      };
+
+      xhr.onload = () => {
+        // Parse any remaining buffered data after stream ends
+        const newText = xhr.responseText.slice(processedLen);
+        if (newText) parseChunk(newText);
+        if (xhr.status >= 400) {
+          try {
+            const err = JSON.parse(xhr.responseText);
+            reject(new Error(err.message || `HTTP ${xhr.status}`));
+          } catch {
+            reject(new Error(`HTTP ${xhr.status}`));
+          }
+        } else {
+          resolve();
+        }
+      };
+
+      xhr.onerror = () => reject(new Error('Network error'));
+      xhr.ontimeout = () => reject(new Error('Request timed out'));
+      xhr.timeout = 120000; // 2 min max
+
+      xhr.send(JSON.stringify({ message, conversationId, attachmentUrl, botId }));
+    });
+  },
+
+  /** Chat with AI trading assistant (non-streaming fallback). */
   async chat(message: string, conversationId?: string, attachmentUrl?: string, botId?: string): Promise<AIChatResponse> {
     const res = await api.post<DataWrap<any>>('/ai/chat', {
       message, conversationId, attachmentUrl, botId,
@@ -130,7 +218,8 @@ export const aiApi = {
   },
 
   async learnFromYouTube(url: string, botId?: string) {
-    const res = await api.post('/ai/youtube/learn', {url, botId} as Record<string, unknown>);
+    // YouTube processing (fetch + transcript + Claude classification) can take 20-30s
+    const res = await api.post('/ai/youtube/learn', {url, botId} as Record<string, unknown>, {timeout: 60000});
     return (res as any).data?.data ?? (res as any).data;
   },
 

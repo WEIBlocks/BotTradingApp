@@ -46,7 +46,7 @@ async function engineLLMChat(messages: LLMMessage[], opts: LLMOptions) {
         if (m.role !== 'system') apiMessages.push({ role: m.role, content: m.content });
       }
       const response = await _engineOpenAI.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         messages: apiMessages,
         max_tokens: opts.maxTokens ?? 1024,
         temperature: opts.temperature ?? 0.2,
@@ -54,7 +54,7 @@ async function engineLLMChat(messages: LLMMessage[], opts: LLMOptions) {
       return {
         text: response.choices[0]?.message?.content ?? '',
         provider: 'openai' as const,
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         usage: { inputTokens: response.usage?.prompt_tokens, outputTokens: response.usage?.completion_tokens },
       };
     } catch (err) {

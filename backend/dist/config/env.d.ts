@@ -41,6 +41,7 @@ declare const envSchema: z.ZodObject<{
     AI_MODEL: z.ZodDefault<z.ZodString>;
     YOUTUBE_API_KEY: z.ZodDefault<z.ZodOptional<z.ZodString>>;
     AI_MODE: z.ZodDefault<z.ZodOptional<z.ZodEnum<["development", "production"]>>>;
+    BRAVE_SEARCH_API_KEY: z.ZodDefault<z.ZodString>;
     FIREBASE_PROJECT_ID: z.ZodDefault<z.ZodString>;
     FIREBASE_CLIENT_EMAIL: z.ZodDefault<z.ZodString>;
     FIREBASE_PRIVATE_KEY: z.ZodDefault<z.ZodString>;
@@ -85,6 +86,7 @@ declare const envSchema: z.ZodObject<{
     AI_MODEL: string;
     YOUTUBE_API_KEY: string;
     AI_MODE: "production" | "development";
+    BRAVE_SEARCH_API_KEY: string;
     FIREBASE_PROJECT_ID: string;
     FIREBASE_CLIENT_EMAIL: string;
     FIREBASE_PRIVATE_KEY: string;
@@ -129,6 +131,7 @@ declare const envSchema: z.ZodObject<{
     AI_MODEL?: string | undefined;
     YOUTUBE_API_KEY?: string | undefined;
     AI_MODE?: "production" | "development" | undefined;
+    BRAVE_SEARCH_API_KEY?: string | undefined;
     FIREBASE_PROJECT_ID?: string | undefined;
     FIREBASE_CLIENT_EMAIL?: string | undefined;
     FIREBASE_PRIVATE_KEY?: string | undefined;
@@ -174,6 +177,7 @@ export declare const env: {
     AI_MODEL: string;
     YOUTUBE_API_KEY: string;
     AI_MODE: "production" | "development";
+    BRAVE_SEARCH_API_KEY: string;
     FIREBASE_PROJECT_ID: string;
     FIREBASE_CLIENT_EMAIL: string;
     FIREBASE_PRIVATE_KEY: string;

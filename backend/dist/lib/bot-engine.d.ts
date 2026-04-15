@@ -42,7 +42,7 @@ export interface EngineDecision {
     pnl?: number;
     pnlPercent?: number;
 }
-export declare function generateRules(botPrompt: string, strategy: string, riskLevel: string, stopLoss?: number, takeProfit?: number, maxPosition?: number): Promise<TradingRules>;
+export declare function generateRules(botPrompt: string, strategy: string | null | undefined, riskLevel: string, stopLoss?: number, takeProfit?: number, maxPosition?: number): Promise<TradingRules>;
 export declare function processSymbol(opts: {
     sessionKey: string;
     symbol: string;
@@ -58,7 +58,7 @@ export declare function processSymbol(opts: {
     tradeDirection?: 'buy' | 'sell' | 'both';
     dailyLossLimit?: number;
     orderType?: 'market' | 'limit';
-    mode: 'paper' | 'live';
+    mode: 'shadow' | 'paper' | 'live';
     exchangeConnId?: string;
     subscriptionId?: string;
     shadowSessionId?: string;
@@ -76,6 +76,5 @@ export declare function executeLiveTrade(decision: EngineDecision, userId: strin
     orderId?: string;
     error?: string;
 }>;
-export declare function rollbackPosition(botId: string, symbol: string, userId: string, subscriptionId?: string): Promise<boolean>;
 export declare function invalidateRulesCache(botId: string): void;
 export declare function summarizeSessionLearnings(botId: string): Promise<string>;

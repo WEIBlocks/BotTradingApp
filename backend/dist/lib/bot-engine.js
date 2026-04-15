@@ -23,13 +23,13 @@ import OpenAI from 'openai';
 import { retrieveKnowledge } from './rag.js';
 import { computeIndicators, hasSignificantChange } from './indicators.js';
 import { getPrice } from '../jobs/price-sync.job.js';
-import { botDecisions } from '../db/schema/decisions';
-import { botPositions } from '../db/schema/positions';
-import { trades } from '../db/schema/trades';
-import { exchangeConnections } from '../db/schema/exchanges';
+import { botDecisions } from '../db/schema/decisions.js';
+import { botPositions } from '../db/schema/positions.js';
+import { trades } from '../db/schema/trades.js';
+import { exchangeConnections } from '../db/schema/exchanges.js';
 import { decrypt } from './encryption.js';
 import { createAdapter } from '../modules/exchange/adapters/adapter.factory.js';
-import { eq, and, sql, desc } from 'drizzle-orm';
+import { eq, and, sql, desc, isNull } from 'drizzle-orm';
 // ─── OpenAI Direct Client (better JSON reliability) ────────────────────────
 let _engineOpenAI = null;
 async function engineLLMChat(messages, opts) {
@@ -45,7 +45,7 @@ async function engineLLMChat(messages, opts) {
                     apiMessages.push({ role: m.role, content: m.content });
             }
             const response = await _engineOpenAI.chat.completions.create({
-                model: 'gpt-4o-mini',
+                model: 'gpt-5.4-mini',
                 messages: apiMessages,
                 max_tokens: opts.maxTokens ?? 1024,
                 temperature: opts.temperature ?? 0.2,
@@ -53,7 +53,7 @@ async function engineLLMChat(messages, opts) {
             return {
                 text: response.choices[0]?.message?.content ?? '',
                 provider: 'openai',
-                model: 'gpt-4o-mini',
+                model: 'gpt-5.4-mini',
                 usage: { inputTokens: response.usage?.prompt_tokens, outputTokens: response.usage?.completion_tokens },
             };
         }
@@ -113,12 +113,20 @@ function checkAIRateLimit(botId) {
     return true;
 }
 // ─── Position Management (DB-backed) ────────────────────────────────────────
-async function getOpenPosition(botId, symbol, sessionKey) {
+async function getOpenPosition(botId, symbol, shadowSessionId, isPaper) {
     const conditions = [
         eq(botPositions.botId, botId),
         eq(botPositions.symbol, symbol),
         eq(botPositions.status, 'open'),
+        // Scope to session so positions from other sessions don't block new entries
+        shadowSessionId
+            ? eq(botPositions.shadowSessionId, shadowSessionId)
+            : isNull(botPositions.shadowSessionId),
     ];
+    // Critical: filter by isPaper so live positions don't block paper/shadow trades and vice versa
+    if (isPaper !== undefined) {
+        conditions.push(eq(botPositions.isPaper, isPaper));
+    }
     const [pos] = await db.select().from(botPositions).where(and(...conditions)).limit(1);
     return pos;
 }
@@ -163,11 +171,10 @@ async function closePosition(positionId, exitPrice, reasoning, exitTradeId) {
         closedAt: new Date(),
     }).where(eq(botPositions.id, positionId)).returning();
     // Update bot statistics in real-time after every position close
-    // Only count positions with a real exchange trade (entry_trade_id IS NOT NULL)
     try {
         const { botStatistics } = await import('../db/schema/bots.js');
         const allClosed = await db.select().from(botPositions)
-            .where(and(eq(botPositions.botId, pos.botId), eq(botPositions.status, 'closed'), eq(botPositions.isPaper, false), sql `${botPositions.entryTradeId} IS NOT NULL`));
+            .where(and(eq(botPositions.botId, pos.botId), eq(botPositions.status, 'closed'), eq(botPositions.isPaper, false)));
         const wins = allClosed.filter(p => parseFloat(p.pnl ?? '0') > 0).length;
         const winRate = allClosed.length > 0 ? (wins / allClosed.length) * 100 : 0;
         const totalReturn = allClosed.reduce((sum, p) => sum + parseFloat(p.pnlPercent ?? '0'), 0);
@@ -208,7 +215,7 @@ async function releaseLock(key) {
 }
 // ─── Strategy Detection ─────────────────────────────────────────────────────
 function isRuleOnlyStrategy(strategy) {
-    const s = strategy.toLowerCase();
+    const s = (strategy ?? '').toLowerCase();
     return s.includes('dca') || s.includes('dollar') || s.includes('grid');
 }
 // ─── Rule Generation ────────────────────────────────────────────────────────
@@ -233,13 +240,14 @@ Available indicators: rsi, ema20, ema50, price_vs_ema20, price_vs_ema50, macd_hi
 Operators: <, >, <=, >=, crosses_above, crosses_below
 Weight: 0-1 (importance, 0.5+ = must-match)`;
 export async function generateRules(botPrompt, strategy, riskLevel, stopLoss, takeProfit, maxPosition) {
+    const safeStrategy = strategy ?? '';
     // DCA/Grid: skip AI, use pure defaults
-    if (isRuleOnlyStrategy(strategy) && !botPrompt) {
-        return getDefaultRules(strategy, riskLevel, stopLoss, takeProfit, maxPosition);
+    if (isRuleOnlyStrategy(safeStrategy) && !botPrompt) {
+        return getDefaultRules(safeStrategy, riskLevel, stopLoss, takeProfit, maxPosition);
     }
-    const prompt = `Strategy: ${strategy} | Risk: ${riskLevel}
+    const prompt = `Strategy: ${safeStrategy || 'Balanced'} | Risk: ${riskLevel}
 ${stopLoss ? `Stop loss: ${stopLoss}%` : ''}${takeProfit ? ` | Take profit: ${takeProfit}%` : ''}${maxPosition ? ` | Max position: ${maxPosition}%` : ''}
-Instructions: ${botPrompt || `Standard ${strategy} with ${riskLevel} risk.`}
+Instructions: ${botPrompt || `Standard ${safeStrategy || 'balanced'} with ${riskLevel} risk.`}
 Generate trading rules JSON.`;
     try {
         const response = await engineLLMChat([{ role: 'user', content: prompt }], { system: RULE_GENERATION_SYSTEM, maxTokens: 1024, temperature: 0.1 });
@@ -290,7 +298,7 @@ function getDefaultRules(strategy, riskLevel, sl, tp, mp) {
     const stopLoss = sl ?? (riskLevel === 'Very Low' ? 1 : riskLevel === 'Low' ? 2 : riskLevel === 'Med' ? 3 : riskLevel === 'High' ? 5 : 8);
     const takeProfit = tp ?? stopLoss * 2.5;
     const maxPos = mp ?? (riskLevel === 'Very Low' ? 5 : riskLevel === 'Low' ? 10 : riskLevel === 'Med' ? 20 : riskLevel === 'High' ? 30 : 40);
-    const strat = strategy.toLowerCase();
+    const strat = (strategy ?? '').toLowerCase();
     let rules;
     if (strat.includes('scalp')) {
         rules = {
@@ -413,7 +421,7 @@ LEARNING:
 
 Return ONLY valid JSON: {"action":"BUY"|"SELL"|"HOLD","confidence":0-100,"sizePercent":1-100,"reasoning":"Short explanation"}`;
 async function getAIDecision(symbol, snap, botPrompt, strategy, riskLevel, hasPosition, positionPnlPct, triggerReasons, trainingContext, recentDecisions) {
-    const prompt = `Bot Profile: ${strategy} strategy with ${riskLevel} risk level.
+    const prompt = `Bot Profile: ${strategy || 'Balanced'} strategy with ${riskLevel} risk level.
 ${symbol} @ $${snap.currentPrice.toFixed(2)} | RSI: ${snap.rsi?.toFixed(1) ?? 'N/A'} | EMA20: ${snap.ema20?.toFixed(2) ?? 'N/A'} | MACD: ${snap.macd?.histogram.toFixed(4) ?? 'N/A'}
 BB: ${snap.bollingerBands ? `${snap.bollingerBands.lower.toFixed(2)}-${snap.bollingerBands.upper.toFixed(2)}` : 'N/A'} | 24h: $${snap.high24h.toFixed(2)}/$${snap.low24h.toFixed(2)}
 Position: ${hasPosition ? `LONG P&L:${positionPnlPct?.toFixed(2)}%` : 'None'} | Trigger: ${triggerReasons.join('; ')}
@@ -446,7 +454,9 @@ ${recentDecisions ? `Recent: ${recentDecisions.slice(0, 300)}` : ''}`;
 }
 // ─── Main Engine ────────────────────────────────────────────────────────────
 export async function processSymbol(opts) {
-    const { sessionKey, symbol, botId, userId, botPrompt, strategy, riskLevel, balance, stopLoss, takeProfit, maxPositionPct, mode } = opts;
+    const { sessionKey, symbol, botId, userId, botPrompt, riskLevel, balance, stopLoss, takeProfit, maxPositionPct, mode } = opts;
+    // Guard: strategy may be null/undefined from DB — default to empty string so .toLowerCase()/.includes() never crash
+    const strategy = opts.strategy ?? '';
     const tradeDirection = opts.tradeDirection ?? 'both';
     const dailyLossLimit = opts.dailyLossLimit ?? 0;
     const cacheKey = `${sessionKey}:${symbol}`;
@@ -520,8 +530,9 @@ export async function processSymbol(opts) {
         };
         const freqMult = freqCooldownMap[opts.tradingFrequency ?? 'balanced'] ?? 1;
         rules.cooldownMinutes = Math.max(1, Math.round(rules.cooldownMinutes * freqMult));
-        // 4. Get position from DB (persistent, survives restarts)
-        const existingPos = await getOpenPosition(botId, symbol, sessionKey);
+        // 4. Get position from DB (persistent, survives restarts) — scoped to session and mode
+        // shadow + paper are both virtual (isPaper=true); only live is real (isPaper=false)
+        const existingPos = await getOpenPosition(botId, symbol, opts.shadowSessionId, mode !== 'live');
         const positionPnlPct = existingPos
             ? ((priceData.price - parseFloat(existingPos.entryPrice)) / parseFloat(existingPos.entryPrice)) * 100
             : null;
@@ -644,21 +655,27 @@ export async function processSymbol(opts) {
         if (forcedByHoldCount) {
             triggerCheck.reasons.push(`Forced AI after ${currentHolds} consecutive HOLDs`);
         }
-        // maxOpenPositions check for BUY
+        // Session-scoped position filter (arena/shadow sessions must not bleed across sessions)
+        const sessionScopeFilter = opts.shadowSessionId
+            ? eq(botPositions.shadowSessionId, opts.shadowSessionId)
+            : isNull(botPositions.shadowSessionId);
+        // Mode filter: shadow+paper are virtual (isPaper=true), live is real (isPaper=false)
+        const isPaperFilter = eq(botPositions.isPaper, mode !== 'live');
+        // maxOpenPositions check for BUY — scoped to this session and mode
         let atMaxPositions = false;
         if (opts.maxOpenPositions !== undefined) {
             const [openRow] = await db
                 .select({ cnt: sql `COUNT(*)::int` })
                 .from(botPositions)
-                .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open')));
+                .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open'), sessionScopeFilter, isPaperFilter));
             if (Number(openRow?.cnt ?? 0) >= opts.maxOpenPositions)
                 atMaxPositions = true;
         }
-        // Portfolio-level exposure check
+        // Portfolio-level exposure check — scoped to this session and mode
         if (!atMaxPositions) {
             try {
                 const openPositions = await db.select({ entryValue: botPositions.entryValue }).from(botPositions)
-                    .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open')));
+                    .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open'), sessionScopeFilter, isPaperFilter));
                 const totalExposure = openPositions.reduce((sum, p) => sum + parseFloat(p.entryValue ?? '0'), 0);
                 const exposurePct = balance > 0 ? (totalExposure / balance) * 100 : 0;
                 if (exposurePct > 80) {
@@ -801,7 +818,7 @@ export async function processSymbol(opts) {
             const tpPrice = takeProfit ? priceData.price * (1 + rules.takeProfitPercent / 100) : undefined;
             await openPosition({
                 userId, botId, symbol, entryPrice: priceData.price, amount, entryValue: posValue,
-                stopLoss: slPrice, takeProfit: tpPrice, isPaper: mode === 'paper',
+                stopLoss: slPrice, takeProfit: tpPrice, isPaper: mode !== 'live',
                 reasoning: decision.reasoning, subscriptionId: opts.subscriptionId, shadowSessionId: opts.shadowSessionId,
             });
             decision.reasoning += ` | Size: $${posValue.toFixed(2)}`;
@@ -889,47 +906,32 @@ export async function executeLiveTrade(decision, userId, botId, subscriptionId, 
         const balances = await adapter.getBalances();
         let amount;
         let tradeValue;
-        // Guard: price must be valid before any size calculation
-        if (!decision.price || decision.price <= 0) {
+        if (decision.price <= 0) {
             await adapter.disconnect();
-            return { success: false, error: `Invalid price data (${decision.price}) — skipping trade` };
+            return { success: false, error: `Invalid price ($${decision.price}) — price sync may not have run yet` };
         }
         if (decision.action === 'BUY') {
             const quoteBalance = balances.find(b => b.currency === quoteCurrency)?.free ?? 0;
             if (quoteBalance <= 0) {
                 await adapter.disconnect();
-                return { success: false, error: `Insufficient ${quoteCurrency} balance ($${quoteBalance.toFixed(2)})` };
+                return { success: false, error: `No ${quoteCurrency} balance available. Fund your ${conn.provider}${conn.sandbox ? ' testnet' : ''} account first.` };
             }
-            tradeValue = quoteBalance * (decision.sizePercent ?? 10) / 100;
+            const sizePercent = decision.sizePercent && decision.sizePercent > 0 ? decision.sizePercent : 10;
+            tradeValue = quoteBalance * sizePercent / 100;
             amount = tradeValue / decision.price;
+            console.log(`[BotEngine] BUY ${decision.symbol}: quoteBalance=${quoteBalance} ${quoteCurrency}, sizePercent=${sizePercent}%, tradeValue=$${tradeValue.toFixed(2)}`);
         }
         else {
-            // SELL: find the position's actual amount from DB so we use the correct holding size,
-            // not the exchange balance (which may have drifted or use a different ticker key)
             const base = isStock ? decision.symbol : decision.symbol.split('/')[0];
-            // Try exchange balance first, fall back to DB position amount
-            const exchangeAmount = balances.find(b => b.currency.toUpperCase() === base.toUpperCase())?.free ?? 0;
-            amount = exchangeAmount;
-            // If exchange says 0 but we have an open DB position, use that amount
-            // (handles cases where exchange balance key differs from symbol, e.g. "NVDA" vs "NVDA/USD")
-            if (amount <= 0) {
-                try {
-                    const [dbPos] = await db.select({ amount: botPositions.amount })
-                        .from(botPositions)
-                        .where(and(eq(botPositions.botId, botId), eq(botPositions.symbol, decision.symbol), eq(botPositions.userId, userId), eq(botPositions.status, 'open'), eq(botPositions.isPaper, false)))
-                        .limit(1);
-                    if (dbPos)
-                        amount = parseFloat(dbPos.amount);
-                }
-                catch { }
-            }
+            amount = balances.find(b => b.currency === base)?.free ?? 0;
             tradeValue = amount * decision.price;
+            console.log(`[BotEngine] SELL ${decision.symbol}: base balance=${amount} ${base}, tradeValue=$${tradeValue.toFixed(2)}`);
         }
         // Minimum order size: $1 for stocks (fractional shares), $10 for crypto
         const MIN_ORDER_VALUE = isStock ? 1 : 10;
         if (tradeValue < MIN_ORDER_VALUE) {
             await adapter.disconnect();
-            return { success: false, error: `Order too small ($${tradeValue.toFixed(2)}). Min: $${MIN_ORDER_VALUE}` };
+            return { success: false, error: `Insufficient balance for ${decision.symbol} (${quoteCurrency} balance too low for min $${MIN_ORDER_VALUE} order)` };
         }
         if (amount <= 0) {
             await adapter.disconnect();
@@ -946,26 +948,13 @@ export async function executeLiveTrade(decision, userId, botId, subscriptionId, 
         const fillPrice = order.price > 0 ? order.price : decision.price;
         const fillAmount = order.amount > 0 ? order.amount : amount;
         const totalValue = fillAmount * fillPrice;
-        const [insertedTrade] = await db.insert(trades).values({
+        await db.insert(trades).values({
             userId, botSubscriptionId: subscriptionId, symbol: decision.symbol,
             side: decision.action, amount: fillAmount.toFixed(8),
             price: fillPrice.toFixed(8), totalValue: totalValue.toFixed(2),
             isPaper: false, exchangeOrderId: order.id, orderType,
             reasoning: decision.reasoning, status: order.status === 'new' ? 'pending' : 'filled',
-        }).returning();
-        // Link the trade to the corresponding DB position so we can verify it's a real execution
-        if (insertedTrade?.id) {
-            if (decision.action === 'BUY') {
-                // Link to the open position we just created
-                await db.update(botPositions).set({ entryTradeId: insertedTrade.id })
-                    .where(and(eq(botPositions.botId, botId), eq(botPositions.symbol, decision.symbol), eq(botPositions.userId, userId), eq(botPositions.status, 'open'), eq(botPositions.isPaper, false), sql `${botPositions.entryTradeId} IS NULL`));
-            }
-            else if (decision.action === 'SELL') {
-                // Link to the most recently closed position for this bot/symbol
-                await db.update(botPositions).set({ exitTradeId: insertedTrade.id })
-                    .where(and(eq(botPositions.botId, botId), eq(botPositions.symbol, decision.symbol), eq(botPositions.userId, userId), eq(botPositions.status, 'closed'), eq(botPositions.isPaper, false), sql `${botPositions.exitTradeId} IS NULL`));
-            }
-        }
+        });
         // Track daily loss for daily loss limit
         if (decision.pnlPercent && decision.pnlPercent < 0) {
             const today = new Date().toISOString().split('T')[0];
@@ -979,28 +968,6 @@ export async function executeLiveTrade(decision, userId, botId, subscriptionId, 
         console.error('[BotEngine] Live trade failed:', err.message);
         return { success: false, error: err.message };
     }
-}
-// ─── Rollback orphaned position (when live trade fails after position was opened in DB) ──
-export async function rollbackPosition(botId, symbol, userId, subscriptionId) {
-    try {
-        // Find the most recently opened position for this bot/symbol/user that has no entry trade
-        const [orphan] = await db
-            .select()
-            .from(botPositions)
-            .where(and(eq(botPositions.botId, botId), eq(botPositions.symbol, symbol), eq(botPositions.userId, userId), eq(botPositions.status, 'open'), eq(botPositions.isPaper, false)))
-            .orderBy(desc(botPositions.openedAt))
-            .limit(1);
-        if (orphan && !orphan.entryTradeId) {
-            // No real exchange trade was linked — safe to delete
-            await db.delete(botPositions).where(eq(botPositions.id, orphan.id));
-            console.log(`[BotEngine] Rolled back orphaned position ${orphan.id} for ${symbol}`);
-            return true;
-        }
-    }
-    catch (err) {
-        console.error('[BotEngine] Rollback failed:', err.message);
-    }
-    return false;
 }
 // ─── Public API ─────────────────────────────────────────────────────────────
 export function invalidateRulesCache(botId) {

@@ -46,11 +46,10 @@ export async function buildApp() {
     app.setSerializerCompiler(serializerCompiler);
     // Error handler
     app.setErrorHandler(errorHandler);
-    // CORS
+    // CORS — allow all origins for now (no domain configured yet)
+    // Once a domain is set, replace true with: (process.env.CORS_ORIGINS || 'https://yourdomain.com').split(',')
     await app.register(cors, {
-        origin: process.env.NODE_ENV === 'production'
-            ? (process.env.CORS_ORIGINS || 'https://bottrade.app').split(',')
-            : true,
+        origin: true,
         credentials: true,
     });
     // Multipart file uploads (10MB limit)
@@ -99,9 +98,7 @@ export async function buildApp() {
         reply.header('X-Frame-Options', 'DENY');
         reply.header('X-XSS-Protection', '1; mode=block');
         reply.header('Referrer-Policy', 'strict-origin-when-cross-origin');
-        if (process.env.NODE_ENV === 'production') {
-            reply.header('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
-        }
+        // HSTS removed — no domain/SSL configured yet, would cause browser to force HTTPS permanently
     });
     // Health check
     app.get('/health', async () => ({

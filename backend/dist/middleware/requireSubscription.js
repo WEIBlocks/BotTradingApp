@@ -42,8 +42,10 @@ export async function getActiveProSubscription(userId) {
     }
     return sub;
 }
-/** Fastify preHandler — throws 403 if not Pro */
+/** Fastify preHandler — throws 403 if not Pro. Admin role always passes. */
 export async function requireSubscription(request, _reply) {
+    if (request.user.role === 'admin')
+        return;
     const sub = await getActiveProSubscription(request.user.userId);
     if (!sub)
         throw new SubscriptionRequiredError();

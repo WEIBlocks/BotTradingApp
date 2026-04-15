@@ -11,7 +11,32 @@ import {
 } from './ai.schema.js';
 import { getTopAssets, getMarketOverview } from '../../lib/market-scanner.js';
 import { getVideoInfo, getTranscript } from '../../lib/youtube.js';
+import { llmChat } from '../../config/ai.js';
 import { db } from '../../config/database.js';
+
+// ─── Per-user rate limiter (sliding window, in-memory) ───────────────────────
+// 20 requests per minute per user. Protects OpenAI quota.
+
+const rateLimitMap = new Map<string, number[]>();
+
+function checkRateLimit(userId: string, maxRequests = 20, windowMs = 60_000): boolean {
+  const now = Date.now();
+  const timestamps = (rateLimitMap.get(userId) ?? []).filter(t => now - t < windowMs);
+  if (timestamps.length >= maxRequests) return false;
+  timestamps.push(now);
+  rateLimitMap.set(userId, timestamps);
+  return true;
+}
+
+// Clean up stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [userId, timestamps] of rateLimitMap.entries()) {
+    const fresh = timestamps.filter(t => now - t < 60_000);
+    if (fresh.length === 0) rateLimitMap.delete(userId);
+    else rateLimitMap.set(userId, fresh);
+  }
+}, 300_000);
 
 export async function aiRoutes(app: FastifyInstance) {
   const zApp = app.withTypeProvider<ZodTypeProvider>();
@@ -66,6 +91,48 @@ export async function aiRoutes(app: FastifyInstance) {
     return { data: result };
   });
 
+  // POST /ai/chat/stream - Streaming SSE version of the chat endpoint
+  // Uses Server-Sent Events: each event is "data: {...}\n\n"
+  // Token events: { token: "..." }
+  // Tool events:  { tool: "toolName" }
+  // Done event:   { done: true, conversationId, model, toolsUsed?, cleanPrompt, strategyPreview? }
+  app.post('/chat/stream', {
+    preHandler: [authenticate, requireSubscription as any],
+  }, async (request, reply) => {
+    if (!checkRateLimit((request as any).user.userId)) {
+      return (reply as any).status(429).send({ message: 'Too many requests. You can send up to 20 messages per minute.' });
+    }
+    const { message, conversationId, attachmentUrl, botId } = request.body as any;
+    if (!message) return (reply as any).status(400).send({ message: 'message is required' });
+
+    reply.raw.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no', // disable nginx buffering
+    });
+
+    try {
+      const gen = aiService.chatStream(
+        (request as any).user.userId,
+        message,
+        conversationId,
+        attachmentUrl,
+        botId,
+      );
+      for await (const chunk of gen) {
+        if (reply.raw.destroyed) break;
+        reply.raw.write(chunk);
+      }
+    } catch (err: any) {
+      if (!reply.raw.destroyed) {
+        reply.raw.write(`data: ${JSON.stringify({ error: err.message || 'Stream error' })}\n\n`);
+      }
+    } finally {
+      if (!reply.raw.destroyed) reply.raw.end();
+    }
+  });
+
   // POST /ai/chat - Conversational AI trading assistant
   zApp.post('/chat', {
     schema: {
@@ -73,7 +140,11 @@ export async function aiRoutes(app: FastifyInstance) {
       response: { 200: dataResponseSchema },
       security: [{ bearerAuth: [] }],
     },
-  }, async (request, _reply) => {
+  }, async (request, reply) => {
+    if (!checkRateLimit(request.user.userId)) {
+      console.warn(`[AI:rate] User ${request.user.userId} exceeded 20 req/min`);
+      return (reply as any).status(429).send({ message: 'Too many requests. You can send up to 20 messages per minute.' });
+    }
     const { message, conversationId, attachmentUrl, botId } = request.body;
     const result = await aiService.chat(
       request.user.userId,
@@ -216,11 +287,60 @@ export async function aiRoutes(app: FastifyInstance) {
     const { url, botId } = request.body as any;
     if (!url) return { error: 'URL required' };
 
+    const stages: string[] = [];
+
+    // Stage 1 — fetch metadata
+    stages.push('Fetching video info...');
     const info = await getVideoInfo(url);
+    if (!info) return { error: 'Could not fetch video info. Please check the URL and try again.' };
+    stages.push(`Found: "${info.title}" by ${info.channelTitle}`);
+
+    // Stage 2 — get transcript
+    stages.push('Getting transcript...');
     const transcript = await getTranscript(url);
+    stages.push(transcript ? 'Transcript retrieved.' : 'No transcript available — using title and description.');
 
-    if (!info) return { error: 'Could not fetch video info' };
+    // Stage 3 — AI classification (Claude decides if it's trading-related)
+    stages.push('Analyzing content with AI...');
+    const classifyContext = [
+      `Title: ${info.title}`,
+      `Channel: ${info.channelTitle}`,
+      info.description ? `Description: ${info.description.substring(0, 600)}` : '',
+      transcript ? `Transcript excerpt: ${transcript.substring(0, 800)}` : '',
+    ].filter(Boolean).join('\n');
 
+    let isTradingRelated = false;
+    let classifyReason = '';
+    try {
+      const classifyReply = await llmChat(
+        [{ role: 'user', content: `Analyze this YouTube video and determine if it is specifically about crypto, stocks, trading, or investing.\n\n${classifyContext}\n\nRespond with EXACTLY one line: "YES: <one sentence reason>" or "NO: <one sentence reason>". Nothing else.` }],
+        { maxTokens: 60, temperature: 0 },
+      );
+      const reply = (classifyReply.text ?? '').trim();
+      isTradingRelated = reply.toUpperCase().startsWith('YES');
+      classifyReason = reply.replace(/^(YES|NO):\s*/i, '').trim();
+    } catch {
+      // If classification fails, fall back to accepting the video
+      isTradingRelated = true;
+      classifyReason = 'Classification unavailable — storing anyway.';
+    }
+
+    if (!isTradingRelated) {
+      stages.push(`Rejected: ${classifyReason}`);
+      return {
+        data: {
+          rejected: true,
+          title: info.title,
+          stages,
+          message: `I can only learn from videos about crypto, stocks, or trading. "${info.title}" — ${classifyReason}. Please share a trading or investing video.`,
+        },
+      };
+    }
+
+    stages.push(`Accepted: ${classifyReason}`);
+
+    // Stage 4 — store in RAG
+    stages.push('Storing knowledge...');
     let chunksStored = 0;
     const content = `Video: ${info.title}\nChannel: ${info.channelTitle}\n${info.description || ''}\n${transcript || ''}`;
 
@@ -236,7 +356,19 @@ export async function aiRoutes(app: FastifyInstance) {
       });
     }
 
-    return { data: { title: info.title, chunksStored, hasTranscript: !!transcript } };
+    stages.push(`${chunksStored} knowledge chunks stored.`);
+
+    return {
+      data: {
+        title: info.title,
+        chunksStored,
+        hasTranscript: !!transcript,
+        stages,
+        message: transcript
+          ? `Successfully learned from "${info.title}" — ${chunksStored} knowledge chunks stored.`
+          : `Stored video metadata for "${info.title}" but no transcript was available. The bot will use the title and description for context.`,
+      },
+    };
   });
 
   // GET /ai/knowledge/stats - User's knowledge base statistics

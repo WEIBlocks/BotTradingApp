@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { authenticate } from '../../middleware/authenticate.js';
 import { db } from '../../config/database.js';
-import { users } from '../../db/schema/users';
+import { users } from '../../db/schema/users.js';
 import { eq } from 'drizzle-orm';
 import * as userService from './user.service.js';
 import { updateProfileSchema, updateSettingsSchema, paginationQuery, quizBodySchema, dataResponseSchema, } from './user.schema.js';

@@ -142,6 +142,25 @@ export declare const knowledgeEmbeddings: import("drizzle-orm/pg-core").PgTableW
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        embeddingModel: import("drizzle-orm/pg-core").PgColumn<{
+            name: "embedding_model";
+            tableName: "knowledge_embeddings";
+            dataType: "string";
+            columnType: "PgVarchar";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: 64;
+        }>;
         metadata: import("drizzle-orm/pg-core").PgColumn<{
             name: "metadata";
             tableName: "knowledge_embeddings";

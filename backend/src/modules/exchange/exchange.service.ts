@@ -231,6 +231,7 @@ export async function testConnection(
   } catch (err) {
     await adapter.disconnect().catch(() => {});
     if (err instanceof AppError) throw err;
+    console.error(`[Exchange] testConnection failed for ${provider}:`, (err as Error).message);
     throw new AppError(400, `Failed to connect to ${provider}. Please verify your API key and secret.`);
   }
 }

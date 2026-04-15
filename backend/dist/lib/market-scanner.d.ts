@@ -25,7 +25,7 @@ export declare function getStockQuote(symbol: string): Promise<StockQuote | null
 export declare function extractStockTickers(message: string): string[];
 export declare function extractCryptoPairs(message: string): string[];
 export declare function extractStockSymbols(message: string): string[];
-export declare function getTopAssets(limit?: number, type?: 'crypto' | 'all'): Promise<AssetRanking[]>;
+export declare function getTopAssets(limit?: number, _type?: 'crypto' | 'all'): Promise<AssetRanking[]>;
 export interface DexToken {
     symbol: string;
     name: string;
@@ -65,8 +65,9 @@ export interface ResolvedPrice {
     source: 'binance' | 'dexscreener';
 }
 /**
- * Try Binance first (fast, reliable for top coins).
- * If not listed on Binance, fall back to DexScreener (covers all DEX tokens).
+ * Try Binance/KuCoin first (fast, reliable for top coins).
+ * If not listed, fall back to DexScreener (covers all DEX tokens).
+ * Results cached 30s to reduce API calls.
  */
 export declare function resolveTokenPrice(symbol: string): Promise<ResolvedPrice | null>;
 export declare function getPrice(symbol: string): Promise<{

@@ -1,7 +1,7 @@
 import { pgTable, pgEnum, uuid, varchar, text, boolean, numeric, timestamp, index, } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
-import { botSubscriptions, shadowSessions } from "./bots";
+import { users } from "./users.js";
+import { botSubscriptions, shadowSessions } from "./bots.js";
 export const tradeSideEnum = pgEnum("trade_side", ["BUY", "SELL"]);
 export const tradeStatusEnum = pgEnum("trade_status", [
     "pending",

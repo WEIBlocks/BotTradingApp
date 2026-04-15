@@ -1,6 +1,6 @@
 import { pgTable, pgEnum, uuid, varchar, text, boolean, numeric, timestamp, } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
+import { users } from "./users.js";
 export const planTierEnum = pgEnum("plan_tier", ["free", "pro"]);
 export const planPeriodEnum = pgEnum("plan_period", ["monthly", "yearly"]);
 export const userSubStatusEnum = pgEnum("user_sub_status", [
