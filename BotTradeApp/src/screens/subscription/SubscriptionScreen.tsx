@@ -1,5 +1,5 @@
-import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl} from 'react-native';
+import React, {useState, useCallback, useEffect} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, BackHandler} from 'react-native';
 import {subscriptionApi, SubPlan, CurrentSubscription} from '../../services/subscription';
 import {useToast} from '../../context/ToastContext';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
@@ -60,6 +60,24 @@ const comparisonRows: {feature: string; free: string | boolean; pro: string | bo
 export default function SubscriptionScreen({navigation}: Props) {
   const {alert: showAlert, showConfirm} = useToast();
   const {user} = useAuth();
+
+  // Handle back — go to MainTabs (home) instead of goBack()
+  // because this screen may be opened via navigation.replace() with no back stack
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.reset({ index: 0, routes: [{ name: 'Main' }] });
+    }
+  }, [navigation]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      handleBack();
+      return true; // prevent default (exit app)
+    });
+    return () => sub.remove();
+  }, [handleBack]);
   const [plans, setPlans] = useState<SubPlan[]>([]);
   const [current, setCurrent] = useState<CurrentSubscription | null>(null);
   const [loading, setLoading] = useState(true);
@@ -148,7 +166,7 @@ export default function SubscriptionScreen({navigation}: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
           <ChevronLeftIcon size={22} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>TradingApp Pro</Text>
