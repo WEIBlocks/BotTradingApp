@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import {botsService} from '../../services/bots';
+import {creatorApi} from '../../services/creator';
 import {configApi} from '../../services/config';
 import Svg, {Path} from 'react-native-svg';
 import {useNavigation, useRoute, RouteProp} from '@react-navigation/native';
@@ -287,9 +288,35 @@ export default function BotBuilderScreen() {
         showAlert('Bot Updated!', `${botName} has been updated.`);
         navigation.goBack();
       } else {
-        await botsService.createBot(getBotPayload());
+        // Check for duplicate bot name before creating
+        try {
+          const myBots = await creatorApi.getBots();
+          const duplicate = myBots.find(
+            (b: any) => b.name?.trim().toLowerCase() === botName.trim().toLowerCase(),
+          );
+          if (duplicate) {
+            showAlert('Duplicate Name', `You already have a bot named "${botName.trim()}". Please choose a different name.`);
+            setDeploying(false);
+            return;
+          }
+        } catch {
+          // If the check fails, proceed anyway — don't block the user
+        }
+
+        const res = await botsService.createBot(getBotPayload());
+        const newBotId = res?.data?.id ?? res?.data?.data?.id;
         await refreshUser(); // role may have upgraded to 'creator'
-        showAlert('Bot Deployed!', `${botName} has been created as a ${category} bot.`);
+
+        // Publish immediately so it appears in the marketplace
+        if (newBotId) {
+          try {
+            await creatorApi.publishBot(newBotId);
+          } catch {
+            // Published silently failed — bot still created as draft
+          }
+        }
+
+        showAlert('Bot Deployed!', `${botName} is now live on the marketplace.`);
         navigation.goBack();
       }
     } catch (e: any) {
