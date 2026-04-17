@@ -1,5 +1,5 @@
 import React, {useEffect, useRef} from 'react';
-import {StatusBar} from 'react-native';
+import {StatusBar, Platform} from 'react-native';
 import {NavigationContainer} from '@react-navigation/native';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {AuthProvider} from './context/AuthContext';

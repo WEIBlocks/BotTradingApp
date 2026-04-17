@@ -6,7 +6,7 @@ import {
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 import {useNavigation, useRoute, RouteProp} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
-import DocumentPicker from 'react-native-document-picker';
+import {launchImageLibrary} from 'react-native-image-picker';
 import {RootStackParamList, MainTabParamList} from '../../types';
 import {API_BASE_URL} from '../../config/api';
 import {storage} from '../../services/storage';
@@ -232,52 +232,47 @@ export default function AIChatScreen() {
   const [uploadedUrl, setUploadedUrl] = useState<string | null>(null);
 
   const handleImageAttach = useCallback(async () => {
-    try {
-      const result = await DocumentPicker.pick({
-        type: [DocumentPicker.types.images],
-      });
-      const file = result[0];
-      if (file && file.uri) {
-        setAttachedImage(file.uri);
-        setAttachedImageName(file.name || 'chart.jpg');
-        setUploadedUrl(null);
+    launchImageLibrary({mediaType: 'photo', quality: 0.8}, async response => {
+      if (response.didCancel || response.errorCode) return;
+      const asset = response.assets?.[0];
+      if (!asset?.uri) return;
 
-        // Pre-upload immediately
-        setUploadProgress(5);
-        try {
-          const token = await storage.getAccessToken();
-          const formData = new FormData();
-          const fname = file.name || 'chart.jpg';
-          const ext = /\.(\w+)$/.exec(fname);
-          const mimeType = ext ? `image/${ext[1] === 'jpg' ? 'jpeg' : ext[1]}` : 'image/jpeg';
-          formData.append('image', { uri: file.uri, name: fname, type: mimeType } as any);
+      const uri = asset.uri;
+      const fname = asset.fileName || 'chart.jpg';
+      const mimeType = asset.type || 'image/jpeg';
 
-          setUploadProgress(30);
-          const res = await fetch(`${API_BASE_URL}/training/upload-image`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-            body: formData,
-          });
-          setUploadProgress(80);
+      setAttachedImage(uri);
+      setAttachedImageName(fname);
+      setUploadedUrl(null);
 
-          if (res.ok) {
-            const json = await res.json();
-            setUploadedUrl(json.data?.url || json.url || null);
-            setUploadProgress(100);
-            setTimeout(() => setUploadProgress(0), 500);
-          } else {
-            setUploadProgress(0);
-          }
-        } catch {
-          // Upload failed — will try again on send
+      // Pre-upload immediately
+      setUploadProgress(5);
+      try {
+        const token = await storage.getAccessToken();
+        const formData = new FormData();
+        formData.append('image', {uri, name: fname, type: mimeType} as any);
+
+        setUploadProgress(30);
+        const res = await fetch(`${API_BASE_URL}/training/upload-image`, {
+          method: 'POST',
+          headers: {Authorization: `Bearer ${token}`},
+          body: formData,
+        });
+        setUploadProgress(80);
+
+        if (res.ok) {
+          const json = await res.json();
+          setUploadedUrl(json.data?.url || json.url || null);
+          setUploadProgress(100);
+          setTimeout(() => setUploadProgress(0), 500);
+        } else {
           setUploadProgress(0);
         }
+      } catch {
+        // Upload failed — will try again on send
+        setUploadProgress(0);
       }
-    } catch (err: any) {
-      if (!DocumentPicker.isCancel(err)) {
-        console.warn('Image pick error:', err);
-      }
-    }
+    });
   }, []);
 
   const isUploading = uploadProgress > 0 && uploadProgress < 100;

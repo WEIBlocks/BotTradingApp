@@ -15,6 +15,7 @@ import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import {RootStackParamList} from '../../types';
 import {useToast} from '../../context/ToastContext';
 import DocumentPicker, {types} from 'react-native-document-picker';
+import {launchImageLibrary} from 'react-native-image-picker';
 import {
   trainingApi,
   TrainingUpload,
@@ -698,12 +699,24 @@ export default function TrainingUploadScreen() {
 
   useEffect(() => { loadUploads(); }, [loadUploads]);
 
-  const getAllowedTypes = () => {
-    switch (activeTab) {
-      case 'Images': return [types.images];
-      case 'Videos': return [types.video];
-      case 'Documents': return [types.pdf, types.csv, types.plainText, types.doc, types.docx];
-      default: return [types.allFiles];
+  const uploadFiles = async (files: {uri: string; name: string; type: string}[]) => {
+    setUploading(true);
+    let successCount = 0;
+    let errorCount = 0;
+    for (const file of files) {
+      try {
+        const uploaded = await trainingApi.uploadFile(selectedBotId!, file);
+        setUploads(prev => [uploaded, ...prev]);
+        successCount++;
+      } catch {
+        errorCount++;
+      }
+    }
+    setUploading(false);
+    if (errorCount > 0 && successCount > 0) {
+      showAlert('Upload Complete', `${successCount} file(s) uploaded, ${errorCount} failed.`);
+    } else if (errorCount > 0) {
+      showAlert('Upload Failed', 'Could not upload the selected file(s). Please try again.');
     }
   };
 
@@ -712,40 +725,47 @@ export default function TrainingUploadScreen() {
       showAlert('Select a Bot', 'Please select a bot to train first.');
       return;
     }
+
+    if (activeTab === 'Images') {
+      launchImageLibrary({mediaType: 'photo', quality: 0.9, selectionLimit: 0}, async response => {
+        if (response.didCancel || response.errorCode) return;
+        const files = (response.assets ?? []).map(a => ({
+          uri: a.uri!,
+          name: a.fileName || 'image.jpg',
+          type: a.type || 'image/jpeg',
+        }));
+        if (files.length) await uploadFiles(files);
+      });
+      return;
+    }
+
+    if (activeTab === 'Videos') {
+      launchImageLibrary({mediaType: 'video', selectionLimit: 0}, async response => {
+        if (response.didCancel || response.errorCode) return;
+        const files = (response.assets ?? []).map(a => ({
+          uri: a.uri!,
+          name: a.fileName || 'video.mp4',
+          type: a.type || 'video/mp4',
+        }));
+        if (files.length) await uploadFiles(files);
+      });
+      return;
+    }
+
+    // Documents — use file picker
     try {
       const result = await DocumentPicker.pick({
-        type: getAllowedTypes(),
+        type: [types.pdf, types.csv, types.plainText, types.doc, types.docx],
         allowMultiSelection: true,
       });
-
-      setUploading(true);
-      let successCount = 0;
-      let errorCount = 0;
-
-      for (const file of result) {
-        try {
-          const uploaded = await trainingApi.uploadFile(selectedBotId, {
-            uri: file.uri,
-            name: file.name || 'Untitled',
-            type: file.type || 'application/octet-stream',
-          });
-          setUploads(prev => [uploaded, ...prev]);
-          successCount++;
-        } catch {
-          errorCount++;
-        }
-      }
-
-      setUploading(false);
-
-      if (errorCount > 0 && successCount > 0) {
-        showAlert('Upload Complete', `${successCount} file(s) uploaded, ${errorCount} failed.`);
-      } else if (errorCount > 0) {
-        showAlert('Upload Failed', 'Could not upload the selected file(s). Please try again.');
-      }
+      const files = result.map(f => ({
+        uri: f.uri,
+        name: f.name || 'document',
+        type: f.type || 'application/octet-stream',
+      }));
+      await uploadFiles(files);
     } catch (err: any) {
       if (DocumentPicker.isCancel(err)) return;
-      setUploading(false);
       showAlert('Error', err?.message || 'Could not open file picker.');
     }
   };
