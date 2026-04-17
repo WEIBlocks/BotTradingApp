@@ -7,6 +7,8 @@ import {
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -604,7 +606,7 @@ const ExchangeConnectScreen = () => {
   // ─── Render ─────────────────────────────────────────────────────────────
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -637,22 +639,21 @@ const ExchangeConnectScreen = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Scrollable Content */}
+      {/* Scrollable Content — footer inside scroll so buttons stay reachable when keyboard is open */}
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag">
+        keyboardShouldPersistTaps="handled">
         {activeTab === 'guide' ? renderGuideTab() : renderApiTab()}
-      </ScrollView>
 
-      {/* Security Footer */}
-      <View style={styles.securityFooter}>
-        <LockIcon />
-        <Text style={styles.securityText}>Secure 256-bit encrypted connection</Text>
-      </View>
-    </View>
+        {/* Security Footer inside scroll so it's not blocked by keyboard */}
+        <View style={styles.securityFooter}>
+          <LockIcon />
+          <Text style={styles.securityText}>Secure 256-bit encrypted connection</Text>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
   );
 };
 
@@ -726,7 +727,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingBottom: 24,
+    paddingBottom: 20,
   },
 
   // Tab content
