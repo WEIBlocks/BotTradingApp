@@ -84,6 +84,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   }>({riskMultiplier: 1, notificationLevel: 'all'});
   const [savingConfig, setSavingConfig] = useState(false);
   const [configPanelExpanded, setConfigPanelExpanded] = useState(false);
+  const [strategyExpanded, setStrategyExpanded] = useState(false);
 
   // Equity curve (line chart from real P&L) — REST seed
   const [equityCurveRest, setEquityCurveRest] = useState<number[]>([]);
@@ -867,7 +868,10 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>TRADING CONFIGURATION</Text>
               <View style={styles.metricsCard}>
-                <View style={styles.metricRow}><Text style={styles.metricLabel}>Strategy</Text><Text style={[styles.metricValue, {color: '#8B5CF6'}]}>{bot.strategy || 'N/A'}</Text></View>
+                <View style={[styles.metricRow, bot.strategy && bot.strategy.length > 18 ? {flexDirection: 'column', alignItems: 'flex-start', gap: 4} : {}]}>
+                  <Text style={styles.metricLabel}>Strategy</Text>
+                  <Text style={[styles.metricValue, {color: '#8B5CF6', flexShrink: 1, flexWrap: 'wrap'}]}>{bot.strategy || 'N/A'}</Text>
+                </View>
                 <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8}]}>
                   <Text style={styles.metricLabel}>Trading Pairs</Text>
                   <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 6}}>
@@ -985,8 +989,32 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             {/* Strategy */}
             {bot.description ? (
               <View style={styles.section}>
-                <Text style={styles.sectionLabel}>STRATEGY</Text>
-                <Text style={styles.strategyText}>{bot.description}</Text>
+                <View style={styles.strategyHeader}>
+                  <Text style={styles.sectionLabel}>STRATEGY</Text>
+                  {bot.description.length > 180 && (
+                    <TouchableOpacity onPress={() => setStrategyExpanded(v => !v)} activeOpacity={0.7}>
+                      <Text style={styles.strategyToggle}>{strategyExpanded ? 'Show less' : 'Read more'}</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+                <View style={styles.strategyCard}>
+                  {/* Strategy name pill */}
+                  {bot.strategy ? (
+                    <View style={styles.strategyNamePill}>
+                      <Text style={styles.strategyNamePillText} numberOfLines={2}>{bot.strategy}</Text>
+                    </View>
+                  ) : null}
+                  <Text
+                    style={styles.strategyText}
+                    numberOfLines={strategyExpanded || bot.description.length <= 180 ? undefined : 4}>
+                    {bot.description}
+                  </Text>
+                  {bot.description.length > 180 && !strategyExpanded && (
+                    <TouchableOpacity style={styles.readMoreBtn} onPress={() => setStrategyExpanded(true)} activeOpacity={0.7}>
+                      <Text style={styles.readMoreBtnText}>Read full strategy  ↓</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
             ) : null}
 
@@ -1590,7 +1618,38 @@ const styles = StyleSheet.create({
   sectionLabel: {fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 10},
   tagsRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 6},
   tag: {marginBottom: 4},
-  strategyText: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.6)', lineHeight: 22},
+  strategyHeader: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  strategyToggle: {
+    fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#10B981',
+  },
+  strategyCard: {
+    backgroundColor: '#161B22', borderRadius: 16,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+    padding: 14,
+  },
+  strategyNamePill: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+    paddingHorizontal: 12, paddingVertical: 5, marginBottom: 10,
+  },
+  strategyNamePillText: {
+    fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.55)',
+    flexShrink: 1,
+  },
+  strategyText: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.65)', lineHeight: 22},
+  readMoreBtn: {
+    marginTop: 10, alignSelf: 'flex-start',
+    backgroundColor: 'rgba(16,185,129,0.08)',
+    borderRadius: 8, borderWidth: 1, borderColor: 'rgba(16,185,129,0.2)',
+    paddingHorizontal: 12, paddingVertical: 6,
+  },
+  readMoreBtnText: {
+    fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#10B981',
+  },
   card: {backgroundColor: '#161B22', borderRadius: 16, paddingHorizontal: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'},
   reviewCard: {
     backgroundColor: '#161B22', borderRadius: 14, padding: 14, marginBottom: 8,

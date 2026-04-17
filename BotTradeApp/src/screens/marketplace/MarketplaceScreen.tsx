@@ -8,7 +8,9 @@ import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 import {RootStackParamList, Bot} from '../../types';
 import {marketplaceApi} from '../../services/marketplace';
+import {creatorApi} from '../../services/creator';
 import {useToast} from '../../context/ToastContext';
+import {useAuth} from '../../context/AuthContext';
 import {configApi} from '../../services/config';
 import Badge from '../../components/common/Badge';
 
@@ -230,43 +232,122 @@ function TrendingCard({bot, onPress}: {bot: Bot; onPress: () => void}) {
   );
 }
 
+// ─── My Bot Card (creator-owned) ─────────────────────────────────────────────
+
+function MyBotCard({bot, onEdit, onPress}: {bot: any; onEdit: () => void; onPress: () => void}) {
+  const isPublished = bot.isPublished;
+  const returnColor = (bot.returnPercent ?? 0) >= 0 ? '#10B981' : '#EF4444';
+  const returnSign = (bot.returnPercent ?? 0) >= 0 ? '+' : '';
+
+  const tagColors: Record<string, string> = {
+    'Scalping': '#A855F7', 'Trend Following': '#10B981',
+    'Momentum': '#3B82F6', 'DCA': '#06B6D4', 'Grid': '#F59E0B',
+  };
+  const tagBg = tagColors[bot.strategy] || '#8B5CF6';
+
+  return (
+    <TouchableOpacity style={myBotStyles.card} onPress={onPress} activeOpacity={0.85}>
+      {/* Status pill */}
+      <View style={[myBotStyles.statusPill, {backgroundColor: isPublished ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)'}]}>
+        <View style={[myBotStyles.statusDot, {backgroundColor: isPublished ? '#10B981' : '#F59E0B'}]} />
+        <Text style={[myBotStyles.statusText, {color: isPublished ? '#10B981' : '#F59E0B'}]}>
+          {isPublished ? 'Live' : 'Draft'}
+        </Text>
+      </View>
+
+      {/* Avatar + strategy */}
+      <View style={myBotStyles.topRow}>
+        <View style={myBotStyles.avatarWrap}>
+          <BotAvatarSvg size={28} />
+        </View>
+        <View style={[myBotStyles.strategyTag, {backgroundColor: tagBg + '22', borderColor: tagBg + '55'}]}>
+          <Text style={[myBotStyles.strategyText, {color: tagBg}]} numberOfLines={1}>{bot.strategy}</Text>
+        </View>
+      </View>
+
+      <Text style={myBotStyles.botName} numberOfLines={1}>{bot.name}</Text>
+
+      {/* Stats */}
+      <View style={myBotStyles.statsRow}>
+        <View style={myBotStyles.statItem}>
+          <Text style={myBotStyles.statVal}>{bot.totalSubscribers ?? 0}</Text>
+          <Text style={myBotStyles.statLbl}>Users</Text>
+        </View>
+        <View style={myBotStyles.statDivider} />
+        <View style={myBotStyles.statItem}>
+          <Text style={[myBotStyles.statVal, {color: returnColor}]}>
+            {returnSign}{(bot.returnPercent ?? 0).toFixed(1)}%
+          </Text>
+          <Text style={myBotStyles.statLbl}>30D</Text>
+        </View>
+        <View style={myBotStyles.statDivider} />
+        <View style={myBotStyles.statItem}>
+          <Text style={myBotStyles.statVal}>{bot.winRate ? `${Number(bot.winRate).toFixed(0)}%` : '—'}</Text>
+          <Text style={myBotStyles.statLbl}>Win</Text>
+        </View>
+      </View>
+
+      {/* Edit button */}
+      <TouchableOpacity style={myBotStyles.editBtn} onPress={onEdit} activeOpacity={0.7}>
+        <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+          <Path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+          <Path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+        </Svg>
+        <Text style={myBotStyles.editBtnText}>Edit Bot</Text>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+}
+
 // ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function MarketplaceScreen() {
   const navigation = useNavigation<NavProp>();
   const {alert: showAlert} = useToast();
+  const {user} = useAuth();
+  const [activeTab, setActiveTab] = useState<'marketplace' | 'mybots'>('marketplace');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
   const [sortDesc, setSortDesc] = useState(true);
 
   const [allBots, setAllBots] = useState<Bot[]>([]);
+  const [myBots, setMyBots] = useState<any[]>([]);
   const [featuredBot, setFeaturedBot] = useState<Bot | null>(null);
   const [trendingBots, setTrendingBots] = useState<Bot[]>([]);
   const [categories, setCategories] = useState<string[]>(['All', 'Crypto', 'Stocks', 'Top Performers']);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const isCreator = user?.role === 'creator' || user?.role === 'admin';
+
   const fetchData = useCallback(async () => {
     try {
-      const [botsRes, featured, trending, config] = await Promise.all([
+      const promises: Promise<any>[] = [
         marketplaceApi.getBots({limit: 50}),
         marketplaceApi.getFeaturedBot().catch(() => null),
         marketplaceApi.getTrendingBots().catch(() => []),
         configApi.getPlatformConfig().catch(() => null),
-      ]);
+      ];
+      if (isCreator) {
+        promises.push(creatorApi.getBots().catch(() => []));
+      }
+      const [botsRes, featured, trending, config, creatorBots] = await Promise.all(promises);
       setAllBots(botsRes.bots);
       setFeaturedBot(featured || botsRes.bots[0] || null);
       setTrendingBots(trending.length > 0 ? trending.slice(0, 2) : botsRes.bots.slice(0, 2));
       if (config?.categories?.length) setCategories(config.categories);
+      if (creatorBots) setMyBots(creatorBots);
     } catch {
       showAlert('Error', 'Failed to load marketplace data. Pull down to retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [isCreator]);
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+
+  const showTabs = isCreator && myBots.length > 0;
 
   const filteredBots = allBots
     .filter(b => {
@@ -327,6 +408,35 @@ export default function MarketplaceScreen() {
         </View>
       </View>
 
+      {/* Tabs — only visible when user has own bots */}
+      {showTabs && (
+        <View style={styles.tabBar}>
+          <TouchableOpacity
+            style={[styles.tabItem, activeTab === 'marketplace' && styles.tabItemActive]}
+            onPress={() => setActiveTab('marketplace')}
+            activeOpacity={0.8}>
+            <Text style={[styles.tabText, activeTab === 'marketplace' && styles.tabTextActive]}>
+              All Bots
+            </Text>
+            {activeTab === 'marketplace' && <View style={styles.tabIndicator} />}
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabItem, activeTab === 'mybots' && styles.tabItemActive]}
+            onPress={() => setActiveTab('mybots')}
+            activeOpacity={0.8}>
+            <Text style={[styles.tabText, activeTab === 'mybots' && styles.tabTextActive]}>
+              My Bots
+            </Text>
+            {activeTab === 'mybots' && <View style={styles.tabIndicator} />}
+            {myBots.length > 0 && (
+              <View style={styles.tabBadge}>
+                <Text style={styles.tabBadgeText}>{myBots.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
+
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
@@ -339,134 +449,190 @@ export default function MarketplaceScreen() {
             progressBackgroundColor="#161B22"
           />
         }>
-        {/* Search */}
-        <View style={styles.searchRow}>
-          <SearchSvg />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search AI trading bots..."
-            placeholderTextColor="rgba(255,255,255,0.25)"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          <FilterLinesIcon />
-        </View>
 
-        {/* Filter chips */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.filtersScroll}
-          contentContainerStyle={styles.filtersContent}>
-          {categories.map((f: string) => (
-            <TouchableOpacity
-              key={f}
-              style={[styles.chip, activeFilter === f && styles.chipActive]}
-              onPress={() => setActiveFilter(f)}
-              activeOpacity={0.7}>
-              <Text style={[styles.chipText, activeFilter === f && styles.chipTextActive]}>{f}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
-        {/* BOT DISCOVERY + sort */}
-        <View style={styles.sectionLabelRow}>
-          <Text style={styles.sectionLabel}>BOT DISCOVERY</Text>
-          <TouchableOpacity
-            style={styles.sortRow}
-            onPress={() => setSortDesc(v => !v)}
-            activeOpacity={0.7}>
-            <Text style={styles.sortText}>Sort by: Returns </Text>
-            <Text style={styles.sortArrow}>{sortDesc ? '↓' : '↑'}</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Featured card */}
-        {featuredBot && (
-        <TouchableOpacity
-          style={styles.featuredCard}
-          onPress={() => navigation.navigate('BotDetails', {botId: featuredBot.id})}
-          activeOpacity={0.9}>
-          <View style={styles.featuredTopRow}>
-            <View style={{flex: 1, marginRight: 10}}>
-              <Text style={styles.featuredName}>{featuredBot.name}</Text>
-              <Text style={styles.featuredStrategyLabel}>{featuredBot.strategy} strategy</Text>
-            </View>
-            <Badge label="EDITORS CHOICE" variant="green" size="sm" />
-          </View>
-          <View style={styles.featuredReturnRow}>
-            <View>
-              <Text style={styles.featuredReturnLabel}>30D RETURNS</Text>
-              <Text style={styles.featuredReturn}>+{featuredBot.returnPercent.toFixed(1)}%</Text>
-            </View>
-            <MiniBarChart data={featuredBot.equityData} />
-          </View>
-          <TouchableOpacity
-            style={styles.activateNowBtn}
-            onPress={() => navigation.navigate('BotDetails', {botId: featuredBot.id})}
-            activeOpacity={0.85}>
-            <Text style={styles.activateNowText}>Activate Now</Text>
-          </TouchableOpacity>
-        </TouchableOpacity>
-        )}
-
-        {/* Trending */}
-        {!isFiltering && (
+        {/* ── MY BOTS TAB ─────────────────────────────────────────── */}
+        {activeTab === 'mybots' && showTabs ? (
           <>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Trending</Text>
-              <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('AllBots', {initialSort: 'return_30d'})}>
-                <Text style={styles.viewAll}>View All</Text>
+            {/* My Bots header row */}
+            <View style={[styles.sectionLabelRow, {marginTop: 8}]}>
+              <Text style={styles.sectionLabel}>YOUR BOTS ({myBots.length})</Text>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('BotBuilder', {})}
+                activeOpacity={0.7}>
+                <Text style={styles.sortText}>+ New Bot</Text>
               </TouchableOpacity>
             </View>
-            <View style={styles.trendingRow}>
-              {trendingBots.map(bot => (
-                <TrendingCard
+
+            {/* Summary stats */}
+            <View style={myBotStyles.summaryRow}>
+              <View style={myBotStyles.summaryItem}>
+                <Text style={myBotStyles.summaryVal}>
+                  {myBots.filter(b => b.isPublished).length}
+                </Text>
+                <Text style={myBotStyles.summaryLbl}>Published</Text>
+              </View>
+              <View style={myBotStyles.summaryDivider} />
+              <View style={myBotStyles.summaryItem}>
+                <Text style={myBotStyles.summaryVal}>
+                  {myBots.reduce((s, b) => s + (b.totalSubscribers ?? 0), 0)}
+                </Text>
+                <Text style={myBotStyles.summaryLbl}>Total Users</Text>
+              </View>
+              <View style={myBotStyles.summaryDivider} />
+              <View style={myBotStyles.summaryItem}>
+                <Text style={myBotStyles.summaryVal}>
+                  {myBots.filter(b => !b.isPublished).length}
+                </Text>
+                <Text style={myBotStyles.summaryLbl}>Drafts</Text>
+              </View>
+            </View>
+
+            {/* Bot grid */}
+            <View style={styles.gridRow}>
+              {myBots.map(bot => (
+                <MyBotCard
                   key={bot.id}
                   bot={bot}
                   onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
+                  onEdit={() => navigation.navigate('BotBuilder', {editBotId: bot.id})}
                 />
               ))}
             </View>
+            <View style={{height: 32}} />
+          </>
+        ) : (
+          <>
+            {/* ── MARKETPLACE TAB ───────────────────────────────────── */}
+            {/* Search */}
+            <View style={styles.searchRow}>
+              <SearchSvg />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search AI trading bots..."
+                placeholderTextColor="rgba(255,255,255,0.25)"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              <FilterLinesIcon />
+            </View>
+
+            {/* Filter chips */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.filtersScroll}
+              contentContainerStyle={styles.filtersContent}>
+              {categories.map((f: string) => (
+                <TouchableOpacity
+                  key={f}
+                  style={[styles.chip, activeFilter === f && styles.chipActive]}
+                  onPress={() => setActiveFilter(f)}
+                  activeOpacity={0.7}>
+                  <Text style={[styles.chipText, activeFilter === f && styles.chipTextActive]}>{f}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* BOT DISCOVERY + sort */}
+            <View style={styles.sectionLabelRow}>
+              <Text style={styles.sectionLabel}>BOT DISCOVERY</Text>
+              <TouchableOpacity
+                style={styles.sortRow}
+                onPress={() => setSortDesc(v => !v)}
+                activeOpacity={0.7}>
+                <Text style={styles.sortText}>Sort by: Returns </Text>
+                <Text style={styles.sortArrow}>{sortDesc ? '↓' : '↑'}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Featured card */}
+            {featuredBot && (
+            <TouchableOpacity
+              style={styles.featuredCard}
+              onPress={() => navigation.navigate('BotDetails', {botId: featuredBot.id})}
+              activeOpacity={0.9}>
+              <View style={styles.featuredTopRow}>
+                <View style={{flex: 1, marginRight: 10}}>
+                  <Text style={styles.featuredName}>{featuredBot.name}</Text>
+                  <Text style={styles.featuredStrategyLabel}>{featuredBot.strategy} strategy</Text>
+                </View>
+                <Badge label="EDITORS CHOICE" variant="green" size="sm" />
+              </View>
+              <View style={styles.featuredReturnRow}>
+                <View>
+                  <Text style={styles.featuredReturnLabel}>30D RETURNS</Text>
+                  <Text style={styles.featuredReturn}>+{featuredBot.returnPercent.toFixed(1)}%</Text>
+                </View>
+                <MiniBarChart data={featuredBot.equityData} />
+              </View>
+              <TouchableOpacity
+                style={styles.activateNowBtn}
+                onPress={() => navigation.navigate('BotDetails', {botId: featuredBot.id})}
+                activeOpacity={0.85}>
+                <Text style={styles.activateNowText}>Activate Now</Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+            )}
+
+            {/* Trending */}
+            {!isFiltering && (
+              <>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.sectionTitle}>Trending</Text>
+                  <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('AllBots', {initialSort: 'return_30d'})}>
+                    <Text style={styles.viewAll}>View All</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.trendingRow}>
+                  {trendingBots.map(bot => (
+                    <TrendingCard
+                      key={bot.id}
+                      bot={bot}
+                      onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
+                    />
+                  ))}
+                </View>
+              </>
+            )}
+
+            {/* Low Risk Picks / search results */}
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>
+                {isFiltering ? 'Results' : 'Low Risk Picks'}
+              </Text>
+              {!isFiltering && (
+                <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('AllBots', {})}>
+                  <Text style={styles.viewAll}>View All</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <View style={styles.gridRow}>
+              {displayBots.map(bot => (
+                <BotGridCard
+                  key={bot.id}
+                  bot={bot}
+                  onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
+                  onShadowPress={() => handleShadowPress(bot)}
+                />
+              ))}
+              {displayBots.length === 0 && (
+                <Text style={styles.emptyText}>No bots found matching your search.</Text>
+              )}
+            </View>
+
+            {/* Browse All Button */}
+            {!isFiltering && allBots.length > 4 && (
+              <TouchableOpacity
+                style={styles.browseAllBtn}
+                activeOpacity={0.8}
+                onPress={() => navigation.navigate('AllBots', {})}>
+                <Text style={styles.browseAllText}>Browse All Bots</Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={{height: 32}} />
           </>
         )}
-
-        {/* Low Risk Picks / search results */}
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>
-            {isFiltering ? 'Results' : 'Low Risk Picks'}
-          </Text>
-          {!isFiltering && (
-            <TouchableOpacity activeOpacity={0.7} onPress={() => navigation.navigate('AllBots', {})}>
-              <Text style={styles.viewAll}>View All</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-        <View style={styles.gridRow}>
-          {displayBots.map(bot => (
-            <BotGridCard
-              key={bot.id}
-              bot={bot}
-              onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
-              onShadowPress={() => handleShadowPress(bot)}
-            />
-          ))}
-          {displayBots.length === 0 && (
-            <Text style={styles.emptyText}>No bots found matching your search.</Text>
-          )}
-        </View>
-
-        {/* Browse All Button */}
-        {!isFiltering && allBots.length > 4 && (
-          <TouchableOpacity
-            style={styles.browseAllBtn}
-            activeOpacity={0.8}
-            onPress={() => navigation.navigate('AllBots', {})}>
-            <Text style={styles.browseAllText}>Browse All Bots</Text>
-          </TouchableOpacity>
-        )}
-
-        <View style={{height: 32}} />
       </ScrollView>
     </View>
   );
@@ -549,6 +715,68 @@ const trendStyles = StyleSheet.create({
   name: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF', flex: 1},
   pct: {fontFamily: 'Inter-Bold', fontSize: 22, letterSpacing: -0.5, marginBottom: 2},
   label: {fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.8},
+});
+
+// ─── My Bot card styles ───────────────────────────────────────────────────────
+
+const myBotStyles = StyleSheet.create({
+  card: {
+    width: '48%',
+    backgroundColor: '#161B22',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    padding: 12,
+  },
+  statusPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    alignSelf: 'flex-start', borderRadius: 20,
+    paddingHorizontal: 8, paddingVertical: 3, marginBottom: 10,
+  },
+  statusDot: {width: 6, height: 6, borderRadius: 3},
+  statusText: {fontFamily: 'Inter-SemiBold', fontSize: 10},
+  topRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginBottom: 8,
+  },
+  avatarWrap: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  strategyTag: {
+    borderRadius: 8, borderWidth: 1,
+    paddingHorizontal: 7, paddingVertical: 3, maxWidth: 80,
+  },
+  strategyText: {fontFamily: 'Inter-SemiBold', fontSize: 9},
+  botName: {fontFamily: 'Inter-Bold', fontSize: 13, color: '#FFFFFF', marginBottom: 12},
+  statsRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 10, padding: 8, marginBottom: 12,
+  },
+  statItem: {flex: 1, alignItems: 'center'},
+  statVal: {fontFamily: 'Inter-Bold', fontSize: 13, color: '#FFFFFF', marginBottom: 2},
+  statLbl: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)'},
+  statDivider: {width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.08)'},
+  editBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, height: 32, borderRadius: 8,
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.25)',
+  },
+  editBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#10B981'},
+  summaryRow: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#161B22', borderRadius: 14,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
+    padding: 14, marginBottom: 16,
+  },
+  summaryItem: {flex: 1, alignItems: 'center'},
+  summaryVal: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF', marginBottom: 2},
+  summaryLbl: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)'},
+  summaryDivider: {width: 1, height: 32, backgroundColor: 'rgba(255,255,255,0.08)'},
 });
 
 // ─── Screen styles ────────────────────────────────────────────────────────────
@@ -653,5 +881,42 @@ const styles = StyleSheet.create({
   emptyText: {
     fontFamily: 'Inter-Regular', fontSize: 13,
     color: 'rgba(255,255,255,0.35)', textAlign: 'center', paddingVertical: 24, width: '100%',
+  },
+
+  // ─── Tabs ───────────────────────────────────────────────────────────────────
+  tabBar: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginBottom: 4,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderRadius: 12,
+    padding: 4,
+  },
+  tabItem: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 9, borderRadius: 10, gap: 6,
+  },
+  tabItemActive: {
+    backgroundColor: '#161B22',
+  },
+  tabText: {
+    fontFamily: 'Inter-SemiBold', fontSize: 13,
+    color: 'rgba(255,255,255,0.4)',
+  },
+  tabTextActive: {
+    color: '#FFFFFF',
+  },
+  tabIndicator: {
+    position: 'absolute' as const, bottom: 2, width: 24,
+    height: 2, borderRadius: 1, backgroundColor: '#10B981',
+  },
+  tabBadge: {
+    minWidth: 18, height: 18, borderRadius: 9,
+    backgroundColor: '#10B981',
+    alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  tabBadgeText: {
+    fontFamily: 'Inter-Bold', fontSize: 10, color: '#FFFFFF',
   },
 });
