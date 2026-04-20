@@ -37,7 +37,7 @@ export interface TradeHistoryQuery {
   symbol?: string;
   side?: string;
   is_paper?: boolean;
-  mode?: 'live' | 'shadow' | 'all';
+  mode?: 'live' | 'shadow' | 'arena' | 'all';
   botId?: string;
   page?: number;
   limit?: number;
@@ -129,21 +129,25 @@ export const tradesApi = {
     return items.map(mapLiveTrade);
   },
 
-  /** Calculate summary stats from trade history. */
-  async getSummary(): Promise<TradeSummary> {
-    const res = await api.get<any>('/trades/history?limit=100');
-    const items: TradeRow[] = Array.isArray(res?.data) ? res.data : [];
-    let totalPnl = 0;
-    let wins = 0;
-    for (const t of items) {
-      const pnl = parseFloat(t.pnl ?? '0') || 0;
-      totalPnl += pnl;
-      if (pnl > 0) wins++;
+  /** Get per-mode summary stats from the dedicated summary endpoint. */
+  async getSummary(): Promise<{live: TradeSummary; shadow: TradeSummary; arena: TradeSummary; all: TradeSummary}> {
+    try {
+      const res = await api.get<any>('/trades/summary');
+      const d = res?.data;
+      const parse = (m: any): TradeSummary => ({
+        totalPnl: parseFloat(m?.totalPnl ?? '0') || 0,
+        totalTrades: parseInt(m?.totalTrades ?? '0') || 0,
+        winRate: parseFloat(m?.winRate ?? '0') || 0,
+      });
+      return {
+        live: parse(d?.live),
+        shadow: parse(d?.shadow),
+        arena: parse(d?.arena),
+        all: parse(d?.all),
+      };
+    } catch {
+      const empty: TradeSummary = {totalPnl: 0, totalTrades: 0, winRate: 0};
+      return {live: empty, shadow: empty, arena: empty, all: empty};
     }
-    return {
-      totalPnl,
-      totalTrades: items.length,
-      winRate: items.length > 0 ? (wins / items.length) * 100 : 0,
-    };
   },
 };

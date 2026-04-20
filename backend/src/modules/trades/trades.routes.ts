@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
-import { getRecentTrades, getTradeHistory } from './trades.service.js';
+import { getRecentTrades, getTradeHistory, getTradeSummary } from './trades.service.js';
 import {
   recentTradesQuerySchema,
   tradeHistoryQuerySchema,
@@ -22,6 +22,14 @@ export async function tradesRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { limit } = request.query;
     const result = await getRecentTrades(request.user.userId, limit);
+    return { data: result };
+  });
+
+  // GET /summary — per-mode stats (live, shadow, arena, all)
+  zApp.get('/summary', {
+    schema: { response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+  }, async (request) => {
+    const result = await getTradeSummary(request.user.userId);
     return { data: result };
   });
 

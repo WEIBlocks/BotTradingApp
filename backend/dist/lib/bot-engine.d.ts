@@ -41,6 +41,8 @@ export interface EngineDecision {
     sizePercent?: number;
     pnl?: number;
     pnlPercent?: number;
+    tradeAmount?: number;
+    tradeValue?: number;
 }
 export declare function generateRules(botPrompt: string, strategy: string | null | undefined, riskLevel: string, stopLoss?: number, takeProfit?: number, maxPosition?: number): Promise<TradingRules>;
 export declare function processSymbol(opts: {
@@ -70,6 +72,7 @@ export declare function processSymbol(opts: {
     customExitConditions?: RuleCondition[];
     maxOpenPositions?: number;
     riskMultiplier?: number;
+    feeRate?: number;
 }): Promise<EngineDecision>;
 export declare function executeLiveTrade(decision: EngineDecision, userId: string, botId: string, subscriptionId: string, exchangeConnId: string, orderType?: 'market' | 'limit'): Promise<{
     success: boolean;

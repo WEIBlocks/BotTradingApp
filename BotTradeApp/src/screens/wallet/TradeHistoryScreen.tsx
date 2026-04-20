@@ -1,40 +1,117 @@
-import React, {useState, useCallback} from 'react';
-import {View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl} from 'react-native';
+import React, {useState, useCallback, useRef} from 'react';
+import {
+  View, Text, StyleSheet, FlatList, TouchableOpacity,
+  ActivityIndicator, RefreshControl,
+} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
 import {useToast} from '../../context/ToastContext';
 import {RootStackParamList} from '../../types';
 import type {Trade} from '../../types';
-import {tradesApi, TradeSummary} from '../../services/trades';
+import {tradesApi} from '../../services/trades';
 import TradeRow from '../../components/common/TradeRow';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'TradeHistory'>;
 
+type TabKey = 'live' | 'shadow' | 'arena' | 'all';
+
+interface ModeSummary {
+  totalPnl: number;
+  totalTrades: number;
+  winRate: number;
+}
+
+interface SummaryByMode {
+  live: ModeSummary;
+  shadow: ModeSummary;
+  arena: ModeSummary;
+  all: ModeSummary;
+}
+
+const TABS: {key: TabKey; label: string; color: string}[] = [
+  {key: 'live',   label: 'Live',   color: '#10B981'},
+  {key: 'shadow', label: 'Shadow', color: '#3B82F6'},
+  {key: 'arena',  label: 'Arena',  color: '#8B5CF6'},
+  {key: 'all',    label: 'All',    color: 'rgba(255,255,255,0.7)'},
+];
+
+const PAGE_SIZE = 50;
+
 export default function TradeHistoryScreen({navigation}: Props) {
   const {alert: showAlert} = useToast();
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [summary, setSummary] = useState<TradeSummary>({totalPnl: 0, totalTrades: 0, winRate: 0});
+  const [activeTab, setActiveTab] = useState<TabKey>('live');
+  const [tradesByMode, setTradesByMode] = useState<Record<TabKey, Trade[]>>({live: [], shadow: [], arena: [], all: []});
+  const [pageByMode, setPageByMode] = useState<Record<TabKey, number>>({live: 1, shadow: 1, arena: 1, all: 1});
+  const [hasMoreByMode, setHasMoreByMode] = useState<Record<TabKey, boolean>>({live: true, shadow: true, arena: true, all: true});
+  const [totalByMode, setTotalByMode] = useState<Record<TabKey, number>>({live: 0, shadow: 0, arena: 0, all: 0});
+  const [summary, setSummary] = useState<SummaryByMode | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [modeFilter, setModeFilter] = useState<'all' | 'live' | 'shadow' | 'arena'>('all');
+  const loadingMoreRef = useRef(false);
 
-  const fetchData = useCallback(async () => {
+  const fetchSummary = useCallback(async () => {
     try {
-      const [historyRes, summaryRes] = await Promise.all([tradesApi.getHistory({limit: 100}), tradesApi.getSummary()]);
-      setTrades(historyRes.trades);
-      setSummary(summaryRes);
-    } catch {
-      showAlert('Error', 'Failed to load trade history. Pull down to retry.');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+      const res = await tradesApi.getSummary();
+      setSummary(res as SummaryByMode);
+      // Seed server-side totals from summary so badge counts are correct immediately
+      setTotalByMode(prev => ({
+        ...prev,
+        live:   res.live.totalTrades,
+        shadow: res.shadow.totalTrades,
+        arena:  res.arena.totalTrades,
+        all:    res.all.totalTrades,
+      }));
+    } catch {}
   }, []);
 
-  const filteredTrades = modeFilter === 'all' ? trades : trades.filter(t => t.mode === modeFilter);
+  const fetchTab = useCallback(async (tab: TabKey, page: number, append = false) => {
+    try {
+      const res = await tradesApi.getHistory({mode: tab === 'all' ? 'all' : tab, page, limit: PAGE_SIZE});
+      setTradesByMode(prev => ({
+        ...prev,
+        [tab]: append ? [...prev[tab], ...res.trades] : res.trades,
+      }));
+      setPageByMode(prev => ({...prev, [tab]: page}));
+      setHasMoreByMode(prev => ({...prev, [tab]: page < res.totalPages}));
+      // Update server total from pagination response
+      if (res.total > 0) {
+        setTotalByMode(prev => ({...prev, [tab]: res.total}));
+      }
+    } catch {
+      if (!append) showAlert('Error', 'Failed to load trades. Pull down to retry.');
+    }
+  }, [showAlert]);
 
-  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+  const fetchAll = useCallback(async () => {
+    setLoading(true);
+    await Promise.all([
+      fetchSummary(),
+      fetchTab('live', 1),
+      fetchTab('shadow', 1),
+      fetchTab('arena', 1),
+      fetchTab('all', 1),
+    ]);
+    setLoading(false);
+    setRefreshing(false);
+  }, [fetchSummary, fetchTab]);
+
+  useFocusEffect(useCallback(() => { fetchAll(); }, [fetchAll]));
+
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMoreByMode[activeTab]) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    const nextPage = pageByMode[activeTab] + 1;
+    await fetchTab(activeTab, nextPage, true);
+    setLoadingMore(false);
+    loadingMoreRef.current = false;
+  }, [activeTab, hasMoreByMode, pageByMode, fetchTab]);
+
+  const activeSummary = summary?.[activeTab];
+  const activeTrades = tradesByMode[activeTab];
+  const activeColor = TABS.find(t => t.key === activeTab)?.color ?? '#FFFFFF';
 
   if (loading) {
     return (
@@ -46,6 +123,7 @@ export default function TradeHistoryScreen({navigation}: Props) {
 
   return (
     <View style={styles.container}>
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
           <ChevronLeftIcon size={22} color="#FFFFFF" />
@@ -54,69 +132,89 @@ export default function TradeHistoryScreen({navigation}: Props) {
         <View style={{width: 40}} />
       </View>
 
-      {/* Summary */}
-      <View style={styles.summary}>
-        <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>${summary.totalPnl.toFixed(2)}</Text>
-          <Text style={styles.summaryLabel}>Total P&L</Text>
-        </View>
-        <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>{summary.totalTrades}</Text>
-          <Text style={styles.summaryLabel}>Total Trades</Text>
-        </View>
-        <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>{Math.round(summary.winRate)}%</Text>
-          <Text style={styles.summaryLabel}>Win Rate</Text>
-        </View>
+      {/* Tabs */}
+      <View style={styles.tabRow}>
+        {TABS.map(tab => {
+          const isActive = activeTab === tab.key;
+          // Use server total (from summary/pagination) — never the locally-loaded page count
+          const total = totalByMode[tab.key];
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              style={[styles.tab, isActive && {borderBottomColor: tab.color, borderBottomWidth: 2}]}
+              onPress={() => setActiveTab(tab.key)}
+              activeOpacity={0.7}>
+              <Text style={[styles.tabLabel, isActive && {color: tab.color}]}>{tab.label}</Text>
+              {total > 0 && (
+                <View style={[styles.tabBadge, {backgroundColor: isActive ? tab.color : 'rgba(255,255,255,0.08)'}]}>
+                  <Text style={[styles.tabBadgeText, isActive && {color: '#FFF'}]}>{total}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
-      {/* Mode Filter */}
-      <View style={styles.filterRow}>
-        {([
-          {key: 'all', label: 'All', color: '#FFFFFF'},
-          {key: 'live', label: 'Live', color: '#10B981'},
-          {key: 'shadow', label: 'Shadow', color: '#3B82F6'},
-          {key: 'arena', label: 'Arena', color: '#8B5CF6'},
-        ] as const).map(f => (
-          <TouchableOpacity
-            key={f.key}
-            activeOpacity={0.7}
-            style={[styles.filterChip, modeFilter === f.key && {backgroundColor: `${f.color}15`, borderColor: f.color}]}
-            onPress={() => setModeFilter(f.key)}>
-            {f.key !== 'all' && <View style={[styles.filterDot, {backgroundColor: modeFilter === f.key ? f.color : 'rgba(255,255,255,0.2)'}]} />}
-            <Text style={[styles.filterText, modeFilter === f.key && {color: f.color}]}>{f.label}</Text>
-            <Text style={[styles.filterCount, modeFilter === f.key && {color: f.color}]}>
-              {f.key === 'all' ? trades.length : trades.filter(t => t.mode === f.key).length}
+      {/* Per-mode summary card */}
+      {activeSummary && (
+        <View style={[styles.summaryCard, {borderLeftColor: activeColor}]}>
+          <View style={styles.summaryItem}>
+            <Text style={[styles.summaryValue, {color: activeSummary.totalPnl >= 0 ? '#10B981' : '#EF4444'}]}>
+              {activeSummary.totalPnl >= 0 ? '+' : ''}{activeSummary.totalPnl.toFixed(2)}
             </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+            <Text style={styles.summaryLabel}>P&L ($)</Text>
+          </View>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryValue}>{activeSummary.totalTrades}</Text>
+            <Text style={styles.summaryLabel}>Trades</Text>
+          </View>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryValue}>{Math.round(activeSummary.winRate)}%</Text>
+            <Text style={styles.summaryLabel}>Win Rate</Text>
+          </View>
+        </View>
+      )}
 
-      {filteredTrades.length === 0 ? (
-        <View style={{flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32}}>
-          <Text style={{fontSize: 48, marginBottom: 16}}>📊</Text>
-          <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 18, color: 'rgba(255,255,255,0.6)', marginBottom: 8}}>No trades yet</Text>
-          <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)', textAlign: 'center', lineHeight: 19, marginBottom: 20}}>
-            Start a shadow session or activate live trading{'\n'}to see your trade history here.
+      {/* Trade list */}
+      {activeTrades.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyEmoji}>📊</Text>
+          <Text style={styles.emptyTitle}>No {activeTab === 'all' ? '' : activeTab + ' '}trades yet</Text>
+          <Text style={styles.emptyDesc}>
+            {activeTab === 'live'
+              ? 'Connect an exchange and activate live trading to see real trades here.'
+              : activeTab === 'shadow'
+              ? 'Start a shadow session on any bot to paper-trade and see results here.'
+              : activeTab === 'arena'
+              ? 'Run an arena battle to see bot vs. bot trade decisions here.'
+              : 'No trades recorded yet. Start trading to see your history.'}
           </Text>
-          <TouchableOpacity
-            style={{backgroundColor: '#10B981', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10}}
-            activeOpacity={0.8}
-            onPress={() => navigation.navigate('BotBuilder', {})}>
-            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'}}>Create Bot</Text>
-          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
-          data={filteredTrades}
+          data={activeTrades}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           renderItem={({item}) => <TradeRow trade={item} />}
+          onEndReached={handleLoadMore}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.loadingMore}>
+                <ActivityIndicator size="small" color="#10B981" />
+                <Text style={styles.loadingMoreText}>Loading more...</Text>
+              </View>
+            ) : !hasMoreByMode[activeTab] && activeTrades.length > 0 ? (
+              <Text style={styles.endText}>All {totalByMode[activeTab] || activeTrades.length} trades loaded</Text>
+            ) : null
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
-              onRefresh={() => { setRefreshing(true); fetchData(); }}
+              onRefresh={() => { setRefreshing(true); fetchAll(); }}
               tintColor="#10B981"
               colors={['#10B981']}
               progressBackgroundColor="#161B22"
@@ -130,17 +228,62 @@ export default function TradeHistoryScreen({navigation}: Props) {
 
 const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: '#0F1117'},
-  header: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12},
-  iconBtn: {width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center'},
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12,
+  },
+  iconBtn: {
+    width: 40, height: 40, borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    alignItems: 'center', justifyContent: 'center',
+  },
   headerTitle: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF'},
-  summary: {flexDirection: 'row', paddingHorizontal: 20, marginBottom: 0, backgroundColor: '#161B22', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)'},
-  filterRow: {flexDirection: 'row', paddingHorizontal: 20, paddingVertical: 10, gap: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)'},
-  filterChip: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', gap: 5},
-  filterDot: {width: 6, height: 6, borderRadius: 3},
-  filterText: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
-  filterCount: {fontFamily: 'Inter-Medium', fontSize: 11, color: 'rgba(255,255,255,0.25)'},
+
+  // Tabs
+  tabRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: '#0F1117',
+  },
+  tab: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 12, gap: 6,
+    borderBottomWidth: 2, borderBottomColor: 'transparent',
+  },
+  tabLabel: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.35)'},
+  tabBadge: {
+    paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  tabBadgeText: {fontFamily: 'Inter-Bold', fontSize: 9, color: 'rgba(255,255,255,0.4)'},
+
+  // Summary card
+  summaryCard: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: 16, marginTop: 12, marginBottom: 4,
+    backgroundColor: '#161B22', borderRadius: 14,
+    paddingVertical: 14, paddingHorizontal: 16,
+    borderLeftWidth: 3,
+  },
   summaryItem: {flex: 1, alignItems: 'center'},
-  summaryValue: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#10B981', marginBottom: 2},
-  summaryLabel: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: 0.5},
-  listContent: {paddingHorizontal: 20, paddingTop: 8, paddingBottom: 32},
+  summaryValue: {fontFamily: 'Inter-Bold', fontSize: 17, color: '#FFFFFF', marginBottom: 2},
+  summaryLabel: {fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5},
+  summaryDivider: {width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.07)', marginHorizontal: 4},
+
+  // List
+  listContent: {paddingHorizontal: 16, paddingTop: 10, paddingBottom: 32},
+  loadingMore: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, gap: 8},
+  loadingMoreText: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)'},
+  endText: {
+    fontFamily: 'Inter-Regular', fontSize: 11,
+    color: 'rgba(255,255,255,0.2)', textAlign: 'center',
+    paddingVertical: 16,
+  },
+
+  // Empty
+  emptyContainer: {flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, paddingTop: 40},
+  emptyEmoji: {fontSize: 48, marginBottom: 16},
+  emptyTitle: {fontFamily: 'Inter-SemiBold', fontSize: 18, color: 'rgba(255,255,255,0.6)', marginBottom: 8},
+  emptyDesc: {fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)', textAlign: 'center', lineHeight: 19},
 });

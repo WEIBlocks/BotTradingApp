@@ -191,20 +191,130 @@ export async function getTradeHistory(userId, filters) {
     // For arena mode or 'all' — merge arena trades
     if (!filters.mode || filters.mode === 'all' || filters.mode === 'arena') {
         const arenaOnly = filters.mode === 'arena';
-        const arenaTrades = await getArenaTrades(userId, 200); // fetch all arena trades
+        // Fetch enough arena trades to cover all pages
+        const arenaTrades = await getArenaTrades(userId, 1000);
         const arenaCount = arenaTrades.length;
         if (arenaOnly) {
-            // Only show arena trades
             const paged = arenaTrades.slice(offset, offset + take);
             return paginatedResponse(paged, arenaCount, paginationParams);
         }
-        // Merge: combine regular + arena, sort, paginate
-        const allTrades = [...enriched, ...arenaTrades]
-            .sort((a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime());
-        // For page 1, just take first `take` items from merged list
-        // Total = regular count + arena count
-        const paged = allTrades.slice(0, take);
-        return paginatedResponse(paged, regularTotal + arenaCount, paginationParams);
+        // For 'all': need all regular trades too for correct sort+paginate
+        // Re-fetch ALL regular trades (no limit) for merge
+        const allRegularRows = await db.execute(sql `
+      SELECT
+        t.id, t.symbol, t.side, t.amount, t.price, t.total_value,
+        t.pnl, t.pnl_percent, t.is_paper, t.reasoning, t.status,
+        to_char(COALESCE(t.executed_at, t.created_at), 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as executed_at_str,
+        t.shadow_session_id, t.bot_subscription_id,
+        COALESCE(b1.id, b2.id) as bot_id,
+        COALESCE(b1.name, b2.name) as bot_name,
+        COALESCE(b1.avatar_color, b2.avatar_color) as bot_avatar_color,
+        COALESCE(b1.avatar_letter, b2.avatar_letter) as bot_avatar_letter,
+        CASE
+          WHEN t.is_paper = false AND t.bot_subscription_id IS NOT NULL THEN 'live'
+          WHEN t.shadow_session_id IS NOT NULL THEN 'shadow'
+          WHEN t.is_paper = true THEN 'paper'
+          ELSE 'live'
+        END as mode
+      FROM trades t
+      LEFT JOIN bot_subscriptions bs ON t.bot_subscription_id = bs.id
+      LEFT JOIN bots b1 ON bs.bot_id = b1.id
+      LEFT JOIN shadow_sessions ss ON t.shadow_session_id = ss.id
+      LEFT JOIN bots b2 ON ss.bot_id = b2.id
+      WHERE t.user_id = ${userId}
+        AND t.status NOT IN ('failed', 'cancelled')
+      ORDER BY t.executed_at DESC
+    `);
+        const allRegular = allRegularRows.map(r => ({
+            id: r.id, symbol: r.symbol, side: r.side, amount: r.amount, price: r.price,
+            totalValue: r.total_value, pnl: r.pnl, pnlPercent: r.pnl_percent,
+            isPaper: r.is_paper, reasoning: r.reasoning, status: r.status,
+            executedAt: r.executed_at_str, mode: r.mode ?? 'live',
+            botId: r.bot_id, botName: r.bot_name ?? 'Bot',
+            botAvatarColor: r.bot_avatar_color, botAvatarLetter: r.bot_avatar_letter,
+            isOwned: true,
+        }));
+        const allTrades = [...allRegular, ...arenaTrades]
+            .sort((a, b) => new Date(b.executedAt || 0).getTime() - new Date(a.executedAt || 0).getTime());
+        const totalCount = allTrades.length;
+        const paged = allTrades.slice(offset, offset + take);
+        return paginatedResponse(paged, totalCount, paginationParams);
     }
     return paginatedResponse(enriched, regularTotal, paginationParams);
+}
+/** Per-mode summary stats — totalPnl, totalTrades, winRate for each mode separately */
+export async function getTradeSummary(userId) {
+    // Count ALL trades (BUY + SELL), sum pnl treating NULL as 0,
+    // win rate = profitable SELLs / total SELLs
+    const rows = await db.execute(sql `
+    SELECT
+      CASE
+        WHEN t.is_paper = false AND t.bot_subscription_id IS NOT NULL THEN 'live'
+        WHEN t.shadow_session_id IS NOT NULL THEN 'shadow'
+        ELSE 'other'
+      END as mode,
+      COUNT(*) as total,
+      COALESCE(SUM(CAST(COALESCE(t.pnl, '0') AS numeric)), 0) as total_pnl,
+      COUNT(CASE WHEN t.side = 'SELL' AND CAST(COALESCE(t.pnl,'0') AS numeric) > 0 THEN 1 END) as wins,
+      COUNT(CASE WHEN t.side = 'SELL' THEN 1 END) as total_sells
+    FROM trades t
+    WHERE t.user_id = ${userId}
+      AND t.status NOT IN ('failed', 'cancelled')
+    GROUP BY 1
+  `);
+    const byMode = {};
+    for (const r of rows) {
+        byMode[r.mode] = {
+            total: parseInt(r.total ?? '0'),
+            totalPnl: parseFloat(r.total_pnl ?? '0'),
+            wins: parseInt(r.wins ?? '0'),
+            totalSells: parseInt(r.total_sells ?? '0'),
+        };
+    }
+    // Arena: count BUY+SELL decisions from decisionLog, PnL from gladiator totals
+    const arenaRows = await db.execute(sql `
+    SELECT
+      COALESCE(SUM(
+        (SELECT COUNT(*) FROM jsonb_array_elements(
+          CASE WHEN jsonb_typeof(ag.decision_log) = 'array' THEN ag.decision_log ELSE '[]'::jsonb END
+        ) d WHERE d->>'action' IN ('BUY','SELL'))
+      ), 0) as trade_count,
+      COALESCE(SUM(CAST(ag.total_pnl AS numeric)), 0) as total_pnl,
+      COUNT(CASE WHEN CAST(COALESCE(ag.total_pnl,'0') AS numeric) > 0 THEN 1 END) as wins,
+      COUNT(*) as gladiator_count
+    FROM arena_gladiators ag
+    JOIN arena_sessions ars ON ars.id = ag.session_id
+    WHERE ars.user_id = ${userId}
+  `);
+    const arenaRow = arenaRows[0];
+    const live = byMode['live'] ?? { total: 0, totalPnl: 0, wins: 0, totalSells: 0 };
+    const shadow = byMode['shadow'] ?? { total: 0, totalPnl: 0, wins: 0, totalSells: 0 };
+    const arenaTradeCount = parseInt(arenaRow?.trade_count ?? '0');
+    const arenaPnl = parseFloat(arenaRow?.total_pnl ?? '0');
+    const arenaWins = parseInt(arenaRow?.wins ?? '0');
+    const arenaGladiators = parseInt(arenaRow?.gladiator_count ?? '0');
+    return {
+        live: {
+            totalPnl: live.totalPnl,
+            totalTrades: live.total,
+            winRate: live.totalSells > 0 ? (live.wins / live.totalSells) * 100 : 0,
+        },
+        shadow: {
+            totalPnl: shadow.totalPnl,
+            totalTrades: shadow.total,
+            winRate: shadow.totalSells > 0 ? (shadow.wins / shadow.totalSells) * 100 : 0,
+        },
+        arena: {
+            totalPnl: arenaPnl,
+            totalTrades: arenaTradeCount,
+            winRate: arenaGladiators > 0 ? (arenaWins / arenaGladiators) * 100 : 0,
+        },
+        all: {
+            totalPnl: live.totalPnl + shadow.totalPnl + arenaPnl,
+            totalTrades: live.total + shadow.total + arenaTradeCount,
+            winRate: (live.totalSells + shadow.totalSells) > 0
+                ? ((live.wins + shadow.wins) / (live.totalSells + shadow.totalSells)) * 100
+                : 0,
+        },
+    };
 }

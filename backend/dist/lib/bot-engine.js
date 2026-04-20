@@ -173,7 +173,7 @@ async function openPosition(opts) {
     }).returning();
     return pos;
 }
-async function closePosition(positionId, exitPrice, reasoning, exitTradeId) {
+async function closePosition(positionId, exitPrice, reasoning, exitTradeId, feeRate = 0) {
     const [pos] = await db.select().from(botPositions).where(eq(botPositions.id, positionId)).limit(1);
     if (!pos)
         return null;
@@ -181,8 +181,10 @@ async function closePosition(positionId, exitPrice, reasoning, exitTradeId) {
     const amount = parseFloat(pos.amount);
     const exitValue = amount * exitPrice;
     const entryValue = parseFloat(pos.entryValue ?? '0') || amount * entryPrice;
-    const pnl = exitValue - entryValue;
-    const pnlPercent = ((exitPrice - entryPrice) / entryPrice) * 100;
+    // Include trading fees so bot_positions.pnl matches trades.pnl
+    const fee = (exitValue + entryValue) * feeRate;
+    const pnl = exitValue - entryValue - fee;
+    const pnlPercent = ((exitPrice - entryPrice) / entryPrice) * 100 - feeRate * 2 * 100;
     const [updated] = await db.update(botPositions).set({
         exitPrice: exitPrice.toFixed(8),
         exitValue: exitValue.toFixed(2),
@@ -565,7 +567,7 @@ export async function processSymbol(opts) {
         const isFullAI = (opts.aiMode === 'full_ai') && !isRuleOnlyStrategy(strategy);
         if (existingPos && positionPnlPct !== null) {
             if (positionPnlPct <= -rules.stopLossPercent) {
-                const closed = await closePosition(existingPos.id, priceData.price, `Stop loss at ${positionPnlPct.toFixed(2)}%`);
+                const closed = await closePosition(existingPos.id, priceData.price, `Stop loss at ${positionPnlPct.toFixed(2)}%`, undefined, opts.feeRate ?? 0);
                 const decision = {
                     action: 'SELL', confidence: 100,
                     reasoning: `Stop loss triggered at ${positionPnlPct.toFixed(2)}% (limit: -${rules.stopLossPercent}%)`,
@@ -579,7 +581,7 @@ export async function processSymbol(opts) {
             // Take-profit: in full_ai mode, let AI decide exits (it sees the P&L in its prompt).
             // Only enforce hard TP when it's 2x the target as an absolute safety cap.
             if (!isFullAI && positionPnlPct >= rules.takeProfitPercent) {
-                const closed = await closePosition(existingPos.id, priceData.price, `Take profit at +${positionPnlPct.toFixed(2)}%`);
+                const closed = await closePosition(existingPos.id, priceData.price, `Take profit at +${positionPnlPct.toFixed(2)}%`, undefined, opts.feeRate ?? 0);
                 const decision = {
                     action: 'SELL', confidence: 100,
                     reasoning: `Take profit at +${positionPnlPct.toFixed(2)}% (target: +${rules.takeProfitPercent}%)`,
@@ -592,7 +594,7 @@ export async function processSymbol(opts) {
             }
             // Hard safety cap: even full_ai gets force-closed at 2x TP target
             if (isFullAI && positionPnlPct >= rules.takeProfitPercent * 2) {
-                const closed = await closePosition(existingPos.id, priceData.price, `Hard safety TP at +${positionPnlPct.toFixed(2)}%`);
+                const closed = await closePosition(existingPos.id, priceData.price, `Hard safety TP at +${positionPnlPct.toFixed(2)}%`, undefined, opts.feeRate ?? 0);
                 const decision = {
                     action: 'SELL', confidence: 100,
                     reasoning: `Safety take-profit at +${positionPnlPct.toFixed(2)}% (2x target: +${(rules.takeProfitPercent * 2).toFixed(1)}%). AI was riding this winner.`,
@@ -628,7 +630,7 @@ export async function processSymbol(opts) {
                         trailingReason = `Trailing stop (protect gains). Peak: +${peak.toFixed(2)}%, current: +${positionPnlPct.toFixed(2)}%, protecting substantial gains`;
                     }
                     if (trailingTriggered) {
-                        const closed = await closePosition(existingPos.id, priceData.price, trailingReason);
+                        const closed = await closePosition(existingPos.id, priceData.price, trailingReason, undefined, opts.feeRate ?? 0);
                         await redisConnection.del(trailingKey).catch(() => { });
                         const decision = {
                             action: 'SELL', confidence: 100,
@@ -844,14 +846,22 @@ export async function processSymbol(opts) {
                 stopLoss: slPrice, takeProfit: tpPrice, isPaper: mode !== 'live',
                 reasoning: decision.reasoning, subscriptionId: opts.subscriptionId, shadowSessionId: opts.shadowSessionId,
             });
+            // Expose exact amount/value so shadow/live jobs write consistent trade records
+            decision.tradeAmount = amount;
+            decision.tradeValue = posValue;
             decision.reasoning += ` | Size: $${posValue.toFixed(2)}`;
         }
         // Execute SELL — close position in DB with real P&L
         if (decision.action === 'SELL' && existingPos) {
-            const closed = await closePosition(existingPos.id, priceData.price, decision.reasoning);
+            const posAmount = parseFloat(existingPos.amount);
+            const posEntryValue = parseFloat(existingPos.entryValue ?? '0') || posAmount * parseFloat(existingPos.entryPrice);
+            const closed = await closePosition(existingPos.id, priceData.price, decision.reasoning, undefined, opts.feeRate ?? 0);
             if (closed) {
                 decision.pnl = closed.pnlNum;
                 decision.pnlPercent = closed.pnlPercentNum;
+                // Expose exact position amount/value so trade record matches position exactly
+                decision.tradeAmount = posAmount;
+                decision.tradeValue = posAmount * priceData.price;
                 decision.reasoning += ` | P&L: ${closed.pnlPercentNum >= 0 ? '+' : ''}${closed.pnlPercentNum.toFixed(2)}% ($${closed.pnlNum.toFixed(2)})`;
             }
         }
@@ -982,10 +992,19 @@ export async function executeLiveTrade(decision, userId, botId, subscriptionId, 
         const fillPrice = order.price > 0 ? order.price : decision.price;
         const fillAmount = order.amount > 0 ? order.amount : amount;
         const totalValue = fillAmount * fillPrice;
+        // decision.pnl is set by closePosition() which already deducts fees (feeRate passed from live-trade job)
+        const tradePnl = decision.action === 'SELL' && decision.pnl !== undefined
+            ? decision.pnl
+            : null;
+        const tradePnlPct = decision.action === 'SELL' && decision.pnlPercent !== undefined
+            ? decision.pnlPercent
+            : null;
         await db.insert(trades).values({
             userId, botSubscriptionId: subscriptionId, symbol: decision.symbol,
             side: decision.action, amount: fillAmount.toFixed(8),
             price: fillPrice.toFixed(8), totalValue: totalValue.toFixed(2),
+            pnl: tradePnl !== null ? tradePnl.toFixed(2) : null,
+            pnlPercent: tradePnlPct !== null ? tradePnlPct.toFixed(4) : null,
             isPaper: false, exchangeOrderId: order.id, orderType,
             reasoning: decision.reasoning, status: order.status === 'new' ? 'pending' : 'filled',
         });

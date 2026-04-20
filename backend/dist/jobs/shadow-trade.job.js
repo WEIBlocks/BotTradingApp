@@ -140,55 +140,44 @@ async function processShadowTrades() {
                         customExitConditions: config.customExitConditions,
                         maxOpenPositions: config.maxOpenPositions,
                         riskMultiplier: userConfig.riskMultiplier,
+                        feeRate,
                     });
                     if (decision.action === 'HOLD')
                         continue;
-                    // Calculate trade values
-                    // Use session's user-configured minimum order value; fallback to $10
-                    const sessionMinOrder = parseFloat(session.minOrderValue ?? '10') || 10;
-                    const sizePercent = decision.sizePercent && decision.sizePercent > 0 ? decision.sizePercent : 20;
-                    const rawPositionValue = currentBalance * sizePercent / 100;
-                    const positionValue = Math.max(rawPositionValue, sessionMinOrder);
-                    const amount = positionValue / priceData.price;
-                    const totalValue = amount * priceData.price;
-                    // Skip if amount rounds to zero (price data issue)
-                    if (amount <= 0 || totalValue <= 0)
+                    // Use exact amount/value from the engine (set on decision by processSymbol).
+                    // This guarantees trades table matches bot_positions exactly — no independent recalc.
+                    const tradeAmount = decision.tradeAmount;
+                    const tradeValue = decision.tradeValue;
+                    // Skip if engine didn't produce a valid trade (e.g. price data missing)
+                    if (!tradeAmount || !tradeValue || tradeAmount <= 0 || tradeValue <= 0)
                         continue;
-                    // Sanity cap: position value must not exceed current balance
-                    const cappedPositionValue = Math.min(positionValue, currentBalance * 0.5);
-                    const cappedAmount = cappedPositionValue / priceData.price;
-                    const cappedTotal = cappedAmount * priceData.price;
-                    if (cappedTotal <= 0)
-                        continue;
-                    const fee = cappedTotal * feeRate;
+                    const fee = tradeValue * feeRate;
                     let pnl = null;
                     let pnlPercent = null;
                     if (decision.action === 'SELL') {
-                        // Extract P&L % from reasoning to compute realistic profit
-                        const pnlMatch = decision.reasoning.match(/([\-+]?\d+\.?\d*)%/);
-                        if (pnlMatch) {
-                            pnlPercent = parseFloat(pnlMatch[1]);
+                        // decision.pnl is from closePosition() — already fee-inclusive via feeRate param
+                        pnl = decision.pnl ?? null;
+                        pnlPercent = decision.pnlPercent ?? null;
+                        if (pnl !== null) {
+                            balanceDelta += pnl;
+                            if (pnl > 0)
+                                newWins++;
                         }
-                        // PnL = position value × return% (capped at ±50% per trade to prevent runaway)
-                        const returnPct = Math.max(-0.5, Math.min(0.5, (pnlPercent ?? 2) / 100));
-                        pnl = cappedTotal * returnPct - fee;
-                        balanceDelta += pnl;
-                        if (pnl > 0)
-                            newWins++;
                     }
                     else {
-                        // BUY: deduct fee only — position is "held", not settled yet
+                        // BUY: no realised PnL, deduct fee from virtual balance only
                         balanceDelta -= fee;
-                        pnl = -fee;
+                        pnl = null;
+                        pnlPercent = null;
                     }
                     await db.insert(trades).values({
                         userId: session.userId,
                         shadowSessionId: session.id,
                         symbol: pair,
                         side: decision.action,
-                        amount: cappedAmount.toFixed(8),
+                        amount: tradeAmount.toFixed(8),
                         price: priceData.price.toFixed(8),
-                        totalValue: cappedTotal.toFixed(2),
+                        totalValue: tradeValue.toFixed(2),
                         pnl: pnl !== null ? pnl.toFixed(2) : null,
                         pnlPercent: pnlPercent !== null ? pnlPercent.toFixed(4) : null,
                         isPaper: true,

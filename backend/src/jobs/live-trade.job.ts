@@ -252,6 +252,8 @@ async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
             customExitConditions: config.customExitConditions,
             maxOpenPositions: config.maxOpenPositions,
             riskMultiplier: userConfig.riskMultiplier,
+            // Real exchange fee: crypto ~0.1%, stocks commission-free (Alpaca)
+            feeRate: isStockBot ? 0 : 0.001,
           });
 
           // Execute real trade if BUY/SELL with high confidence

@@ -10,6 +10,7 @@ export declare const tradeHistoryQuerySchema: z.ZodObject<{
     symbol: z.ZodOptional<z.ZodString>;
     side: z.ZodOptional<z.ZodString>;
     is_paper: z.ZodOptional<z.ZodString>;
+    mode: z.ZodOptional<z.ZodString>;
     botId: z.ZodOptional<z.ZodString>;
     page: z.ZodDefault<z.ZodNumber>;
     limit: z.ZodDefault<z.ZodNumber>;
@@ -17,11 +18,13 @@ export declare const tradeHistoryQuerySchema: z.ZodObject<{
     limit: number;
     page: number;
     symbol?: string | undefined;
+    mode?: string | undefined;
     botId?: string | undefined;
     side?: string | undefined;
     is_paper?: string | undefined;
 }, {
     symbol?: string | undefined;
+    mode?: string | undefined;
     limit?: number | undefined;
     botId?: string | undefined;
     page?: number | undefined;

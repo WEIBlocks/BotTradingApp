@@ -174,6 +174,7 @@ async function processArenaTick() {
                             maxOpenPositions: config.maxOpenPositions,
                             customEntryConditions: config.customEntryConditions,
                             customExitConditions: config.customExitConditions,
+                            feeRate: isStockBot ? 0 : 0.001,
                         });
                         const decPrice = decision.price > 0 ? decision.price : (await getPrice(symbol))?.price ?? 0;
                         if (decision.action !== 'HOLD') {

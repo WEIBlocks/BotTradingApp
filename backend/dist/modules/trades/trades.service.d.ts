@@ -19,4 +19,27 @@ export declare function getTradeHistory(userId: string, filters: TradeHistoryFil
         hasPrev: boolean;
     };
 }>;
+/** Per-mode summary stats — totalPnl, totalTrades, winRate for each mode separately */
+export declare function getTradeSummary(userId: string): Promise<{
+    live: {
+        totalPnl: number;
+        totalTrades: number;
+        winRate: number;
+    };
+    shadow: {
+        totalPnl: number;
+        totalTrades: number;
+        winRate: number;
+    };
+    arena: {
+        totalPnl: number;
+        totalTrades: number;
+        winRate: number;
+    };
+    all: {
+        totalPnl: number;
+        totalTrades: number;
+        winRate: number;
+    };
+}>;
 export {};
