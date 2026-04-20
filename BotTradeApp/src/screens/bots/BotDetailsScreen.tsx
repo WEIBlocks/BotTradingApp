@@ -64,6 +64,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const [selectedDurationIdx, setSelectedDurationIdx] = useState<number | null>(null);
   const [customDays, setCustomDays] = useState('');
   const [virtualBalance, setVirtualBalance] = useState('10000');
+  const [shadowMinOrder, setShadowMinOrder] = useState('10');
 
   // Stats tabs: 'live' = public live, 'my' = personal (shadow or live), shown when user has any active relationship
   const [activeStatsTab, setActiveStatsTab] = useState<'live' | 'my'>('live');
@@ -327,6 +328,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     setSelectedDurationIdx(null);
     setCustomDays('');
     setVirtualBalance('10000');
+    setShadowMinOrder(bot.category === 'Stocks' ? '1' : '10');
     setShadowModalVisible(true);
   }, [bot, userBotState.status]);
 
@@ -341,8 +343,15 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       showAlert('Invalid Balance', 'Virtual balance must be at least $100.');
       return;
     }
+    const isStockBotCheck = bot.category === 'Stocks';
+    const minOrderFloor = isStockBotCheck ? 1 : 10;
+    const parsedMinOrder = parseFloat(shadowMinOrder) || minOrderFloor;
+    if (parsedMinOrder < minOrderFloor) {
+      showAlert('Invalid Min Order', `Minimum order must be at least $${minOrderFloor} for ${isStockBotCheck ? 'stock' : 'crypto'} bots.`);
+      return;
+    }
 
-    let apiConfig: {virtualBalance: number; durationDays?: number; durationMinutes?: number};
+    let apiConfig: {virtualBalance: number; durationDays?: number; durationMinutes?: number; minOrderValue?: number};
 
     if (selectedDurationIdx === -1) {
       // Custom days
@@ -351,13 +360,13 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         showAlert('Invalid Duration', 'Please enter a valid number of days.');
         return;
       }
-      apiConfig = {virtualBalance: balance, durationDays: days};
+      apiConfig = {virtualBalance: balance, durationDays: days, minOrderValue: parsedMinOrder};
     } else {
       const opt = DURATION_OPTIONS[selectedDurationIdx];
       if (opt.minutes) {
-        apiConfig = {virtualBalance: balance, durationMinutes: opt.minutes};
+        apiConfig = {virtualBalance: balance, durationMinutes: opt.minutes, minOrderValue: parsedMinOrder};
       } else {
-        apiConfig = {virtualBalance: balance, durationDays: opt.days!};
+        apiConfig = {virtualBalance: balance, durationDays: opt.days!, minOrderValue: parsedMinOrder};
       }
     }
 
@@ -368,7 +377,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       .then(() => navigation.navigate('ShadowMode'))
       .catch(() => showAlert('Error', 'Failed to start shadow mode.'))
       .finally(() => setActionLoading(false));
-  }, [navigation, bot, selectedDurationIdx, customDays, virtualBalance, DURATION_OPTIONS]);
+  }, [navigation, bot, selectedDurationIdx, customDays, virtualBalance, shadowMinOrder, DURATION_OPTIONS]);
 
   const handleActivate = useCallback(() => {
     if (!bot) return;
@@ -1390,6 +1399,22 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 maxLength={8}
               />
             </View>
+
+            {/* Min order value */}
+            <Text style={modalStyles.label}>MIN ORDER VALUE (PER TRADE)</Text>
+            <View style={modalStyles.balanceRow}>
+              <Text style={modalStyles.dollarSign}>$</Text>
+              <TextInput
+                style={modalStyles.balanceInput}
+                value={shadowMinOrder}
+                onChangeText={setShadowMinOrder}
+                keyboardType="decimal-pad"
+                maxLength={8}
+              />
+            </View>
+            <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 16}}>
+              {`Bot skips trades below this · min $${bot?.category === 'Stocks' ? '1' : '10'}`}
+            </Text>
 
             {/* Confirm button */}
             <TouchableOpacity style={modalStyles.confirmBtn} onPress={handleConfirmShadow} activeOpacity={0.85}>

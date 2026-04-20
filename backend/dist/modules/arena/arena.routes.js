@@ -38,8 +38,8 @@ export async function arenaRoutes(app) {
         schema: { body: createSessionBodySchema, response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
         preHandler: [requireSubscription],
     }, async (request) => {
-        const { botIds, durationSeconds, mode, virtualBalance, cryptoBalance, stockBalance } = request.body;
-        const session = await arenaService.createSession(request.user.userId, botIds, durationSeconds, mode, virtualBalance, cryptoBalance, stockBalance);
+        const { botIds, durationSeconds, mode, virtualBalance, cryptoBalance, stockBalance, minOrderValue } = request.body;
+        const session = await arenaService.createSession(request.user.userId, botIds, durationSeconds, mode, virtualBalance, cryptoBalance, stockBalance, minOrderValue);
         return { data: session };
     });
     // GET /session/:id - get session details (live updates)

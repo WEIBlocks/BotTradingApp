@@ -276,6 +276,23 @@ export declare const arenaSessions: import("drizzle-orm/pg-core").PgTableWithCol
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        minOrderValue: import("drizzle-orm/pg-core").PgColumn<{
+            name: "min_order_value";
+            tableName: "arena_sessions";
+            dataType: "string";
+            columnType: "PgNumeric";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         notificationSent: import("drizzle-orm/pg-core").PgColumn<{
             name: "notification_sent";
             tableName: "arena_sessions";

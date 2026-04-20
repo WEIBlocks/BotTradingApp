@@ -157,13 +157,13 @@ export async function botsRoutes(app: FastifyInstance) {
     },
   }, async (request, reply) => {
     const { id } = request.params;
-    const { mode, allocatedAmount } = request.body;
+    const { mode, allocatedAmount, minOrderValue } = request.body;
     // Live mode requires an active Pro subscription
     if (mode === 'live') {
       const sub = await getActiveProSubscription(request.user.userId);
       if (!sub) throw new SubscriptionRequiredError();
     }
-    const result = await purchaseBot(request.user.userId, id, mode, allocatedAmount);
+    const result = await purchaseBot(request.user.userId, id, mode, allocatedAmount, minOrderValue);
     invalidateActiveBotsCache(request.user.userId);
     return reply.status(201).send({ data: result });
   });

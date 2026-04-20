@@ -26,6 +26,7 @@ import { getPrice } from '../jobs/price-sync.job.js';
 import { botDecisions } from '../db/schema/decisions.js';
 import { botPositions } from '../db/schema/positions.js';
 import { trades } from '../db/schema/trades.js';
+import { botSubscriptions } from '../db/schema/bots.js';
 import { exchangeConnections } from '../db/schema/exchanges.js';
 import { decrypt } from './encryption.js';
 import { createAdapter } from '../modules/exchange/adapters/adapter.factory.js';
@@ -72,7 +73,8 @@ const aiCallCount = new Map();
 const holdCountCache = new Map();
 const MAX_PRICE_HISTORY = 100;
 const RULES_TTL_MS = 30 * 60 * 1000;
-const AI_RATE_LIMIT = 30; // max AI calls per bot per hour
+// max AI calls per bot per hour — configurable via AI_RATE_LIMIT_PER_HOUR env var
+const AI_RATE_LIMIT = env.AI_RATE_LIMIT_PER_HOUR;
 function addPrice(key, price) {
     if (!priceHistoryBuffer.has(key))
         priceHistoryBuffer.set(key, []);
@@ -82,21 +84,42 @@ function addPrice(key, price) {
         hist.shift();
     return hist;
 }
-// Seed price history with synthetic data so indicators work from cycle 1
-// Uses current price ± small random noise to simulate recent history
-function seedPriceHistory(key, currentPrice, count = 30) {
+// Seed price history from real price-sync cache (DB-backed, 30s ticks)
+// Falls back to repeated current price if not enough real data yet — indicators
+// will produce flat/neutral values until real history accumulates.
+async function seedPriceHistoryFromReal(key, symbol, currentPrice, count = 30) {
     if (priceHistoryBuffer.has(key) && priceHistoryBuffer.get(key).length >= 20) {
         return priceHistoryBuffer.get(key);
     }
     const prices = [];
-    let p = currentPrice;
-    // Build backwards with a realistic random walk — enough variation so
-    // RSI/BB/MACD reach tradeable zones from cycle 1
-    for (let i = count; i > 0; i--) {
-        p = p * (1 + (Math.random() - 0.5) * 0.03); // ±1.5% per bar
-        prices.push(p);
+    try {
+        // Try to load real OHLCV history from price-sync cache (stored as 24h klines)
+        const priceSyncMod = await import('../jobs/price-sync.job.js');
+        const history = typeof priceSyncMod.getPriceHistory === 'function'
+            ? await priceSyncMod.getPriceHistory(symbol, count)
+            : null;
+        if (history && history.length >= 5) {
+            prices.push(...history);
+        }
     }
-    prices.push(currentPrice); // end with actual current price
+    catch {
+        // price-sync job may not export getPriceHistory — use current price as neutral seed
+    }
+    // If we still don't have enough, pad with current price (neutral — no false signals)
+    while (prices.length < count)
+        prices.unshift(currentPrice);
+    prices.push(currentPrice);
+    priceHistoryBuffer.set(key, prices);
+    return prices;
+}
+// Synchronous wrapper kept for call sites that can't await — uses only in-memory buffer
+function seedPriceHistory(key, currentPrice, count = 30) {
+    if (priceHistoryBuffer.has(key) && priceHistoryBuffer.get(key).length >= 20) {
+        return priceHistoryBuffer.get(key);
+    }
+    // Pad with current price — flat/neutral, no random noise to generate false signals
+    const prices = Array(count).fill(currentPrice);
+    prices.push(currentPrice);
     priceHistoryBuffer.set(key, prices);
     return prices;
 }
@@ -883,9 +906,15 @@ async function logDecision(decision, opts) {
 // ─── Execute Live Trade ─────────────────────────────────────────────────────
 export async function executeLiveTrade(decision, userId, botId, subscriptionId, exchangeConnId, orderType = 'market') {
     try {
-        const [conn] = await db.select().from(exchangeConnections)
-            .where(and(eq(exchangeConnections.id, exchangeConnId), eq(exchangeConnections.userId, userId)))
-            .limit(1);
+        const [[conn], [sub]] = await Promise.all([
+            db.select().from(exchangeConnections)
+                .where(and(eq(exchangeConnections.id, exchangeConnId), eq(exchangeConnections.userId, userId)))
+                .limit(1),
+            db.select({ minOrderValue: botSubscriptions.minOrderValue })
+                .from(botSubscriptions)
+                .where(eq(botSubscriptions.id, subscriptionId))
+                .limit(1),
+        ]);
         if (!conn?.apiKeyEnc || !conn?.apiSecretEnc)
             return { success: false, error: 'Exchange not connected' };
         if (conn.status === 'disconnected' || conn.status === 'error')
@@ -927,8 +956,11 @@ export async function executeLiveTrade(decision, userId, botId, subscriptionId, 
             tradeValue = amount * decision.price;
             console.log(`[BotEngine] SELL ${decision.symbol}: base balance=${amount} ${base}, tradeValue=$${tradeValue.toFixed(2)}`);
         }
-        // Minimum order size: $1 for stocks (fractional shares), $10 for crypto
-        const MIN_ORDER_VALUE = isStock ? 1 : 10;
+        // Minimum order size: use user's configured value from subscription, else env default
+        const subMinOrder = parseFloat(sub?.minOrderValue ?? '0');
+        const MIN_ORDER_VALUE = subMinOrder > 0
+            ? subMinOrder
+            : isStock ? (env.MIN_STOCK_ORDER_USD ?? 1) : (env.MIN_CRYPTO_ORDER_USD ?? 10);
         if (tradeValue < MIN_ORDER_VALUE) {
             await adapter.disconnect();
             return { success: false, error: `Insufficient balance for ${decision.symbol} (${quoteCurrency} balance too low for min $${MIN_ORDER_VALUE} order)` };
@@ -937,9 +969,11 @@ export async function executeLiveTrade(decision, userId, botId, subscriptionId, 
             await adapter.disconnect();
             return { success: false, error: `Insufficient balance` };
         }
-        // Support both market and limit orders
+        // Limit order slippage buffer: buy slightly below ask, sell slightly above bid
+        // 0.1% default keeps orders competitive without being too aggressive
+        const LIMIT_SLIPPAGE = env.LIMIT_ORDER_SLIPPAGE_PCT ? env.LIMIT_ORDER_SLIPPAGE_PCT / 100 : 0.001;
         const limitPrice = orderType === 'limit'
-            ? (decision.action === 'BUY' ? decision.price * 0.999 : decision.price * 1.001)
+            ? (decision.action === 'BUY' ? decision.price * (1 - LIMIT_SLIPPAGE) : decision.price * (1 + LIMIT_SLIPPAGE))
             : undefined;
         const orderOptions = isStock ? { timeInForce: 'day' } : undefined;
         const order = await adapter.createOrder(decision.symbol, decision.action.toLowerCase(), orderType, amount, limitPrice, orderOptions);

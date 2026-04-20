@@ -144,10 +144,11 @@ async function processShadowTrades() {
                     if (decision.action === 'HOLD')
                         continue;
                     // Calculate trade values
-                    // Use at least 10% of balance, minimum $10 virtual value so amount is never 0
+                    // Use session's user-configured minimum order value; fallback to $10
+                    const sessionMinOrder = parseFloat(session.minOrderValue ?? '10') || 10;
                     const sizePercent = decision.sizePercent && decision.sizePercent > 0 ? decision.sizePercent : 20;
                     const rawPositionValue = currentBalance * sizePercent / 100;
-                    const positionValue = Math.max(rawPositionValue, 10); // minimum $10 virtual trade
+                    const positionValue = Math.max(rawPositionValue, sessionMinOrder);
                     const amount = positionValue / priceData.price;
                     const totalValue = amount * priceData.price;
                     // Skip if amount rounds to zero (price data issue)

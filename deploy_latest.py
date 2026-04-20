@@ -33,6 +33,28 @@ files = [
     (r'backend\dist\db\schema\chat.d.ts',                  f'{BASE}/dist/db/schema/chat.d.ts'),
     # Training service (document analysis fix)
     (r'backend\dist\modules\training\training.service.js', f'{BASE}/dist/modules/training/training.service.js'),
+    # Exchange adapter fixes: getTickers() for Kraken, Coinbase, Alpaca; paper mode fix
+    (r'backend\dist\modules\exchange\adapters\kraken.adapter.js',   f'{BASE}/dist/modules/exchange/adapters/kraken.adapter.js'),
+    (r'backend\dist\modules\exchange\adapters\coinbase.adapter.js', f'{BASE}/dist/modules/exchange/adapters/coinbase.adapter.js'),
+    (r'backend\dist\modules\exchange\adapters\alpaca.adapter.js',   f'{BASE}/dist/modules/exchange/adapters/alpaca.adapter.js'),
+    # Bot engine: fix gpt-5.4-mini→gpt-4o-mini, remove synthetic seedPriceHistory, env-backed tunables, minOrderValue from sub
+    # (bot-engine.js already in list above)
+    # Env config: add MIN_CRYPTO_ORDER_USD, MIN_STOCK_ORDER_USD, LIMIT_ORDER_SLIPPAGE_PCT, AI_RATE_LIMIT_PER_HOUR
+    (r'backend\dist\config\env.js',                        f'{BASE}/dist/config/env.js'),
+    (r'backend\dist\config\env.d.ts',                      f'{BASE}/dist/config/env.d.ts'),
+    # minOrderValue feature: schema, bots service, arena service, shadow-trade job
+    (r'backend\dist\db\schema\bots.js',                    f'{BASE}/dist/db/schema/bots.js'),
+    (r'backend\dist\db\schema\bots.d.ts',                  f'{BASE}/dist/db/schema/bots.d.ts'),
+    (r'backend\dist\db\schema\arena.js',                   f'{BASE}/dist/db/schema/arena.js'),
+    (r'backend\dist\db\schema\arena.d.ts',                 f'{BASE}/dist/db/schema/arena.d.ts'),
+    (r'backend\dist\modules\bots\bots.service.js',         f'{BASE}/dist/modules/bots/bots.service.js'),
+    (r'backend\dist\modules\bots\bots.service.d.ts',       f'{BASE}/dist/modules/bots/bots.service.d.ts'),
+    (r'backend\dist\modules\bots\bots.schema.js',          f'{BASE}/dist/modules/bots/bots.schema.js'),
+    (r'backend\dist\modules\bots\bots.routes.js',          f'{BASE}/dist/modules/bots/bots.routes.js'),
+    (r'backend\dist\modules\arena\arena.service.js',       f'{BASE}/dist/modules/arena/arena.service.js'),
+    (r'backend\dist\modules\arena\arena.service.d.ts',     f'{BASE}/dist/modules/arena/arena.service.d.ts'),
+    (r'backend\dist\modules\arena\arena.routes.js',        f'{BASE}/dist/modules/arena/arena.routes.js'),
+    (r'backend\dist\jobs\shadow-trade.job.js',             f'{BASE}/dist/jobs/shadow-trade.job.js'),
 ]
 
 import os
@@ -75,6 +97,27 @@ try {{
   console.log('conversations table ready');
 }} catch(e) {{
   console.log('conversations table error:', e.message);
+}}
+
+try {{
+  await db.execute(sql`ALTER TABLE bot_subscriptions ADD COLUMN IF NOT EXISTS min_order_value numeric(10,2) DEFAULT 10`);
+  console.log('bot_subscriptions.min_order_value ready');
+}} catch(e) {{
+  console.log('bot_subscriptions.min_order_value:', e.message);
+}}
+
+try {{
+  await db.execute(sql`ALTER TABLE shadow_sessions ADD COLUMN IF NOT EXISTS min_order_value numeric(10,2) DEFAULT 10`);
+  console.log('shadow_sessions.min_order_value ready');
+}} catch(e) {{
+  console.log('shadow_sessions.min_order_value:', e.message);
+}}
+
+try {{
+  await db.execute(sql`ALTER TABLE arena_sessions ADD COLUMN IF NOT EXISTS min_order_value numeric(10,2) DEFAULT 10`);
+  console.log('arena_sessions.min_order_value ready');
+}} catch(e) {{
+  console.log('arena_sessions.min_order_value:', e.message);
 }}
 
 process.exit(0);

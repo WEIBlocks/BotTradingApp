@@ -72,6 +72,8 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);
   const [allocatedAmount, setAllocatedAmount] = useState('');
   const [amountError, setAmountError] = useState('');
+  const [minOrderInput, setMinOrderInput] = useState('');
+  const [minOrderError, setMinOrderError] = useState('');
 
   const {purchaseBot, processing: iapProcessing, isPro} = useIAP();
   const {alert: showAlert, showConfirm} = useToast();
@@ -106,6 +108,8 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
         if (match) {
           setAllocatedAmount(String(Math.floor(match.totalBalance)));
         }
+        // Default min order: $1 for stocks, $10 for crypto (reuse `required` declared above)
+        setMinOrderInput(required === 'stocks' ? '1' : '10');
       })
       .catch(() => showAlert('Error', 'Failed to load bot details'))
       .finally(() => setLoading(false));
@@ -116,6 +120,9 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const availableBalance = matchingExchange ? matchingExchange.totalBalance : 0;
   const parsedAmount = parseFloat(allocatedAmount) || 0;
 
+  const minFloor = requiredAssetClass === 'stocks' ? 1 : 10;
+  const parsedMinOrder = parseFloat(minOrderInput) || minFloor;
+
   const validateAmount = useCallback((val: string): string => {
     const num = parseFloat(val);
     if (!val || isNaN(num) || num <= 0) return 'Enter a valid amount greater than 0';
@@ -125,6 +132,13 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
     }
     return '';
   }, [availableBalance, requiredAssetClass]);
+
+  const validateMinOrder = useCallback((val: string): string => {
+    const num = parseFloat(val);
+    if (!val || isNaN(num) || num <= 0) return 'Enter a valid minimum order amount';
+    if (num < minFloor) return `Minimum must be at least $${minFloor} for ${requiredAssetClass}`;
+    return '';
+  }, [minFloor, requiredAssetClass]);
 
   const handleAmountChange = (val: string) => {
     // Only allow numbers and one decimal point
@@ -143,6 +157,8 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
     if (!bot) return;
     const err = validateAmount(allocatedAmount);
     if (err) { setAmountError(err); return; }
+    const minErr = validateMinOrder(minOrderInput);
+    if (minErr) { setMinOrderError(minErr); return; }
     if (!matchingExchange) {
       const label = requiredAssetClass === 'stocks' ? 'stock (Alpaca)' : 'crypto';
       showAlert('No Exchange Connected', `This bot requires a connected ${label} exchange. Please connect one first.`);
@@ -155,7 +171,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
 
     setActivating(true);
     try {
-      await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: parsedAmount});
+      await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: parsedAmount, minOrderValue: parsedMinOrder});
       showAlert('Bot Activated!', `${bot.name} is now running live with $${parsedAmount.toLocaleString()} allocated.`);
       navigation.navigate('Main');
     } catch (err: any) {
@@ -170,6 +186,8 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
     if (!bot) return;
     const err = validateAmount(allocatedAmount);
     if (err) { setAmountError(err); return; }
+    const minErr = validateMinOrder(minOrderInput);
+    if (minErr) { setMinOrderError(minErr); return; }
 
     if (bot.price > 0 && !isAdmin) {
       showConfirm({
@@ -181,7 +199,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
           try {
             const success = await purchaseBot(bot.id, bot.price);
             if (success) {
-              await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: parsedAmount});
+              await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: parsedAmount, minOrderValue: parsedMinOrder});
               showAlert('Bot Activated!', `${bot.name} is now running live with $${parsedAmount.toLocaleString()} allocated.`);
               navigation.navigate('Main');
             }
@@ -237,7 +255,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const assetLabel = isStockBot ? 'Stock' : 'Crypto';
   // Exchange connected but no funds = cannot activate (applies to all users including admin)
   const hasInsufficientBalance = !!matchingExchange && availableBalance <= 0;
-  const canActivate = !amountError && parsedAmount > 0 && !!matchingExchange && !hasInsufficientBalance;
+  const canActivate = !amountError && !minOrderError && parsedAmount > 0 && parsedMinOrder >= minFloor && !!matchingExchange && !hasInsufficientBalance;
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -351,6 +369,35 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
               {((parsedAmount / availableBalance) * 100).toFixed(0)}% of your {assetLabel.toLowerCase()} balance
             </Text>
           ) : null}
+        </View>
+
+        {/* Minimum order value input */}
+        <View style={[styles.amountCard, minOrderError ? {borderColor: 'rgba(239,68,68,0.4)'} : {}, {marginTop: 0}]}>
+          <View style={styles.amountHeader}>
+            <Text style={styles.amountLabel}>MIN ORDER VALUE (PER TRADE)</Text>
+          </View>
+          <View style={styles.amountInputRow}>
+            <Text style={styles.dollarSign}>$</Text>
+            <TextInput
+              style={[styles.amountInput, {fontSize: 28}]}
+              value={minOrderInput}
+              onChangeText={v => {
+                const cleaned = v.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+                setMinOrderInput(cleaned);
+                setMinOrderError(validateMinOrder(cleaned));
+              }}
+              keyboardType="decimal-pad"
+              placeholder={String(minFloor)}
+              placeholderTextColor="rgba(255,255,255,0.2)"
+            />
+          </View>
+          {minOrderError ? (
+            <Text style={styles.amountError}>{minOrderError}</Text>
+          ) : (
+            <Text style={styles.amountSub}>
+              Bot skips any trade below this amount · min ${minFloor} for {requiredAssetClass}
+            </Text>
+          )}
         </View>
 
         {/* Features */}

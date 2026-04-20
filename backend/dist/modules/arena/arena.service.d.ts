@@ -22,7 +22,7 @@ export declare function getAvailableBots(userId: string): Promise<{
     avgRating: string | null;
     activeUsers: number | null;
 }[]>;
-export declare function createSession(userId: string, botIds: string[], durationSeconds?: number, mode?: 'shadow' | 'live', virtualBalance?: number, cryptoBalance?: number, stockBalance?: number): Promise<{
+export declare function createSession(userId: string, botIds: string[], durationSeconds?: number, mode?: 'shadow' | 'live', virtualBalance?: number, cryptoBalance?: number, stockBalance?: number, minOrderValue?: number): Promise<{
     gladiators: {
         id: string;
         createdAt: Date | null;
@@ -48,6 +48,7 @@ export declare function createSession(userId: string, botIds: string[], duration
     mode: "shadow" | "live" | null;
     createdAt: Date | null;
     userId: string;
+    minOrderValue: string | null;
     startedAt: Date | null;
     virtualBalance: string | null;
     notificationSent: boolean | null;
@@ -129,6 +130,7 @@ export declare function getSession(sessionId: string, userId: string): Promise<{
     endedAt: Date | null;
     pausedAt: Date | null;
     pausedDurationSeconds: number | null;
+    minOrderValue: string | null;
     notificationSent: boolean | null;
     createdAt: Date | null;
 }>;
@@ -203,6 +205,7 @@ export declare function getActiveSession(userId: string): Promise<{
     endedAt: Date | null;
     pausedAt: Date | null;
     pausedDurationSeconds: number | null;
+    minOrderValue: string | null;
     notificationSent: boolean | null;
     createdAt: Date | null;
 } | null>;
@@ -277,6 +280,7 @@ export declare function getActiveSessions(userId: string): Promise<{
     endedAt: Date | null;
     pausedAt: Date | null;
     pausedDurationSeconds: number | null;
+    minOrderValue: string | null;
     notificationSent: boolean | null;
     createdAt: Date | null;
 }[]>;

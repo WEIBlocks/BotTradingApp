@@ -246,12 +246,15 @@ export declare const updateBotBodySchema: z.ZodObject<{
 export declare const purchaseBotBodySchema: z.ZodObject<{
     mode: z.ZodDefault<z.ZodEnum<["live", "paper"]>>;
     allocatedAmount: z.ZodOptional<z.ZodNumber>;
+    minOrderValue: z.ZodOptional<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     mode: "live" | "paper";
     allocatedAmount?: number | undefined;
+    minOrderValue?: number | undefined;
 }, {
     mode?: "live" | "paper" | undefined;
     allocatedAmount?: number | undefined;
+    minOrderValue?: number | undefined;
 }>;
 export declare const shadowModeBodySchema: z.ZodEffects<z.ZodObject<{
     virtualBalance: z.ZodNumber;
@@ -259,26 +262,31 @@ export declare const shadowModeBodySchema: z.ZodEffects<z.ZodObject<{
     durationMinutes: z.ZodOptional<z.ZodNumber>;
     enableRiskLimits: z.ZodOptional<z.ZodBoolean>;
     enableRealisticFees: z.ZodOptional<z.ZodBoolean>;
+    minOrderValue: z.ZodOptional<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     virtualBalance: number;
+    minOrderValue?: number | undefined;
     durationDays?: number | undefined;
     enableRiskLimits?: boolean | undefined;
     enableRealisticFees?: boolean | undefined;
     durationMinutes?: number | undefined;
 }, {
     virtualBalance: number;
+    minOrderValue?: number | undefined;
     durationDays?: number | undefined;
     enableRiskLimits?: boolean | undefined;
     enableRealisticFees?: boolean | undefined;
     durationMinutes?: number | undefined;
 }>, {
     virtualBalance: number;
+    minOrderValue?: number | undefined;
     durationDays?: number | undefined;
     enableRiskLimits?: boolean | undefined;
     enableRealisticFees?: boolean | undefined;
     durationMinutes?: number | undefined;
 }, {
     virtualBalance: number;
+    minOrderValue?: number | undefined;
     durationDays?: number | undefined;
     enableRiskLimits?: boolean | undefined;
     enableRealisticFees?: boolean | undefined;

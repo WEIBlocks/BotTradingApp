@@ -119,6 +119,7 @@ export declare function pauseBot(userId: string, botSubId: string): Promise<{
     status: "active" | "paused" | "stopped" | "shadow" | "expired" | null;
     mode: "live" | "paper" | null;
     allocatedAmount: string | null;
+    minOrderValue: string | null;
     exchangeConnId: string | null;
     pair: string | null;
     startedAt: Date | null;
@@ -135,6 +136,7 @@ export declare function stopBot(userId: string, botSubId: string): Promise<{
     status: "active" | "paused" | "stopped" | "shadow" | "expired" | null;
     mode: "live" | "paper" | null;
     allocatedAmount: string | null;
+    minOrderValue: string | null;
     exchangeConnId: string | null;
     pair: string | null;
     startedAt: Date | null;
@@ -151,6 +153,7 @@ export declare function resumeBot(userId: string, botSubId: string): Promise<{
     status: "active" | "paused" | "stopped" | "shadow" | "expired" | null;
     mode: "live" | "paper" | null;
     allocatedAmount: string | null;
+    minOrderValue: string | null;
     exchangeConnId: string | null;
     pair: string | null;
     startedAt: Date | null;
@@ -159,7 +162,7 @@ export declare function resumeBot(userId: string, botSubId: string): Promise<{
     userConfig: unknown;
     updatedAt: Date | null;
 }>;
-export declare function purchaseBot(userId: string, botId: string, mode: 'live' | 'paper', requestedAmount?: number): Promise<{
+export declare function purchaseBot(userId: string, botId: string, mode: 'live' | 'paper', requestedAmount?: number, minOrderValue?: number): Promise<{
     status: "active" | "paused" | "stopped" | "shadow" | "expired" | null;
     id: string;
     mode: "live" | "paper" | null;
@@ -171,6 +174,7 @@ export declare function purchaseBot(userId: string, botId: string, mode: 'live' 
     botId: string;
     botVersionId: string | null;
     allocatedAmount: string | null;
+    minOrderValue: string | null;
     pair: string | null;
     startedAt: Date | null;
     userConfig: unknown;
@@ -181,6 +185,7 @@ export declare function startShadowMode(userId: string, botId: string, config: {
     durationMinutes?: number;
     enableRiskLimits?: boolean;
     enableRealisticFees?: boolean;
+    minOrderValue?: number;
 }): Promise<{
     session: {
         status: "paused" | "running" | "completed" | "cancelled" | null;
@@ -188,6 +193,7 @@ export declare function startShadowMode(userId: string, botId: string, config: {
         createdAt: Date | null;
         userId: string;
         botId: string | null;
+        minOrderValue: string | null;
         startedAt: Date | null;
         virtualBalance: string;
         currentBalance: string | null;
@@ -212,6 +218,7 @@ export declare function startShadowMode(userId: string, botId: string, config: {
         botId: string;
         botVersionId: string | null;
         allocatedAmount: string | null;
+        minOrderValue: string | null;
         pair: string | null;
         startedAt: Date | null;
         userConfig: unknown;
@@ -232,6 +239,7 @@ export declare function getShadowResults(userId: string, sessionId: string): Pro
         status: "paused" | "running" | "completed" | "cancelled" | null;
         enableRiskLimits: boolean | null;
         enableRealisticFees: boolean | null;
+        minOrderValue: string | null;
         dailyPerformance: unknown;
         totalTrades: number | null;
         winCount: number | null;
@@ -282,6 +290,7 @@ export declare function pauseShadowSession(userId: string, sessionId: string): P
     status: "paused" | "running" | "completed" | "cancelled" | null;
     enableRiskLimits: boolean | null;
     enableRealisticFees: boolean | null;
+    minOrderValue: string | null;
     dailyPerformance: unknown;
     totalTrades: number | null;
     winCount: number | null;
@@ -300,6 +309,7 @@ export declare function resumeShadowSession(userId: string, sessionId: string): 
     status: "paused" | "running" | "completed" | "cancelled" | null;
     enableRiskLimits: boolean | null;
     enableRealisticFees: boolean | null;
+    minOrderValue: string | null;
     dailyPerformance: unknown;
     totalTrades: number | null;
     winCount: number | null;
@@ -318,6 +328,7 @@ export declare function stopShadowSession(userId: string, sessionId: string): Pr
     status: "paused" | "running" | "completed" | "cancelled" | null;
     enableRiskLimits: boolean | null;
     enableRealisticFees: boolean | null;
+    minOrderValue: string | null;
     dailyPerformance: unknown;
     totalTrades: number | null;
     winCount: number | null;
@@ -343,6 +354,7 @@ export declare function getUserShadowSessions(userId: string): Promise<{
     status: "paused" | "running" | "completed" | "cancelled" | null;
     enableRiskLimits: boolean | null;
     enableRealisticFees: boolean | null;
+    minOrderValue: string | null;
     dailyPerformance: unknown;
     totalTrades: number | null;
     winCount: number | null;
@@ -353,10 +365,12 @@ export declare function getUserActiveBots(userId: string): Promise<{
     return30d: number;
     shadowReturn30d: number | null;
     hasShadow: boolean;
+    shadowMinOrderValue: number | null;
     subscriptionId: string;
     subscriptionStatus: "active" | "paused" | "stopped" | "shadow" | "expired" | null;
     subscriptionMode: "live" | "paper" | null;
     allocatedAmount: string | null;
+    minOrderValue: string | null;
     startedAt: Date | null;
     botId: string;
     botName: string;
@@ -434,6 +448,7 @@ export declare function activateLiveMode(userId: string, botId: string, exchange
     botId: string;
     botVersionId: string | null;
     allocatedAmount: string | null;
+    minOrderValue: string | null;
     pair: string | null;
     startedAt: Date | null;
     userConfig: unknown;
@@ -552,6 +567,7 @@ export declare function updateUserConfig(userId: string, subscriptionId: string,
     status: "active" | "paused" | "stopped" | "shadow" | "expired" | null;
     mode: "live" | "paper" | null;
     allocatedAmount: string | null;
+    minOrderValue: string | null;
     exchangeConnId: string | null;
     pair: string | null;
     startedAt: Date | null;
@@ -568,6 +584,7 @@ export declare function getSubscription(userId: string, subscriptionId: string):
     status: "active" | "paused" | "stopped" | "shadow" | "expired" | null;
     mode: "live" | "paper" | null;
     allocatedAmount: string | null;
+    minOrderValue: string | null;
     exchangeConnId: string | null;
     pair: string | null;
     startedAt: Date | null;

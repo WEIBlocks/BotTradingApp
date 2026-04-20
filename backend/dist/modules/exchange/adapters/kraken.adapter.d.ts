@@ -7,6 +7,7 @@ export declare class KrakenAdapter implements ExchangeAdapter {
     testConnection(): Promise<boolean>;
     getBalances(): Promise<Balance[]>;
     getTicker(symbol: string): Promise<Ticker>;
+    getTickers(symbols: string[]): Promise<Map<string, number>>;
     getMarkets(): Promise<Market[]>;
     createOrder(symbol: string, side: 'buy' | 'sell', type: 'market' | 'limit', amount: number, price?: number, _options?: import('./base.adapter.js').OrderOptions): Promise<OrderResult>;
 }

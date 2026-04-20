@@ -851,6 +851,23 @@ export declare const botSubscriptions: import("drizzle-orm/pg-core").PgTableWith
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        minOrderValue: import("drizzle-orm/pg-core").PgColumn<{
+            name: "min_order_value";
+            tableName: "bot_subscriptions";
+            dataType: "string";
+            columnType: "PgNumeric";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         exchangeConnId: import("drizzle-orm/pg-core").PgColumn<{
             name: "exchange_conn_id";
             tableName: "bot_subscriptions";
@@ -1156,6 +1173,23 @@ export declare const shadowSessions: import("drizzle-orm/pg-core").PgTableWithCo
             columnType: "PgBoolean";
             data: boolean;
             driverParam: boolean;
+            notNull: false;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        minOrderValue: import("drizzle-orm/pg-core").PgColumn<{
+            name: "min_order_value";
+            tableName: "shadow_sessions";
+            dataType: "string";
+            columnType: "PgNumeric";
+            data: string;
+            driverParam: string;
             notNull: false;
             hasDefault: true;
             isPrimaryKey: false;

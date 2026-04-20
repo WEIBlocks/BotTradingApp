@@ -245,7 +245,7 @@ export async function resumeBot(userId: string, botSubId: string) {
   return updated;
 }
 
-export async function purchaseBot(userId: string, botId: string, mode: 'live' | 'paper', requestedAmount?: number) {
+export async function purchaseBot(userId: string, botId: string, mode: 'live' | 'paper', requestedAmount?: number, minOrderValue?: number) {
   // Check bot exists
   const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
   if (!bot) {
@@ -315,6 +315,14 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
     exchangeConnId = matchingConn.id;
   }
 
+  // Validate and determine minOrderValue — must be >= $1 for stocks, >= $10 for crypto
+  const assetClass = mode === 'live' ? (((await db.select().from(bots).where(eq(bots.id, botId)))[0]?.category ?? 'Crypto').toLowerCase() === 'stocks' ? 'stocks' : 'crypto') : 'crypto';
+  const minFloor = assetClass === 'stocks' ? 1 : 10;
+  if (minOrderValue !== undefined && minOrderValue < minFloor) {
+    throw new ValidationError(`Minimum order value must be at least $${minFloor} for ${assetClass} trading.`);
+  }
+  const resolvedMinOrder = minOrderValue ?? minFloor;
+
   const [subscription] = await db
     .insert(botSubscriptions)
     .values({
@@ -324,6 +332,7 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
       status: 'active',
       exchangeConnId,
       allocatedAmount,
+      minOrderValue: String(resolvedMinOrder),
     })
     .onConflictDoUpdate({
       target: [botSubscriptions.userId, botSubscriptions.botId],
@@ -332,6 +341,7 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
         status: 'active',
         exchangeConnId,
         allocatedAmount,
+        minOrderValue: String(resolvedMinOrder),
         updatedAt: new Date(),
       },
     })
@@ -361,6 +371,7 @@ export async function startShadowMode(
     durationMinutes?: number;
     enableRiskLimits?: boolean;
     enableRealisticFees?: boolean;
+    minOrderValue?: number;
   }
 ) {
   // Check bot exists
@@ -400,6 +411,9 @@ export async function startShadowMode(
   // Store durationDays — for minute-based durations store 1 as minimum display value
   const storedDays = durationDays > 0 ? durationDays : Math.max(1, Math.ceil(durationMinutes / 1440));
 
+  // Validate minOrderValue — shadow mode uses virtual funds, min $1 per trade
+  const resolvedMinOrder = config.minOrderValue && config.minOrderValue >= 1 ? config.minOrderValue : 10;
+
   // Create shadow session
   const [session] = await db
     .insert(shadowSessions)
@@ -413,6 +427,7 @@ export async function startShadowMode(
       status: 'running',
       enableRiskLimits: config.enableRiskLimits ?? true,
       enableRealisticFees: config.enableRealisticFees ?? true,
+      minOrderValue: String(resolvedMinOrder),
     })
     .returning();
 
@@ -642,6 +657,7 @@ export async function getUserActiveBots(userId: string) {
       subscriptionStatus: botSubscriptions.status,
       subscriptionMode: botSubscriptions.mode,
       allocatedAmount: botSubscriptions.allocatedAmount,
+      minOrderValue: botSubscriptions.minOrderValue,
       startedAt: botSubscriptions.startedAt,
       botId: bots.id,
       botName: bots.name,
@@ -683,7 +699,7 @@ export async function getUserActiveBots(userId: string) {
     let shadowReturn30d: number | null = null;
     let hasShadow = false;
     const [latestShadow] = await db.execute(sql`
-      SELECT id, virtual_balance, status
+      SELECT id, virtual_balance, status, COALESCE(min_order_value, '10') as min_order_value
       FROM shadow_sessions
       WHERE user_id = ${userId} AND bot_id = ${row.botId}
       ORDER BY started_at DESC LIMIT 1
@@ -705,7 +721,8 @@ export async function getUserActiveBots(userId: string) {
       }
     }
 
-    return { ...row, return30d, shadowReturn30d, hasShadow };
+    const shadowMinOrderValue = latestShadow ? parseFloat(latestShadow.min_order_value ?? '10') : null;
+    return { ...row, return30d, shadowReturn30d, hasShadow, shadowMinOrderValue };
   }));
 
   return enriched;

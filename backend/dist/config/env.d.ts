@@ -45,6 +45,10 @@ declare const envSchema: z.ZodObject<{
     FIREBASE_PROJECT_ID: z.ZodDefault<z.ZodString>;
     FIREBASE_CLIENT_EMAIL: z.ZodDefault<z.ZodString>;
     FIREBASE_PRIVATE_KEY: z.ZodDefault<z.ZodString>;
+    MIN_CRYPTO_ORDER_USD: z.ZodDefault<z.ZodNumber>;
+    MIN_STOCK_ORDER_USD: z.ZodDefault<z.ZodNumber>;
+    LIMIT_ORDER_SLIPPAGE_PCT: z.ZodDefault<z.ZodNumber>;
+    AI_RATE_LIMIT_PER_HOUR: z.ZodDefault<z.ZodNumber>;
 }, "strip", z.ZodTypeAny, {
     NODE_ENV: "production" | "development" | "test";
     PORT: number;
@@ -90,6 +94,10 @@ declare const envSchema: z.ZodObject<{
     FIREBASE_PROJECT_ID: string;
     FIREBASE_CLIENT_EMAIL: string;
     FIREBASE_PRIVATE_KEY: string;
+    MIN_CRYPTO_ORDER_USD: number;
+    MIN_STOCK_ORDER_USD: number;
+    LIMIT_ORDER_SLIPPAGE_PCT: number;
+    AI_RATE_LIMIT_PER_HOUR: number;
 }, {
     DATABASE_URL: string;
     JWT_ACCESS_SECRET: string;
@@ -135,6 +143,10 @@ declare const envSchema: z.ZodObject<{
     FIREBASE_PROJECT_ID?: string | undefined;
     FIREBASE_CLIENT_EMAIL?: string | undefined;
     FIREBASE_PRIVATE_KEY?: string | undefined;
+    MIN_CRYPTO_ORDER_USD?: number | undefined;
+    MIN_STOCK_ORDER_USD?: number | undefined;
+    LIMIT_ORDER_SLIPPAGE_PCT?: number | undefined;
+    AI_RATE_LIMIT_PER_HOUR?: number | undefined;
 }>;
 export declare const env: {
     NODE_ENV: "production" | "development" | "test";
@@ -181,6 +193,10 @@ export declare const env: {
     FIREBASE_PROJECT_ID: string;
     FIREBASE_CLIENT_EMAIL: string;
     FIREBASE_PRIVATE_KEY: string;
+    MIN_CRYPTO_ORDER_USD: number;
+    MIN_STOCK_ORDER_USD: number;
+    LIMIT_ORDER_SLIPPAGE_PCT: number;
+    AI_RATE_LIMIT_PER_HOUR: number;
 };
 export type Env = z.infer<typeof envSchema>;
 export {};

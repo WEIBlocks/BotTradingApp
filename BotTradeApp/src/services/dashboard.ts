@@ -35,6 +35,8 @@ interface ActiveBotRow {
   subscriptionStatus: string;
   subscriptionMode: string;
   allocatedAmount: string | null;
+  minOrderValue: string | null;
+  shadowMinOrderValue: number | null;
   startedAt: string;
   botId: string;
   botName: string;
@@ -85,6 +87,8 @@ export interface ActiveBot {
   totalReturn: number;
   shadowReturn: number;
   hasShadow: boolean;
+  minOrderValue: number;        // live subscription min order
+  shadowMinOrderValue: number;  // shadow session min order
 }
 
 export interface RecentTrade {
@@ -160,6 +164,8 @@ export const dashboardApi = {
       totalReturn: Number(row.return30d) || 0,
       shadowReturn: Number(row.shadowReturn30d) || 0,
       hasShadow: Boolean(row.hasShadow),
+      minOrderValue: parseFloat(row.minOrderValue ?? '10') || 10,
+      shadowMinOrderValue: Number(row.shadowMinOrderValue) || 10,
     }));
   },
 

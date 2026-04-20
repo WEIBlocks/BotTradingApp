@@ -196,10 +196,12 @@ export const arenaApi = {
     virtualBalance = 10000,
     cryptoBalance?: number,
     stockBalance?: number,
+    minOrderValue?: number,
   ): Promise<ArenaSession> {
     const body: Record<string, unknown> = { botIds, durationSeconds, mode, virtualBalance };
     if (cryptoBalance !== undefined) body.cryptoBalance = cryptoBalance;
     if (stockBalance !== undefined) body.stockBalance = stockBalance;
+    if (minOrderValue !== undefined) body.minOrderValue = minOrderValue;
     const res = await api.post<DataWrap<SessionResponse>>('/arena/session', body);
     const s = res?.data;
     return {

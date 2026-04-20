@@ -7,7 +7,7 @@ export class AlpacaAdapter {
         this.client = new Alpaca({
             keyId: credentials.apiKey,
             secretKey: credentials.apiSecret,
-            paper: credentials.sandbox !== undefined ? credentials.sandbox : true, // explicit sandbox control
+            paper: credentials.sandbox === true, // only use paper trading when explicitly opted in
             usePolygon: false,
         });
     }
@@ -129,6 +129,38 @@ export class AlpacaAdapter {
             status: order.status ?? 'new',
             timestamp: new Date(order.created_at).getTime(),
         };
+    }
+    async getTickers(symbols) {
+        const priceMap = new Map();
+        if (!this.client || symbols.length === 0)
+            return priceMap;
+        // Normalize symbols: strip /USD, /USDT suffixes for stock tickers
+        const cleaned = symbols.map(s => s.replace('/USD', '').replace('/USDT', ''));
+        const BATCH = 50;
+        for (let i = 0; i < cleaned.length; i += BATCH) {
+            const batch = cleaned.slice(i, i + BATCH);
+            try {
+                const snapshots = await this.client.getSnapshots(batch);
+                for (const [sym, snap] of Object.entries(snapshots)) {
+                    const price = snap?.latestTrade?.p ?? snap?.minuteBar?.c ?? 0;
+                    if (price > 0)
+                        priceMap.set(sym.toUpperCase(), price);
+                }
+            }
+            catch {
+                // Fall back to serial getSnapshot calls
+                for (const sym of batch) {
+                    try {
+                        const snap = await this.client.getSnapshot(sym);
+                        const price = snap?.latestTrade?.p ?? snap?.minuteBar?.c ?? 0;
+                        if (price > 0)
+                            priceMap.set(sym.toUpperCase(), price);
+                    }
+                    catch { }
+                }
+            }
+        }
+        return priceMap;
     }
     async isMarketOpen() {
         if (!this.client)

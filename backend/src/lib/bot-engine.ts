@@ -27,7 +27,7 @@ import { getPrice } from '../jobs/price-sync.job.js';
 import { botDecisions } from '../db/schema/decisions.js';
 import { botPositions } from '../db/schema/positions.js';
 import { trades } from '../db/schema/trades.js';
-import { bots } from '../db/schema/bots.js';
+import { bots, botSubscriptions } from '../db/schema/bots.js';
 import { exchangeConnections } from '../db/schema/exchanges.js';
 import { decrypt } from './encryption.js';
 import { createAdapter } from '../modules/exchange/adapters/adapter.factory.js';
@@ -46,7 +46,7 @@ async function engineLLMChat(messages: LLMMessage[], opts: LLMOptions) {
         if (m.role !== 'system') apiMessages.push({ role: m.role, content: m.content });
       }
       const response = await _engineOpenAI.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         messages: apiMessages,
         max_completion_tokens: opts.maxTokens ?? 1024,
         temperature: opts.temperature ?? 0.2,
@@ -54,7 +54,7 @@ async function engineLLMChat(messages: LLMMessage[], opts: LLMOptions) {
       return {
         text: response.choices[0]?.message?.content ?? '',
         provider: 'openai' as const,
-        model: 'gpt-4o-mini',
+        model: 'gpt-5.4-mini',
         usage: { inputTokens: response.usage?.prompt_tokens, outputTokens: response.usage?.completion_tokens },
       };
     } catch (err) {
@@ -128,8 +128,10 @@ async function seedPriceHistoryFromReal(key: string, symbol: string, currentPric
   const prices: number[] = [];
   try {
     // Try to load real OHLCV history from price-sync cache (stored as 24h klines)
-    const { getPriceHistory } = await import('../jobs/price-sync.job.js');
-    const history = await getPriceHistory(symbol, count);
+    const priceSyncMod = await import('../jobs/price-sync.job.js') as any;
+    const history = typeof priceSyncMod.getPriceHistory === 'function'
+      ? await priceSyncMod.getPriceHistory(symbol, count)
+      : null;
     if (history && history.length >= 5) {
       prices.push(...history);
     }
@@ -1029,9 +1031,15 @@ export async function executeLiveTrade(
   orderType: 'market' | 'limit' = 'market',
 ): Promise<{ success: boolean; orderId?: string; error?: string }> {
   try {
-    const [conn] = await db.select().from(exchangeConnections)
-      .where(and(eq(exchangeConnections.id, exchangeConnId), eq(exchangeConnections.userId, userId)))
-      .limit(1);
+    const [[conn], [sub]] = await Promise.all([
+      db.select().from(exchangeConnections)
+        .where(and(eq(exchangeConnections.id, exchangeConnId), eq(exchangeConnections.userId, userId)))
+        .limit(1),
+      db.select({ minOrderValue: botSubscriptions.minOrderValue })
+        .from(botSubscriptions)
+        .where(eq(botSubscriptions.id, subscriptionId))
+        .limit(1),
+    ]);
 
     if (!conn?.apiKeyEnc || !conn?.apiSecretEnc) return { success: false, error: 'Exchange not connected' };
     if (conn.status === 'disconnected' || conn.status === 'error') return { success: false, error: 'Exchange disconnected' };
@@ -1080,10 +1088,11 @@ export async function executeLiveTrade(
       console.log(`[BotEngine] SELL ${decision.symbol}: base balance=${amount} ${base}, tradeValue=$${tradeValue.toFixed(2)}`);
     }
 
-    // Minimum order size: $1 for stocks (fractional shares), $10 for crypto
-    const MIN_ORDER_VALUE = isStock
-      ? (env.MIN_STOCK_ORDER_USD ?? 1)
-      : (env.MIN_CRYPTO_ORDER_USD ?? 10);
+    // Minimum order size: use user's configured value from subscription, else env default
+    const subMinOrder = parseFloat(sub?.minOrderValue ?? '0');
+    const MIN_ORDER_VALUE = subMinOrder > 0
+      ? subMinOrder
+      : isStock ? (env.MIN_STOCK_ORDER_USD ?? 1) : (env.MIN_CRYPTO_ORDER_USD ?? 10);
     if (tradeValue < MIN_ORDER_VALUE) {
       await adapter.disconnect();
       return { success: false, error: `Insufficient balance for ${decision.symbol} (${quoteCurrency} balance too low for min $${MIN_ORDER_VALUE} order)` };

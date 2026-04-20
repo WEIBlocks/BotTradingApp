@@ -113,6 +113,10 @@ export const botSubscriptions = pgTable("bot_subscriptions", {
         precision: 12,
         scale: 2,
     }).default("0"),
+    minOrderValue: numeric("min_order_value", {
+        precision: 10,
+        scale: 2,
+    }).default("10"),
     exchangeConnId: uuid("exchange_conn_id"),
     pair: varchar("pair", { length: 20 }),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
@@ -144,6 +148,7 @@ export const shadowSessions = pgTable("shadow_sessions", {
     status: shadowStatusEnum("status").default("running"),
     enableRiskLimits: boolean("enable_risk_limits").default(true),
     enableRealisticFees: boolean("enable_realistic_fees").default(true),
+    minOrderValue: numeric("min_order_value", { precision: 10, scale: 2 }).default("10"),
     dailyPerformance: jsonb("daily_performance"),
     totalTrades: integer("total_trades").default(0),
     winCount: integer("win_count").default(0),

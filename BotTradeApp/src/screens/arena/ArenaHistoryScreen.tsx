@@ -59,8 +59,8 @@ export default function ArenaHistoryScreen() {
   }, []));
 
   const renderItem = ({item}: {item: ArenaHistoryItem}) => {
-    const isCompleted = item.status === 'completed';
-    const isRunning = item.status === 'running';
+    const isFinished = item.status === 'completed' || item.status === 'killed';
+    const isRunning = item.status === 'running' || item.status === 'paused';
     const winReturn = parseFloat(item.winnerReturn ?? '0');
     const returnColor = winReturn >= 0 ? '#10B981' : '#EF4444';
     const returnSign = winReturn >= 0 ? '+' : '';
@@ -72,14 +72,14 @@ export default function ArenaHistoryScreen() {
         onPress={() => {
           if (isRunning) {
             navigation.navigate('ArenaLive', {gladiatorIds: [], sessionId: item.id});
-          } else if (isCompleted) {
+          } else if (isFinished) {
             navigation.navigate('ArenaResults', {winnerId: '', sessionId: item.id});
           }
         }}>
         {/* Left icon */}
         <View style={[styles.cardIcon, isRunning && styles.cardIconRunning]}>
           {isRunning ? (
-            <View style={styles.runningDot} />
+            <View style={[styles.runningDot, item.status === 'paused' && {backgroundColor: '#F59E0B'}]} />
           ) : (
             <TrophySmall color={item.winnerColor || '#EAB308'} />
           )}
@@ -89,11 +89,11 @@ export default function ArenaHistoryScreen() {
         <View style={styles.cardInfo}>
           <View style={styles.cardTopRow}>
             <Text style={styles.cardTitle}>
-              {isRunning ? 'Battle Running' : item.winnerName ? `Winner: ${item.winnerName}` : 'Battle Complete'}
+              {item.status === 'paused' ? 'Battle Paused' : isRunning ? 'Battle Running' : item.status === 'killed' ? (item.winnerName ? `Winner: ${item.winnerName}` : 'Battle Ended') : item.winnerName ? `Winner: ${item.winnerName}` : 'Battle Complete'}
             </Text>
-            <View style={[styles.statusPill, isRunning ? styles.statusRunning : styles.statusCompleted]}>
-              <Text style={[styles.statusText, isRunning ? styles.statusRunningText : styles.statusCompletedText]}>
-                {isRunning ? 'LIVE' : 'DONE'}
+            <View style={[styles.statusPill, isRunning ? styles.statusRunning : item.status === 'killed' ? styles.statusKilled : styles.statusCompleted]}>
+              <Text style={[styles.statusText, isRunning ? styles.statusRunningText : item.status === 'killed' ? styles.statusKilledText : styles.statusCompletedText]}>
+                {item.status === 'paused' ? 'PAUSED' : isRunning ? 'LIVE' : item.status === 'killed' ? 'ENDED' : 'DONE'}
               </Text>
             </View>
           </View>
@@ -107,7 +107,7 @@ export default function ArenaHistoryScreen() {
             )}
           </View>
 
-          {isCompleted && item.winnerReturn && (
+          {isFinished && item.winnerReturn && (
             <View style={styles.returnRow}>
               <Text style={[styles.returnValue, {color: returnColor}]}>
                 {returnSign}{winReturn.toFixed(2)}% return
@@ -208,9 +208,11 @@ const styles = StyleSheet.create({
   },
   statusRunning: {backgroundColor: 'rgba(16,185,129,0.15)'},
   statusCompleted: {backgroundColor: 'rgba(255,255,255,0.06)'},
+  statusKilled: {backgroundColor: 'rgba(239,68,68,0.12)'},
   statusText: {fontFamily: 'Inter-Bold', fontSize: 9, letterSpacing: 0.5},
   statusRunningText: {color: '#10B981'},
   statusCompletedText: {color: 'rgba(255,255,255,0.4)'},
+  statusKilledText: {color: '#EF4444'},
   cardMetaRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     marginBottom: 2,

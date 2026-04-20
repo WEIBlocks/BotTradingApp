@@ -72,6 +72,7 @@ export const updateBotBodySchema = z.object({
 export const purchaseBotBodySchema = z.object({
     mode: z.enum(['live', 'paper']).default('live'),
     allocatedAmount: z.number().positive().optional(),
+    minOrderValue: z.number().positive().optional(),
 });
 export const shadowModeBodySchema = z.object({
     virtualBalance: z.number().positive(),
@@ -79,6 +80,7 @@ export const shadowModeBodySchema = z.object({
     durationMinutes: z.number().int().positive().optional(),
     enableRiskLimits: z.boolean().optional(),
     enableRealisticFees: z.boolean().optional(),
+    minOrderValue: z.number().positive().optional(),
 }).refine(data => (data.durationDays && data.durationDays > 0) || (data.durationMinutes && data.durationMinutes > 0), {
     message: 'Either durationDays or durationMinutes must be provided',
 });

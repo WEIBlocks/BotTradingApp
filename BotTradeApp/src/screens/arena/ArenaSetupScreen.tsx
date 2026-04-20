@@ -158,6 +158,9 @@ export default function ArenaSetupScreen() {
   const [stockVirtual, setStockVirtual] = useState('5000');
   const [singleVirtual, setSingleVirtual] = useState('10000');
 
+  // Minimum order value per trade (shared for shadow + live)
+  const [minOrderInput, setMinOrderInput] = useState('10');
+
   // Live exchange connections (fetched)
   const [exchanges, setExchanges] = useState<ExchangeInfo[]>([]);
   const [cryptoLiveInput, setCryptoLiveInput] = useState('');
@@ -180,9 +183,16 @@ export default function ArenaSetupScreen() {
     }, []),
   );
 
+  // Adjust min order default when mode changes (stocks=$1, crypto=$10)
+  const resolvedMinOrder = parseFloat(minOrderInput) || (hasStocks && !hasCrypto ? 1 : 10);
+
   // When switching to live mode, fetch real exchange connections
   const handleModeChange = useCallback(async (mode: 'shadow' | 'live') => {
     setArenaMode(mode);
+    // Reset min order default based on bot types
+    if (!minOrderInput || minOrderInput === '10' || minOrderInput === '1') {
+      setMinOrderInput(hasStocks && !hasCrypto ? '1' : '10');
+    }
     if (mode === 'live' && exchanges.length === 0) {
       setLoadingBalances(true);
       api.get<{data: ExchangeInfo[]}>('/exchange/user/connections')
@@ -311,6 +321,7 @@ export default function ArenaSetupScreen() {
           virtualBalance: vBalance,
           cryptoBalance: cBalance,
           stockBalance: sBalance,
+          minOrderValue: parseFloat(minOrderInput) || (hasStocks && !hasCrypto ? 1 : 10),
         } as any);
         setStarting(false);
       },
@@ -541,6 +552,27 @@ export default function ArenaSetupScreen() {
                 )}
               </>
             )}
+          </View>
+        )}
+
+        {/* Minimum order value */}
+        {selectedCount >= 2 && (
+          <View style={{backgroundColor: '#111827', borderRadius: 12, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'}}>
+            <Text style={styles.sectionLabel}>MIN ORDER VALUE (PER TRADE)</Text>
+            <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#161B22', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 14}}>
+              <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
+              <TextInput
+                style={{flex: 1, color: '#FFFFFF', fontFamily: 'Inter-SemiBold', fontSize: 16, paddingVertical: 12}}
+                value={minOrderInput}
+                onChangeText={v => setMinOrderInput(v.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))}
+                keyboardType="numeric"
+                placeholder={hasStocks && !hasCrypto ? '1' : '10'}
+                placeholderTextColor="rgba(255,255,255,0.2)"
+              />
+            </View>
+            <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 6}}>
+              Bot skips any trade below this amount · min ${hasStocks && !hasCrypto ? '1' : '10'} for {hasStocks && !hasCrypto ? 'stocks' : 'crypto'}
+            </Text>
           </View>
         )}
 

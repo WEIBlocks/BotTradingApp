@@ -134,6 +134,15 @@ function PauseIcon({size = 13, color = 'rgba(255,255,255,0.7)'}: {size?: number;
   );
 }
 
+// Play / resume icon (triangle)
+function PlayIcon({size = 13, color = '#10B981'}: {size?: number; color?: string}) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 13 13" fill="none">
+      <Polygon points="3,2 11,6.5 3,11" fill={color} />
+    </Svg>
+  );
+}
+
 // Stop / square icon (red)
 function StopSquareIcon({size = 13}: {size?: number}) {
   return (
@@ -256,7 +265,7 @@ export default function DashboardScreen() {
   const {width} = useWindowDimensions();
   const navigation = useNavigation<NavProp>();
   const {user: authUser, isNewUser} = useAuth();
-  const {alert: showAlert, showConfirm} = useToast();
+  const {alert: showAlert, showConfirm, showToast} = useToast();
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [activeBots, setActiveBots] = useState<DashActiveBot[]>([]);
@@ -379,7 +388,9 @@ export default function DashboardScreen() {
       message: `Pause "${botName}"? It will stop trading until resumed.`,
       confirmText: 'Pause',
       onConfirm: () => {
-        botsService.pause(botId).then(fetchData).catch(() => showAlert('Error', 'Failed to pause bot.'));
+        botsService.pause(botId)
+          .then(() => { showToast('success', 'Bot Paused', `"${botName}" has been paused.`); fetchData(); })
+          .catch(() => showToast('error', 'Error', 'Failed to pause bot.'));
       },
     });
   };
@@ -391,7 +402,9 @@ export default function DashboardScreen() {
       confirmText: 'Stop',
       destructive: true,
       onConfirm: () => {
-        botsService.stop(botId).then(fetchData).catch(() => showAlert('Error', 'Failed to stop bot.'));
+        botsService.stop(botId)
+          .then(() => { showToast('success', 'Bot Stopped', `"${botName}" has been stopped.`); fetchData(); })
+          .catch(() => showToast('error', 'Error', 'Failed to stop bot.'));
       },
     });
   };
@@ -637,6 +650,17 @@ export default function DashboardScreen() {
                         {returnSign}{displayReturn.toFixed(1)}%{isShadowMode ? ' SHADOW' : ' ROI'}
                       </Text>
                     </Text>
+                    {/* Min order value indicator */}
+                    {(isLiveRunning || isPaused) && bot.minOrderValue > 0 && (
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1}}>
+                        Min order: <Text style={{color: '#10B981', fontFamily: 'Inter-Medium'}}>${bot.minOrderValue.toLocaleString()}</Text>
+                      </Text>
+                    )}
+                    {(isShadowRunning || isShadowPaused) && bot.shadowMinOrderValue > 0 && (
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1}}>
+                        Min order: <Text style={{color: '#3B82F6', fontFamily: 'Inter-Medium'}}>${bot.shadowMinOrderValue.toLocaleString()}</Text>
+                      </Text>
+                    )}
                   </View>
                   {isLiveRunning && (
                     <View style={styles.botActions}>
@@ -672,25 +696,54 @@ export default function DashboardScreen() {
                           <Path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z" fill="#3B82F6" />
                         </Svg>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.botActionBtn}
-                        onPress={(e) => {
-                          e.stopPropagation();
-                          const session = shadowSessions.find(s => s.botId === bot.id && s.status === 'running');
-                          if (session) {
-                            botsService.pauseShadowSession(session.id).then(fetchData).catch(() => showAlert('Error', 'Failed to pause shadow.'));
-                          }
-                        }}
-                        activeOpacity={0.7}>
-                        <PauseIcon size={13} />
-                      </TouchableOpacity>
+                      {isShadowPaused ? (
+                        <TouchableOpacity
+                          style={[styles.botActionBtn, {backgroundColor: 'rgba(16,185,129,0.1)', borderColor: 'rgba(16,185,129,0.3)', borderWidth: 1}]}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            const session = shadowSessions.find(s => s.botId === bot.id && s.status === 'paused');
+                            if (session) {
+                              botsService.resumeShadowSession(session.id)
+                                .then(() => { showToast('success', 'Bot Resumed', `"${bot.name}" shadow trading resumed.`); fetchData(); })
+                                .catch(() => showToast('error', 'Error', 'Failed to resume shadow.'));
+                            }
+                          }}
+                          activeOpacity={0.7}>
+                          <PlayIcon size={12} color="#10B981" />
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          style={styles.botActionBtn}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            const session = shadowSessions.find(s => s.botId === bot.id && s.status === 'running');
+                            if (session) {
+                              botsService.pauseShadowSession(session.id)
+                                .then(() => { showToast('success', 'Bot Paused', `"${bot.name}" shadow trading paused.`); fetchData(); })
+                                .catch(() => showToast('error', 'Error', 'Failed to pause shadow.'));
+                            }
+                          }}
+                          activeOpacity={0.7}>
+                          <PauseIcon size={13} />
+                        </TouchableOpacity>
+                      )}
                       <TouchableOpacity
                         style={[styles.botActionBtn, styles.botStopBtn]}
                         onPress={(e) => {
                           e.stopPropagation();
-                          const session = shadowSessions.find(s => s.botId === bot.id && s.status === 'running');
+                          const session = shadowSessions.find(s => s.botId === bot.id && (s.status === 'running' || s.status === 'paused'));
                           if (session) {
-                            botsService.stopShadowSession(session.id).then(fetchData).catch(() => showAlert('Error', 'Failed to stop shadow.'));
+                            showConfirm({
+                              title: 'Stop Shadow',
+                              message: `Stop "${bot.name}" shadow trading?`,
+                              confirmText: 'Stop',
+                              destructive: true,
+                              onConfirm: () => {
+                                botsService.stopShadowSession(session.id)
+                                  .then(() => { showToast('success', 'Bot Stopped', `"${bot.name}" shadow trading stopped.`); fetchData(); })
+                                  .catch(() => showToast('error', 'Error', 'Failed to stop shadow.'));
+                              },
+                            });
                           }
                         }}
                         activeOpacity={0.7}>
@@ -710,7 +763,9 @@ export default function DashboardScreen() {
                     <TouchableOpacity
                       style={styles.resumeSmallBtn}
                       onPress={() => {
-                        botsService.resume(bot.subscriptionId).then(fetchData).catch(() => showAlert('Error', 'Failed to resume bot.'));
+                        botsService.resume(bot.subscriptionId)
+                          .then(() => { showToast('success', 'Bot Resumed', `"${bot.name}" is now trading.`); fetchData(); })
+                          .catch(() => showToast('error', 'Error', 'Failed to resume bot.'));
                       }}
                       activeOpacity={0.7}>
                       <Text style={styles.resumeSmallText}>Resume</Text>

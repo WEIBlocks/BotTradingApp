@@ -79,7 +79,7 @@ export async function getAvailableBots(userId) {
     }));
 }
 // ─── Create Session ─────────────────────────────────────────────────────────
-export async function createSession(userId, botIds, durationSeconds = 180, mode = 'shadow', virtualBalance = 10000, cryptoBalance, stockBalance) {
+export async function createSession(userId, botIds, durationSeconds = 180, mode = 'shadow', virtualBalance = 10000, cryptoBalance, stockBalance, minOrderValue) {
     // ── Basic validation ──
     if (botIds.length < 2)
         throw new AppError(400, 'Select at least 2 bots for the arena battle.');
@@ -192,6 +192,9 @@ export async function createSession(userId, botIds, durationSeconds = 180, mode 
     // For display: primary per-bot alloc (crypto-only → crypto alloc, stocks-only → stock alloc, mixed → sum)
     const perBotAllocation = isMixed ? (perCryptoBotAlloc + perStockBotAlloc) : (hasCrypto ? perCryptoBotAlloc : perStockBotAlloc);
     // ── Create session record ──
+    // Validate and resolve minOrderValue — must be >= $1 for stocks, >= $10 for crypto
+    const minOrderFloor = hasStocks && !hasCrypto ? 1 : 10;
+    const resolvedMinOrder = (minOrderValue && minOrderValue >= minOrderFloor) ? minOrderValue : minOrderFloor;
     const [session] = await db.insert(arenaSessions).values({
         userId,
         status: 'running',
@@ -204,6 +207,7 @@ export async function createSession(userId, botIds, durationSeconds = 180, mode 
         hasStocks,
         isMixed,
         perBotAllocation: perBotAllocation.toFixed(2),
+        minOrderValue: String(resolvedMinOrder),
         startedAt: new Date(),
     }).returning();
     // ── Create gladiator records — each with their own allocation ──

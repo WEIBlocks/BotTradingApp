@@ -46,9 +46,9 @@ export async function arenaRoutes(app: FastifyInstance) {
     schema: { body: createSessionBodySchema, response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
     preHandler: [requireSubscription],
   }, async (request) => {
-    const { botIds, durationSeconds, mode, virtualBalance, cryptoBalance, stockBalance } = request.body;
+    const { botIds, durationSeconds, mode, virtualBalance, cryptoBalance, stockBalance, minOrderValue } = request.body as any;
     const session = await arenaService.createSession(
-      request.user.userId, botIds, durationSeconds, mode, virtualBalance, cryptoBalance, stockBalance,
+      request.user.userId, botIds, durationSeconds, mode, virtualBalance, cryptoBalance, stockBalance, minOrderValue,
     );
     return { data: session };
   });

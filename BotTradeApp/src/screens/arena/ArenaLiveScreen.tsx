@@ -94,6 +94,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
     virtualBalance: arenaBal,
     cryptoBalance: arenaCryptoBal,
     stockBalance: arenaStockBal,
+    minOrderValue: arenaMinOrder,
   } = route.params as any;
   const {alert: showAlert} = useToast();
   const [session, setSession] = useState<ArenaSession | null>(null);
@@ -126,6 +127,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
         arenaBal ?? 10000,
         arenaCryptoBal,
         arenaStockBal,
+        arenaMinOrder,
       )
         .then(s => {
           sessionIdRef.current = s.id;

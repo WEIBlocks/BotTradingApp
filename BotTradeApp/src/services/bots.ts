@@ -30,6 +30,7 @@ export type ActiveBotsResponse = {
 export type PurchaseBody = {
   mode: 'live' | 'paper';
   allocatedAmount?: number;
+  minOrderValue?: number;
 };
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -61,7 +62,7 @@ export const botsService = {
   },
 
   /** Start shadow mode for a bot */
-  startShadowMode(botId: string, config?: {virtualBalance?: number; durationDays?: number; durationMinutes?: number}) {
+  startShadowMode(botId: string, config?: {virtualBalance?: number; durationDays?: number; durationMinutes?: number; minOrderValue?: number}) {
     return api.post(`/bots/${botId}/shadow-mode`, (config ?? {}) as Record<string, unknown>);
   },
 

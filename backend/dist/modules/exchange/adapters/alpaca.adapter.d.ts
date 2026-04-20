@@ -10,5 +10,6 @@ export declare class AlpacaAdapter implements ExchangeAdapter {
     getTicker(symbol: string): Promise<Ticker>;
     getMarkets(): Promise<Market[]>;
     createOrder(symbol: string, side: 'buy' | 'sell', type: 'market' | 'limit', amount: number, price?: number, options?: OrderOptions): Promise<OrderResult>;
+    getTickers(symbols: string[]): Promise<Map<string, number>>;
     isMarketOpen(): Promise<boolean>;
 }

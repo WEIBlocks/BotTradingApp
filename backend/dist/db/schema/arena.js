@@ -38,6 +38,7 @@ export const arenaSessions = pgTable("arena_sessions", {
     endedAt: timestamp("ended_at", { withTimezone: true }),
     pausedAt: timestamp("paused_at", { withTimezone: true }),
     pausedDurationSeconds: integer("paused_duration_seconds").default(0),
+    minOrderValue: numeric("min_order_value", { precision: 10, scale: 2 }).default("10"),
     notificationSent: boolean("notification_sent").default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 }, (t) => ({
