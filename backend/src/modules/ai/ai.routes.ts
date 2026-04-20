@@ -57,6 +57,26 @@ export async function aiRoutes(app: FastifyInstance) {
   // ── Conversation management — auth only, no subscription required ────────────
   // These operate on the user's own history so they must work regardless of plan.
 
+  // GET /ai/bot-name - Get user's chatbot display name
+  app.get('/bot-name', {
+    preHandler: [authenticate as any],
+  }, async (request, reply) => {
+    const name = await aiService.getBotName((request as any).user.userId);
+    return reply.send({ data: { botName: name } });
+  });
+
+  // PATCH /ai/bot-name - Set user's chatbot display name
+  app.patch('/bot-name', {
+    preHandler: [authenticate as any],
+  }, async (request, reply) => {
+    const { botName } = (request as any).body ?? {};
+    if (typeof botName !== 'string') {
+      return reply.status(400).send({ message: 'botName must be a string' });
+    }
+    const saved = await aiService.setBotName((request as any).user.userId, botName);
+    return reply.send({ data: { botName: saved || null } });
+  });
+
   // GET /ai/conversations - List all conversations
   app.get('/conversations', {
     preHandler: [authenticate as any],

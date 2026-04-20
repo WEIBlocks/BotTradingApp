@@ -32,6 +32,7 @@ export declare function getUser(userId: string): Promise<{
     isActive: boolean | null;
     onboardingComplete: boolean | null;
     fcmToken: string | null;
+    botName: string | null;
     createdAt: Date | null;
     updatedAt: Date | null;
 }>;
@@ -55,6 +56,7 @@ export declare function updateUser(userId: string, data: {
     isActive: boolean | null;
     onboardingComplete: boolean | null;
     fcmToken: string | null;
+    botName: string | null;
     createdAt: Date | null;
     updatedAt: Date | null;
 }>;
@@ -419,6 +421,7 @@ export declare function getUserDetail(userId: string): Promise<{
     isActive: boolean | null;
     onboardingComplete: boolean | null;
     fcmToken: string | null;
+    botName: string | null;
     createdAt: Date | null;
     updatedAt: Date | null;
 }>;

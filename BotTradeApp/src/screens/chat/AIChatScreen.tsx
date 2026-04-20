@@ -194,6 +194,10 @@ export default function AIChatScreen() {
   const [renameTarget, setRenameTarget] = useState<{id: string; current: string} | null>(null);
   const [renameInput, setRenameInput] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<{id: string; title: string} | null>(null);
+  const [botName, setBotNameState] = useState<string>('TradingBot AI');
+  const [showBotNameModal, setShowBotNameModal] = useState(false);
+  const [botNameInput, setBotNameInput] = useState('');
+  const [showDotsMenu, setShowDotsMenu] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const shouldScrollToEnd = useRef(true);
   const keyboardHeight = useRef(new Animated.Value(0)).current;
@@ -230,6 +234,13 @@ export default function AIChatScreen() {
     );
     return () => { showSub.remove(); hideSub.remove(); };
   }, [keyboardHeight]);
+
+  // Load bot name on mount
+  useEffect(() => {
+    aiApi.getBotName().then(name => {
+      if (name) setBotNameState(name);
+    }).catch(() => {});
+  }, []);
 
   // Load previous conversation on mount
   useEffect(() => {
@@ -583,7 +594,7 @@ export default function AIChatScreen() {
       <View style={styles.aiRow}>
         <AiBotAvatar size={34} />
         <View style={styles.aiContent}>
-          <Text style={styles.aiNameLabel}>TradingBot AI</Text>
+          <Text style={styles.aiNameLabel}>{botName}</Text>
           <View style={styles.aiBubble}>
             <MarkdownText text={item.text} baseStyle={styles.aiText} />
             {item.hasStrategyCard && (
@@ -653,7 +664,7 @@ export default function AIChatScreen() {
         </View>
       </View>
     );
-  }, [strategyCardWidth, navigation]);
+  }, [strategyCardWidth, navigation, botName]);
 
   return (
     <Animated.View style={[styles.container, {paddingBottom: keyboardHeight}]}>
@@ -673,7 +684,7 @@ export default function AIChatScreen() {
             <Text style={styles.activeText}>{conversationId ? 'TAP TO RENAME' : 'ACTIVE SESSION'}</Text>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.headerBtn}>
+        <TouchableOpacity style={styles.headerBtn} onPress={() => setShowDotsMenu(true)}>
           <DotsMenu />
         </TouchableOpacity>
       </View>
@@ -838,6 +849,79 @@ export default function AIChatScreen() {
                 style={[renameStyles.saveBtn, {backgroundColor: '#EF4444'}]}
                 onPress={submitDelete}>
                 <Text style={renameStyles.saveText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Dots Menu Modal */}
+      <Modal visible={showDotsMenu} animationType="fade" transparent onRequestClose={() => setShowDotsMenu(false)}>
+        <TouchableOpacity style={{flex: 1, backgroundColor: 'rgba(0,0,0,0.5)'}} activeOpacity={1} onPress={() => setShowDotsMenu(false)}>
+          <View style={{position: 'absolute', top: 100, right: 16, backgroundColor: '#161D2A', borderRadius: 14, minWidth: 200, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)'}}>
+            <TouchableOpacity
+              style={{paddingHorizontal: 18, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)'}}
+              onPress={() => {
+                setShowDotsMenu(false);
+                setBotNameInput(botName === 'TradingBot AI' ? '' : botName);
+                setTimeout(() => setShowBotNameModal(true), 250);
+              }}>
+              <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'}}>Name your bot</Text>
+              <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2}}>Currently: {botName}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{paddingHorizontal: 18, paddingVertical: 14}}
+              onPress={() => { setShowDotsMenu(false); handleNewConversation(); }}>
+              <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'}}>New Chat</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Bot Name Modal */}
+      <Modal visible={showBotNameModal} animationType="fade" transparent onRequestClose={() => setShowBotNameModal(false)}>
+        <View style={renameStyles.overlay}>
+          <View style={renameStyles.dialog}>
+            <Text style={renameStyles.dialogTitle}>Name Your Bot</Text>
+            <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginBottom: 14, lineHeight: 18}}>
+              Give your AI trading assistant a unique name. This applies to all your chats.
+            </Text>
+            <TextInput
+              style={renameStyles.input}
+              value={botNameInput}
+              onChangeText={setBotNameInput}
+              placeholder="e.g. Alpha, Titan, TradeBot..."
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              autoFocus
+              maxLength={50}
+              returnKeyType="done"
+              onSubmitEditing={async () => {
+                const name = botNameInput.trim() || 'TradingBot AI';
+                setShowBotNameModal(false);
+                try {
+                  const saved = await aiApi.setBotName(botNameInput.trim());
+                  setBotNameState(saved || 'TradingBot AI');
+                } catch {
+                  Alert.alert('Error', 'Could not save bot name.');
+                }
+              }}
+            />
+            <View style={renameStyles.btnRow}>
+              <TouchableOpacity style={renameStyles.cancelBtn} onPress={() => setShowBotNameModal(false)}>
+                <Text style={renameStyles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={renameStyles.saveBtn}
+                onPress={async () => {
+                  setShowBotNameModal(false);
+                  try {
+                    const saved = await aiApi.setBotName(botNameInput.trim());
+                    setBotNameState(saved || 'TradingBot AI');
+                  } catch {
+                    Alert.alert('Error', 'Could not save bot name.');
+                  }
+                }}>
+                <Text style={renameStyles.saveText}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>

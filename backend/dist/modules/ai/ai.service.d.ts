@@ -106,3 +106,5 @@ export declare function getProviderStatus(): {
     }[];
     count: number;
 };
+export declare function getBotName(userId: string): Promise<string | null>;
+export declare function setBotName(userId: string, name: string): Promise<string>;

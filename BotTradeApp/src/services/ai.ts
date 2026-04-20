@@ -203,6 +203,16 @@ export const aiApi = {
     return (res as any)?.data ?? {conversationId, title};
   },
 
+  async getBotName(): Promise<string | null> {
+    const res = await api.get('/ai/bot-name');
+    return (res as any)?.data?.botName ?? null;
+  },
+
+  async setBotName(name: string): Promise<string | null> {
+    const res = await api.patch('/ai/bot-name', {botName: name} as Record<string, unknown>);
+    return (res as any)?.data?.botName ?? null;
+  },
+
   // ─── Market Scanner ─────────────────────────────────────────────────────────
 
   async getTopAssets(limit = 10) {

@@ -1557,3 +1557,18 @@ export function getProviderStatus() {
     count: available.length,
   };
 }
+
+// ─── Bot Name (per-user chatbot display name) ────────────────────────────────
+
+export async function getBotName(userId: string): Promise<string | null> {
+  const { users } = await import('../../db/schema/users.js');
+  const [row] = await db.select({ botName: users.botName }).from(users).where(eq(users.id, userId)).limit(1);
+  return row?.botName ?? null;
+}
+
+export async function setBotName(userId: string, name: string): Promise<string> {
+  const { users } = await import('../../db/schema/users.js');
+  const trimmed = name.trim().slice(0, 50);
+  await db.update(users).set({ botName: trimmed || null }).where(eq(users.id, userId));
+  return trimmed;
+}

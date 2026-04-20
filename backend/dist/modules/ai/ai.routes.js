@@ -45,6 +45,24 @@ export async function aiRoutes(app) {
     });
     // ── Conversation management — auth only, no subscription required ────────────
     // These operate on the user's own history so they must work regardless of plan.
+    // GET /ai/bot-name - Get user's chatbot display name
+    app.get('/bot-name', {
+        preHandler: [authenticate],
+    }, async (request, reply) => {
+        const name = await aiService.getBotName(request.user.userId);
+        return reply.send({ data: { botName: name } });
+    });
+    // PATCH /ai/bot-name - Set user's chatbot display name
+    app.patch('/bot-name', {
+        preHandler: [authenticate],
+    }, async (request, reply) => {
+        const { botName } = request.body ?? {};
+        if (typeof botName !== 'string') {
+            return reply.status(400).send({ message: 'botName must be a string' });
+        }
+        const saved = await aiService.setBotName(request.user.userId, botName);
+        return reply.send({ data: { botName: saved || null } });
+    });
     // GET /ai/conversations - List all conversations
     app.get('/conversations', {
         preHandler: [authenticate],
