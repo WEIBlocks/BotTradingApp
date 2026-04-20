@@ -47,7 +47,7 @@ async function engineLLMChat(messages, opts) {
             const response = await _engineOpenAI.chat.completions.create({
                 model: 'gpt-5.4-mini',
                 messages: apiMessages,
-                max_tokens: opts.maxTokens ?? 1024,
+                max_completion_tokens: opts.maxTokens ?? 1024,
                 temperature: opts.temperature ?? 0.2,
             });
             return {

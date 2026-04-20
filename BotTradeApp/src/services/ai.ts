@@ -198,6 +198,11 @@ export const aiApi = {
     await api.delete(`/ai/conversations/${conversationId}`);
   },
 
+  async renameConversation(conversationId: string, title: string) {
+    const res = await api.patch(`/ai/conversations/${conversationId}`, {title} as Record<string, unknown>);
+    return (res as any)?.data ?? {conversationId, title};
+  },
+
   // ─── Market Scanner ─────────────────────────────────────────────────────────
 
   async getTopAssets(limit = 10) {

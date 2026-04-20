@@ -1,7 +1,7 @@
 import React, {useState, useRef, useCallback, useEffect} from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  TextInput, Keyboard, Animated, Platform, Dimensions, ScrollView, Image, ActivityIndicator, Modal,
+  TextInput, Keyboard, Animated, Platform, Dimensions, ScrollView, Image, ActivityIndicator, Modal, Alert,
 } from 'react-native';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 import {useNavigation, useRoute, RouteProp} from '@react-navigation/native';
@@ -151,6 +151,24 @@ function StrategyBarChart({chartWidth, backtestReturn}: {chartWidth: number; bac
   );
 }
 
+// ─── Rename Modal Styles ────────────────────────────────────────────────────────
+
+const renameStyles = StyleSheet.create({
+  overlay: {flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: 24},
+  dialog: {backgroundColor: '#161D2A', borderRadius: 18, padding: 24, width: '100%'},
+  dialogTitle: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF', marginBottom: 16},
+  input: {
+    backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
+    fontFamily: 'Inter-Regular', fontSize: 15, color: '#FFFFFF',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', marginBottom: 20,
+  },
+  btnRow: {flexDirection: 'row', gap: 12},
+  cancelBtn: {flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center'},
+  cancelText: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.5)'},
+  saveBtn: {flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: '#10B981', alignItems: 'center'},
+  saveText: {fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'},
+});
+
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
 export default function AIChatScreen() {
@@ -171,6 +189,11 @@ export default function AIChatScreen() {
   const [showConversations, setShowConversations] = useState(false);
   const [conversations, setConversations] = useState<any[]>([]);
   const [convsLoading, setConvsLoading] = useState(false);
+  const [conversationTitle, setConversationTitle] = useState<string>('AI Bot Builder');
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<{id: string; current: string} | null>(null);
+  const [renameInput, setRenameInput] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<{id: string; title: string} | null>(null);
   const flatListRef = useRef<FlatList>(null);
   const shouldScrollToEnd = useRef(true);
   const keyboardHeight = useRef(new Animated.Value(0)).current;
@@ -216,6 +239,12 @@ export default function AIChatScreen() {
         const history = await aiApi.getChatHistory();
         if (history.conversationId && history.messages.length > 0) {
           setConversationId(history.conversationId);
+          // Try to get stored title from conversations list
+          try {
+            const convs = await aiApi.listConversations();
+            const found = (convs as any[]).find((c: any) => c.id === history.conversationId);
+            if (found?.title) setConversationTitle(found.title);
+          } catch {}
           const loaded: Message[] = history.messages.map((m: any) => ({
             id: m.id,
             role: m.role === 'user' ? 'user' as const : 'ai' as const,
@@ -289,15 +318,17 @@ export default function AIChatScreen() {
   const handleNewConversation = useCallback(() => {
     setShowConversations(false);
     setConversationId(undefined);
+    setConversationTitle('AI Bot Builder');
     setMessages(INITIAL_MESSAGES);
   }, []);
 
-  const handleSelectConversation = useCallback(async (convId: string) => {
+  const handleSelectConversation = useCallback(async (convId: string, title?: string) => {
     setShowConversations(false);
     setHistoryLoading(true);
     try {
       const conv = await aiApi.getConversation(convId);
       setConversationId(conv.conversationId);
+      setConversationTitle(title || 'AI Bot Builder');
       const loaded = (conv.messages || []).map((m: any) => ({
         id: m.id,
         role: m.role === 'user' ? 'user' as const : 'ai' as const,
@@ -309,13 +340,68 @@ export default function AIChatScreen() {
     setHistoryLoading(false);
   }, []);
 
-  const handleDeleteConversation = useCallback(async (convId: string) => {
+  const confirmDeleteConversation = useCallback((convId: string, title: string) => {
+    setShowConversations(false);
+    setTimeout(() => setDeleteTarget({id: convId, title}), 300);
+  }, []);
+
+  const submitDelete = useCallback(async () => {
+    if (!deleteTarget) return;
+    const id = deleteTarget.id;
+    const wasActive = conversationId === id;
+    // 1. Close confirm modal
+    setDeleteTarget(null);
+    // 2. Optimistically remove from list
+    setConversations(prev => prev.filter(c => c.id !== id));
+    // 3. If deleting active chat, reset to new chat immediately
+    if (wasActive) {
+      setConversationId(undefined);
+      setConversationTitle('AI Bot Builder');
+      setMessages(INITIAL_MESSAGES);
+    }
+    // 4. Call API — then refresh list from server to guarantee sync
     try {
-      await aiApi.deleteConversation(convId);
-      setConversations(prev => prev.filter(c => c.id !== convId));
-      if (conversationId === convId) handleNewConversation();
-    } catch {}
-  }, [conversationId, handleNewConversation]);
+      await aiApi.deleteConversation(id);
+      // Refresh from server after confirmed delete
+      const fresh = await aiApi.listConversations();
+      setConversations(Array.isArray(fresh) ? fresh : []);
+    } catch (err: any) {
+      console.error('[Chat] Delete conversation failed:', err?.message ?? err);
+      // Restore to pre-delete state from server
+      const restored = await aiApi.listConversations().catch(() => null);
+      if (restored) setConversations(Array.isArray(restored) ? restored : []);
+      // Re-add the deleted item if restore failed (keep optimistic state correct)
+      Alert.alert('Delete Failed', 'Could not delete conversation. Please try again.');
+    }
+    // 5. Re-open conversations sheet if it was a non-active chat
+    if (!wasActive) {
+      setTimeout(() => setShowConversations(true), 150);
+    }
+  }, [deleteTarget, conversationId]);
+
+  const openRenameModal = useCallback((id: string, current: string) => {
+    setShowConversations(false);
+    setRenameTarget({id, current});
+    setRenameInput(current);
+    setTimeout(() => setShowRenameModal(true), 300);
+  }, []);
+
+  const submitRename = useCallback(async () => {
+    if (!renameTarget || !renameInput.trim()) return;
+    const newTitle = renameInput.trim();
+    const targetId = renameTarget.id;
+    setShowRenameModal(false);
+    setRenameTarget(null);
+    try {
+      await aiApi.renameConversation(targetId, newTitle);
+      setConversations(prev => prev.map(c => c.id === targetId ? {...c, title: newTitle} : c));
+      if (conversationId === targetId) setConversationTitle(newTitle);
+      // Re-open conversations sheet to show the updated title
+      setTimeout(() => setShowConversations(true), 300);
+    } catch {
+      Alert.alert('Error', 'Could not rename conversation.');
+    }
+  }, [renameTarget, renameInput, conversationId]);
 
   // Simulated stage animation — cycles through stages while YouTube request is in-flight
   const animateStages = useCallback((stages: string[], intervalMs = 1800): (() => void) => {
@@ -577,13 +663,16 @@ export default function AIChatScreen() {
         <TouchableOpacity style={styles.headerBtn} onPress={() => { loadConversations(); setShowConversations(true); }}>
           <HistoryIcon />
         </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>AI Bot Builder</Text>
+        <TouchableOpacity
+          style={styles.headerCenter}
+          onPress={() => conversationId && openRenameModal(conversationId, conversationTitle)}
+          activeOpacity={conversationId ? 0.6 : 1}>
+          <Text style={styles.headerTitle} numberOfLines={1}>{conversationTitle}</Text>
           <View style={styles.activePill}>
             <View style={styles.activeDot} />
-            <Text style={styles.activeText}>ACTIVE SESSION</Text>
+            <Text style={styles.activeText}>{conversationId ? 'TAP TO RENAME' : 'ACTIVE SESSION'}</Text>
           </View>
-        </View>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.headerBtn}>
           <DotsMenu />
         </TouchableOpacity>
@@ -697,6 +786,64 @@ export default function AIChatScreen() {
           </TouchableOpacity>
         </View>
       </View>
+      {/* Rename Modal */}
+      <Modal visible={showRenameModal} animationType="fade" transparent onRequestClose={() => setShowRenameModal(false)}>
+        <View style={renameStyles.overlay}>
+          <View style={renameStyles.dialog}>
+            <Text style={renameStyles.dialogTitle}>Rename Chat</Text>
+            <TextInput
+              style={renameStyles.input}
+              value={renameInput}
+              onChangeText={setRenameInput}
+              placeholder="Enter chat name..."
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              autoFocus
+              maxLength={120}
+              returnKeyType="done"
+              onSubmitEditing={submitRename}
+            />
+            <View style={renameStyles.btnRow}>
+              <TouchableOpacity style={renameStyles.cancelBtn} onPress={() => setShowRenameModal(false)}>
+                <Text style={renameStyles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={renameStyles.saveBtn} onPress={submitRename}>
+                <Text style={renameStyles.saveText}>Save</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Confirm Modal */}
+      <Modal visible={!!deleteTarget} animationType="fade" transparent onRequestClose={() => setDeleteTarget(null)}>
+        <View style={renameStyles.overlay}>
+          <View style={renameStyles.dialog}>
+            <View style={{alignItems: 'center', marginBottom: 16}}>
+              <View style={{width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(239,68,68,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 12}}>
+                <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                  <Path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                  <Path d="M10 11v6M14 11v6" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                </Svg>
+              </View>
+              <Text style={renameStyles.dialogTitle}>Delete Chat</Text>
+              <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.45)', textAlign: 'center', lineHeight: 20}}>
+                {`"${deleteTarget?.title}"\n\nThis will permanently delete all messages. This cannot be undone.`}
+              </Text>
+            </View>
+            <View style={renameStyles.btnRow}>
+              <TouchableOpacity style={renameStyles.cancelBtn} onPress={() => setDeleteTarget(null)}>
+                <Text style={renameStyles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[renameStyles.saveBtn, {backgroundColor: '#EF4444'}]}
+                onPress={submitDelete}>
+                <Text style={renameStyles.saveText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Conversations Modal */}
       <Modal visible={showConversations} animationType="slide" transparent onRequestClose={() => setShowConversations(false)}>
         <View style={convStyles.overlay}>
@@ -721,10 +868,34 @@ export default function AIChatScreen() {
                 renderItem={({item}) => (
                   <TouchableOpacity
                     style={[convStyles.convItem, item.id === conversationId && convStyles.convItemActive]}
-                    onPress={() => handleSelectConversation(item.id)}
-                    onLongPress={() => handleDeleteConversation(item.id)}>
-                    <Text style={convStyles.convTitle} numberOfLines={2}>{item.title}</Text>
-                    <Text style={convStyles.convMeta}>{item.messageCount} messages · {formatConvDate(item.lastMessageAt)}</Text>
+                    onPress={() => handleSelectConversation(item.id, item.title)}
+                    activeOpacity={0.7}>
+                    <View style={convStyles.convRow}>
+                      <View style={{flex: 1}}>
+                        <Text style={convStyles.convTitle} numberOfLines={1}>{item.title}</Text>
+                        <Text style={convStyles.convMeta}>{item.messageCount} messages · {formatConvDate(item.lastMessageAt)}</Text>
+                      </View>
+                      <View style={convStyles.convActions}>
+                        <TouchableOpacity
+                          style={convStyles.convActionBtn}
+                          onPress={() => openRenameModal(item.id, item.title)}
+                          hitSlop={{top: 8, bottom: 8, left: 8, right: 4}}>
+                          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                            <Path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="rgba(255,255,255,0.45)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                            <Path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="rgba(255,255,255,0.45)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                          </Svg>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={convStyles.convActionBtn}
+                          onPress={() => confirmDeleteConversation(item.id, item.title)}
+                          hitSlop={{top: 8, bottom: 8, left: 4, right: 8}}>
+                          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                            <Path d="M3 6h18M8 6V4h8v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                            <Path d="M10 11v6M14 11v6" stroke="#EF4444" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                          </Svg>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
                   </TouchableOpacity>
                 )}
                 ListEmptyComponent={
@@ -749,10 +920,13 @@ const convStyles = StyleSheet.create({
   sheetTitle: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF'},
   newChatBtn: {marginHorizontal: 16, marginVertical: 12, backgroundColor: '#10B981', borderRadius: 12, paddingVertical: 12, alignItems: 'center'},
   newChatText: {fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'},
-  convItem: {paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)'},
+  convItem: {paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)'},
   convItemActive: {backgroundColor: 'rgba(16,185,129,0.08)', borderLeftWidth: 3, borderLeftColor: '#10B981'},
-  convTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', marginBottom: 4},
+  convRow: {flexDirection: 'row', alignItems: 'center'},
+  convTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', marginBottom: 3},
   convMeta: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)'},
+  convActions: {flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8},
+  convActionBtn: {width: 32, height: 32, alignItems: 'center', justifyContent: 'center', borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.05)'},
 });
 
 // ─── Styles ────────────────────────────────────────────────────────────────────

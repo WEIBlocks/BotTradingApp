@@ -61,6 +61,34 @@ export class CoinbaseAdapter implements ExchangeAdapter {
     };
   }
 
+  async getTickers(symbols: string[]): Promise<Map<string, number>> {
+    const priceMap = new Map<string, number>();
+    if (!this.exchange || symbols.length === 0) return priceMap;
+
+    const BATCH = 50;
+    for (let i = 0; i < symbols.length; i += BATCH) {
+      const batch = symbols.slice(i, i + BATCH);
+      try {
+        const tickers = await this.exchange.fetchTickers(batch);
+        for (const [sym, ticker] of Object.entries(tickers)) {
+          const t = ticker as any;
+          const currency = sym.replace('/USDT', '').replace('/USD', '');
+          if (t?.last) priceMap.set(currency.toUpperCase(), t.last);
+        }
+      } catch {
+        // Fall back to serial fetching for this batch
+        for (const sym of batch) {
+          try {
+            const t = await this.exchange.fetchTicker(sym);
+            const currency = sym.replace('/USDT', '').replace('/USD', '');
+            if (t?.last) priceMap.set(currency.toUpperCase(), t.last);
+          } catch {}
+        }
+      }
+    }
+    return priceMap;
+  }
+
   async getMarkets(): Promise<Market[]> {
     if (!this.exchange) throw new Error('Not connected');
     await this.exchange.loadMarkets();

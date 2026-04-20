@@ -199,21 +199,32 @@ async function processShadowTrades() {
 
           // Skip if amount rounds to zero (price data issue)
           if (amount <= 0 || totalValue <= 0) continue;
-          const fee = totalValue * feeRate;
+
+          // Sanity cap: position value must not exceed current balance
+          const cappedPositionValue = Math.min(positionValue, currentBalance * 0.5);
+          const cappedAmount = cappedPositionValue / priceData.price;
+          const cappedTotal = cappedAmount * priceData.price;
+          if (cappedTotal <= 0) continue;
+
+          const fee = cappedTotal * feeRate;
           let pnl: number | null = null;
           let pnlPercent: number | null = null;
 
           if (decision.action === 'SELL') {
-            pnl = totalValue - fee;
-            // Extract P&L from reasoning
+            // Extract P&L % from reasoning to compute realistic profit
             const pnlMatch = decision.reasoning.match(/([\-+]?\d+\.?\d*)%/);
             if (pnlMatch) {
               pnlPercent = parseFloat(pnlMatch[1]);
             }
+            // PnL = position value × return% (capped at ±50% per trade to prevent runaway)
+            const returnPct = Math.max(-0.5, Math.min(0.5, (pnlPercent ?? 2) / 100));
+            pnl = cappedTotal * returnPct - fee;
             balanceDelta += pnl;
             if (pnl > 0) newWins++;
           } else {
-            balanceDelta -= (totalValue + fee);
+            // BUY: deduct fee only — position is "held", not settled yet
+            balanceDelta -= fee;
+            pnl = -fee;
           }
 
           await db.insert(trades).values({
@@ -221,9 +232,9 @@ async function processShadowTrades() {
             shadowSessionId: session.id,
             symbol: pair,
             side: decision.action,
-            amount: amount.toFixed(8),
+            amount: cappedAmount.toFixed(8),
             price: priceData.price.toFixed(8),
-            totalValue: totalValue.toFixed(2),
+            totalValue: cappedTotal.toFixed(2),
             pnl: pnl !== null ? pnl.toFixed(2) : null,
             pnlPercent: pnlPercent !== null ? pnlPercent.toFixed(4) : null,
             isPaper: true,
@@ -234,8 +245,9 @@ async function processShadowTrades() {
           newTrades++;
         }
 
-        // Update session balance
-        const updatedBalance = currentBalance + balanceDelta;
+        // Update session balance — cap to prevent DB numeric overflow
+        const rawBalance = currentBalance + balanceDelta;
+        const updatedBalance = Math.max(0, Math.min(rawBalance, 99_999_999));
         const dailyPerf = (session.dailyPerformance as Record<string, any>) ?? {};
         const today = new Date().toISOString().split('T')[0];
 

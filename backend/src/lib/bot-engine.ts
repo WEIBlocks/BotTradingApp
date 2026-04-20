@@ -46,15 +46,15 @@ async function engineLLMChat(messages: LLMMessage[], opts: LLMOptions) {
         if (m.role !== 'system') apiMessages.push({ role: m.role, content: m.content });
       }
       const response = await _engineOpenAI.chat.completions.create({
-        model: 'gpt-5.4-mini',
+        model: 'gpt-4o-mini',
         messages: apiMessages,
-        max_tokens: opts.maxTokens ?? 1024,
+        max_completion_tokens: opts.maxTokens ?? 1024,
         temperature: opts.temperature ?? 0.2,
       });
       return {
         text: response.choices[0]?.message?.content ?? '',
         provider: 'openai' as const,
-        model: 'gpt-5.4-mini',
+        model: 'gpt-4o-mini',
         usage: { inputTokens: response.usage?.prompt_tokens, outputTokens: response.usage?.completion_tokens },
       };
     } catch (err) {
@@ -107,7 +107,8 @@ const holdCountCache: Map<string, number> = new Map();
 
 const MAX_PRICE_HISTORY = 100;
 const RULES_TTL_MS = 30 * 60 * 1000;
-const AI_RATE_LIMIT = 30; // max AI calls per bot per hour
+// max AI calls per bot per hour — configurable via AI_RATE_LIMIT_PER_HOUR env var
+const AI_RATE_LIMIT = env.AI_RATE_LIMIT_PER_HOUR;
 
 function addPrice(key: string, price: number): number[] {
   if (!priceHistoryBuffer.has(key)) priceHistoryBuffer.set(key, []);
@@ -117,21 +118,39 @@ function addPrice(key: string, price: number): number[] {
   return hist;
 }
 
-// Seed price history with synthetic data so indicators work from cycle 1
-// Uses current price ± small random noise to simulate recent history
-function seedPriceHistory(key: string, currentPrice: number, count = 30): number[] {
+// Seed price history from real price-sync cache (DB-backed, 30s ticks)
+// Falls back to repeated current price if not enough real data yet — indicators
+// will produce flat/neutral values until real history accumulates.
+async function seedPriceHistoryFromReal(key: string, symbol: string, currentPrice: number, count = 30): Promise<number[]> {
   if (priceHistoryBuffer.has(key) && priceHistoryBuffer.get(key)!.length >= 20) {
     return priceHistoryBuffer.get(key)!;
   }
   const prices: number[] = [];
-  let p = currentPrice;
-  // Build backwards with a realistic random walk — enough variation so
-  // RSI/BB/MACD reach tradeable zones from cycle 1
-  for (let i = count; i > 0; i--) {
-    p = p * (1 + (Math.random() - 0.5) * 0.03); // ±1.5% per bar
-    prices.push(p);
+  try {
+    // Try to load real OHLCV history from price-sync cache (stored as 24h klines)
+    const { getPriceHistory } = await import('../jobs/price-sync.job.js');
+    const history = await getPriceHistory(symbol, count);
+    if (history && history.length >= 5) {
+      prices.push(...history);
+    }
+  } catch {
+    // price-sync job may not export getPriceHistory — use current price as neutral seed
   }
-  prices.push(currentPrice); // end with actual current price
+  // If we still don't have enough, pad with current price (neutral — no false signals)
+  while (prices.length < count) prices.unshift(currentPrice);
+  prices.push(currentPrice);
+  priceHistoryBuffer.set(key, prices);
+  return prices;
+}
+
+// Synchronous wrapper kept for call sites that can't await — uses only in-memory buffer
+function seedPriceHistory(key: string, currentPrice: number, count = 30): number[] {
+  if (priceHistoryBuffer.has(key) && priceHistoryBuffer.get(key)!.length >= 20) {
+    return priceHistoryBuffer.get(key)!;
+  }
+  // Pad with current price — flat/neutral, no random noise to generate false signals
+  const prices = Array(count).fill(currentPrice) as number[];
+  prices.push(currentPrice);
   priceHistoryBuffer.set(key, prices);
   return prices;
 }
@@ -1062,7 +1081,9 @@ export async function executeLiveTrade(
     }
 
     // Minimum order size: $1 for stocks (fractional shares), $10 for crypto
-    const MIN_ORDER_VALUE = isStock ? 1 : 10;
+    const MIN_ORDER_VALUE = isStock
+      ? (env.MIN_STOCK_ORDER_USD ?? 1)
+      : (env.MIN_CRYPTO_ORDER_USD ?? 10);
     if (tradeValue < MIN_ORDER_VALUE) {
       await adapter.disconnect();
       return { success: false, error: `Insufficient balance for ${decision.symbol} (${quoteCurrency} balance too low for min $${MIN_ORDER_VALUE} order)` };
@@ -1073,9 +1094,11 @@ export async function executeLiveTrade(
       return { success: false, error: `Insufficient balance` };
     }
 
-    // Support both market and limit orders
+    // Limit order slippage buffer: buy slightly below ask, sell slightly above bid
+    // 0.1% default keeps orders competitive without being too aggressive
+    const LIMIT_SLIPPAGE = env.LIMIT_ORDER_SLIPPAGE_PCT ? env.LIMIT_ORDER_SLIPPAGE_PCT / 100 : 0.001;
     const limitPrice = orderType === 'limit'
-      ? (decision.action === 'BUY' ? decision.price * 0.999 : decision.price * 1.001)
+      ? (decision.action === 'BUY' ? decision.price * (1 - LIMIT_SLIPPAGE) : decision.price * (1 + LIMIT_SLIPPAGE))
       : undefined;
 
     const orderOptions = isStock ? { timeInForce: 'day' as const } : undefined;

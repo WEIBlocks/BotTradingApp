@@ -19,12 +19,19 @@ export async function arenaRoutes(app) {
         const history = await arenaService.getHistory(request.user.userId);
         return { data: history };
     });
-    // GET /session/active - get active running session
+    // GET /session/active - get active running session (single, legacy)
     zApp.get('/session/active', {
         schema: { response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
     }, async (request) => {
         const session = await arenaService.getActiveSession(request.user.userId);
         return { data: session };
+    });
+    // GET /sessions/active - get ALL active sessions (running + paused)
+    zApp.get('/sessions/active', {
+        schema: { response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+    }, async (request) => {
+        const sessions = await arenaService.getActiveSessions(request.user.userId);
+        return { data: sessions };
     });
     // POST /session - create arena session (Pro only)
     zApp.post('/session', {
@@ -50,5 +57,26 @@ export async function arenaRoutes(app) {
         const { id } = request.params;
         const results = await arenaService.getSessionResults(id, request.user.userId);
         return { data: results };
+    });
+    // POST /session/:id/pause
+    zApp.post('/session/:id/pause', {
+        schema: { params: sessionIdParamsSchema, response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+    }, async (request) => {
+        const result = await arenaService.pauseSession(request.params.id, request.user.userId);
+        return { data: result };
+    });
+    // POST /session/:id/resume
+    zApp.post('/session/:id/resume', {
+        schema: { params: sessionIdParamsSchema, response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+    }, async (request) => {
+        const result = await arenaService.resumeSession(request.params.id, request.user.userId);
+        return { data: result };
+    });
+    // POST /session/:id/kill
+    zApp.post('/session/:id/kill', {
+        schema: { params: sessionIdParamsSchema, response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+    }, async (request) => {
+        const result = await arenaService.killSession(request.params.id, request.user.userId);
+        return { data: result };
     });
 }

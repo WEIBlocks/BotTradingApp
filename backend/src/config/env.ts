@@ -87,6 +87,14 @@ const envSchema = z.object({
   FIREBASE_PROJECT_ID: z.string().default(''),
   FIREBASE_CLIENT_EMAIL: z.string().default(''),
   FIREBASE_PRIVATE_KEY: z.string().default(''),
+
+  // Trading engine tunables (optional — code uses sensible defaults if not set)
+  MIN_CRYPTO_ORDER_USD: z.coerce.number().default(10),
+  MIN_STOCK_ORDER_USD: z.coerce.number().default(1),
+  // Limit order slippage buffer in percent (e.g. 0.1 = 0.1%)
+  LIMIT_ORDER_SLIPPAGE_PCT: z.coerce.number().default(0.1),
+  // Max AI calls per bot per hour before falling back to rule-based engine
+  AI_RATE_LIMIT_PER_HOUR: z.coerce.number().default(30),
 });
 
 const parsed = envSchema.safeParse(process.env);

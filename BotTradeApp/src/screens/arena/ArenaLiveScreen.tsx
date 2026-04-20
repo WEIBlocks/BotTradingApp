@@ -99,6 +99,8 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
   const [session, setSession] = useState<ArenaSession | null>(null);
   const [loading, setLoading] = useState(true);
   const [exitModalVisible, setExitModalVisible] = useState(false);
+  const [killModalVisible, setKillModalVisible] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
   const [decisionFilter, setDecisionFilter] = useState<string | null>(null);
   const [decisionPage, setDecisionPage] = useState(0);
   const [feedTab, setFeedTab] = useState<'decisions' | 'trades'>('decisions');
@@ -134,25 +136,27 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
     }
   }, [gladiatorIds, existingSessionId]);
 
+  const isFinished = session?.status === 'completed' || session?.status === 'killed';
+
   // Intercept hardware back button
   useEffect(() => {
     const handler = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (session?.status === 'completed') return false; // allow normal back
+      if (isFinished) return false; // allow normal back
       setExitModalVisible(true);
       return true; // prevent default
     });
     return () => handler.remove();
-  }, [session?.status]);
+  }, [isFinished]);
 
   // Intercept navigation gesture / header back
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (e: any) => {
-      if (session?.status === 'completed' || allowLeaveRef.current) return; // allow
+      if (isFinished || allowLeaveRef.current) return; // allow
       e.preventDefault();
       setExitModalVisible(true);
     });
     return unsubscribe;
-  }, [navigation, session?.status]);
+  }, [navigation, isFinished]);
 
   const handleLeave = useCallback(() => {
     setExitModalVisible(false);
@@ -166,6 +170,42 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
     navigation.navigate('Main' as any, {screen: 'Dashboard'});
   }, [navigation]);
 
+  const handlePauseResume = useCallback(async () => {
+    if (!sessionIdRef.current || actionLoading) return;
+    setActionLoading(true);
+    try {
+      if (session?.status === 'paused') {
+        await arenaApi.resumeSession(sessionIdRef.current);
+        setSession(s => s ? {...s, status: 'running'} : s);
+      } else {
+        await arenaApi.pauseSession(sessionIdRef.current);
+        setSession(s => s ? {...s, status: 'paused'} : s);
+      }
+    } catch (e: any) {
+      showAlert('Error', e?.message || 'Could not update battle status.');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [session?.status, actionLoading]);
+
+  const handleKillConfirm = useCallback(async () => {
+    if (!sessionIdRef.current) return;
+    setKillModalVisible(false);
+    setActionLoading(true);
+    try {
+      await arenaApi.killSession(sessionIdRef.current);
+      allowLeaveRef.current = true;
+      navigation.replace('ArenaResults', {
+        winnerId: [...(session?.gladiators ?? [])].sort((a, b) => (b.currentReturn || 0) - (a.currentReturn || 0))[0]?.id ?? '',
+        sessionId: sessionIdRef.current!,
+      });
+    } catch (e: any) {
+      showAlert('Error', e?.message || 'Could not stop the battle.');
+    } finally {
+      setActionLoading(false);
+    }
+  }, [session?.gladiators, navigation]);
+
   // Poll for updates every 5 seconds
   useEffect(() => {
     if (!sessionIdRef.current) return;
@@ -174,7 +214,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
       arenaApi.getSession(sessionIdRef.current)
         .then(s => {
           setSession(s);
-          if (s.status === 'completed') {
+          if (s.status === 'completed' || s.status === 'killed') {
             clearInterval(interval);
             const winner = [...s.gladiators].sort((a, b) => (b.currentReturn || 0) - (a.currentReturn || 0))[0];
             navigation.replace('ArenaResults', {winnerId: winner?.id ?? '', sessionId: s.id});
@@ -233,7 +273,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>Battle In Progress</Text>
+            <Text style={styles.modalTitle}>Leave Battle?</Text>
             <Text style={styles.modalDesc}>
               The arena battle is still running. What would you like to do?
             </Text>
@@ -245,18 +285,18 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
               </View>
               <View style={{flex: 1}}>
                 <Text style={styles.modalBtnPrimaryText}>Keep Running in Background</Text>
-                <Text style={styles.modalBtnSub}>Battle continues, you can return later</Text>
+                <Text style={styles.modalBtnSub}>Battle continues, check back later</Text>
               </View>
             </TouchableOpacity>
             <TouchableOpacity style={styles.modalBtnDanger} onPress={handleLeave} activeOpacity={0.8}>
-              <View style={[styles.modalBtnIcon, {backgroundColor: 'rgba(239,68,68,0.15)'}]}>
+              <View style={[styles.modalBtnIcon, {backgroundColor: 'rgba(239,68,68,0.1)'}]}>
                 <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-                  <Rect x={4} y={4} width={16} height={16} rx={3} fill="#EF4444" />
+                  <Path d="M17 8l-10 8M7 8l10 8" stroke="#EF4444" strokeWidth={2} strokeLinecap="round"/>
                 </Svg>
               </View>
               <View style={{flex: 1}}>
-                <Text style={styles.modalBtnDangerText}>Leave Battle</Text>
-                <Text style={styles.modalBtnSub}>Exit without stopping the battle</Text>
+                <Text style={styles.modalBtnDangerText}>Exit Screen</Text>
+                <Text style={styles.modalBtnSub}>Leave the screen, battle keeps running</Text>
               </View>
             </TouchableOpacity>
             <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setExitModalVisible(false)} activeOpacity={0.8}>
@@ -266,10 +306,37 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
         </View>
       </Modal>
 
+      {/* ── Kill Confirm Modal ── */}
+      <Modal visible={killModalVisible} transparent animationType="fade" onRequestClose={() => setKillModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>End Battle Early?</Text>
+            <Text style={styles.modalDesc}>
+              This will immediately stop the battle and calculate final rankings from current standings. This cannot be undone.
+            </Text>
+            <TouchableOpacity style={styles.modalBtnDanger} onPress={handleKillConfirm} activeOpacity={0.8}>
+              <View style={[styles.modalBtnIcon, {backgroundColor: 'rgba(239,68,68,0.15)'}]}>
+                <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                  <Rect x={4} y={4} width={16} height={16} rx={3} fill="#EF4444" />
+                </Svg>
+              </View>
+              <View style={{flex: 1}}>
+                <Text style={styles.modalBtnDangerText}>End Battle Now</Text>
+                <Text style={styles.modalBtnSub}>Finalize results with current standings</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.modalBtnCancel} onPress={() => setKillModalVisible(false)} activeOpacity={0.8}>
+              <Text style={styles.modalBtnCancelText}>Keep Going</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── Sticky Header ── */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => {
-          if (session?.status === 'completed') { navigation.goBack(); }
+          if (isFinished) { navigation.goBack(); }
           else { setExitModalVisible(true); }
         }} style={styles.headerBtn}>
           <BackArrow />
@@ -284,19 +351,62 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
 
         {/* ── STATUS ── */}
         <View style={styles.statusSection}>
-          <Text style={styles.statusLabel}>STATUS</Text>
           <View style={styles.statusRow}>
-            <Text style={styles.statusTitle}>Running: {statusText}</Text>
-            {/* LIVE BATTLE pill */}
-            <View style={styles.livePill}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE BATTLE</Text>
+            <Text style={styles.statusTitle}>
+              {session?.status === 'paused' ? 'Paused: ' : 'Running: '}{statusText}
+            </Text>
+            <View style={[styles.livePill, session?.status === 'paused' && {backgroundColor: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.3)'}]}>
+              <View style={[styles.liveDot, session?.status === 'paused' && {backgroundColor: '#F59E0B'}]} />
+              <Text style={[styles.liveText, session?.status === 'paused' && {color: '#F59E0B'}]}>
+                {session?.status === 'paused' ? 'PAUSED' : 'LIVE BATTLE'}
+              </Text>
             </View>
           </View>
           {/* Progress bar */}
           <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, {width: `${progressPct}%` as any}]} />
+            <View style={[styles.progressFill, {width: `${progressPct}%` as any}, session?.status === 'paused' && {backgroundColor: '#F59E0B'}]} />
           </View>
+
+          {/* ── Battle Controls ── */}
+          {(session?.status === 'running' || session?.status === 'paused') && (
+            <View style={styles.battleControls}>
+              {/* Pause / Resume */}
+              <TouchableOpacity
+                style={[styles.controlBtn, session?.status === 'paused' && styles.controlBtnActive]}
+                onPress={handlePauseResume}
+                disabled={actionLoading}
+                activeOpacity={0.75}>
+                {actionLoading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" style={{width: 16, height: 16}} />
+                ) : session?.status === 'paused' ? (
+                  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                    <Path d="M5 3l14 9-14 9V3z" fill="#10B981" />
+                  </Svg>
+                ) : (
+                  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                    <Rect x={6} y={4} width={4} height={16} rx={1.5} fill="rgba(255,255,255,0.8)" />
+                    <Rect x={14} y={4} width={4} height={16} rx={1.5} fill="rgba(255,255,255,0.8)" />
+                  </Svg>
+                )}
+                <Text style={[styles.controlBtnText, session?.status === 'paused' && {color: '#10B981'}]}>
+                  {session?.status === 'paused' ? 'Resume' : 'Pause'}
+                </Text>
+              </TouchableOpacity>
+
+              {/* End Battle */}
+              <TouchableOpacity
+                style={styles.controlBtnDanger}
+                onPress={() => setKillModalVisible(true)}
+                disabled={actionLoading}
+                activeOpacity={0.75}>
+                <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                  <Rect x={4} y={4} width={16} height={16} rx={3} stroke="#EF4444" strokeWidth={1.8} />
+                  <Path d="M9 9l6 6M15 9l-6 6" stroke="#EF4444" strokeWidth={1.8} strokeLinecap="round" />
+                </Svg>
+                <Text style={styles.controlBtnDangerText}>End Battle</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* ── POOL & MARKET INFO ── */}
@@ -838,6 +948,33 @@ const styles = StyleSheet.create({
     borderRadius: 999, overflow: 'hidden',
   },
   progressFill: {height: 8, backgroundColor: '#10B981', borderRadius: 999},
+
+  // Battle controls
+  battleControls: {
+    flexDirection: 'row', gap: 10, marginTop: 14,
+  },
+  controlBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 7, paddingVertical: 10, borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  controlBtnActive: {
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    borderColor: 'rgba(16,185,129,0.3)',
+  },
+  controlBtnText: {
+    fontFamily: 'Inter-SemiBold', fontSize: 13, color: 'rgba(255,255,255,0.75)',
+  },
+  controlBtnDanger: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 7, paddingVertical: 10, borderRadius: 10,
+    backgroundColor: 'rgba(239,68,68,0.07)',
+    borderWidth: 1, borderColor: 'rgba(239,68,68,0.2)',
+  },
+  controlBtnDangerText: {
+    fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#EF4444',
+  },
 
   // Chart
   chartSection: {marginBottom: 28},

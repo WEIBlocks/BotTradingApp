@@ -64,6 +64,10 @@ export declare function listConversations(userId: string): Promise<{
     createdAt: string;
     lastMessageAt: string;
 }[]>;
+export declare function renameConversation(userId: string, conversationId: string, title: string): Promise<{
+    conversationId: string;
+    title: string;
+}>;
 export declare function getConversation(userId: string, conversationId: string): Promise<{
     conversationId: string;
     messages: {

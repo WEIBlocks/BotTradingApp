@@ -5,6 +5,8 @@ import { bots } from "./bots.js";
 export const arenaStatusEnum = pgEnum("arena_status", [
     "setup",
     "running",
+    "paused",
+    "killed",
     "completed",
 ]);
 export const arenaModeEnum = pgEnum("arena_mode", [
@@ -34,6 +36,8 @@ export const arenaSessions = pgTable("arena_sessions", {
     perBotAllocation: numeric("per_bot_allocation", { precision: 14, scale: 2 }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    pausedDurationSeconds: integer("paused_duration_seconds").default(0),
     notificationSent: boolean("notification_sent").default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 }, (t) => ({

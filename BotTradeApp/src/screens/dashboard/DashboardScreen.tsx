@@ -266,7 +266,7 @@ export default function DashboardScreen() {
   const [equityDates,    setEquityDates]    = useState<(string | Date)[]>([]);
   const [equityIsReal,   setEquityIsReal]   = useState(false);
   const [equityLoading,  setEquityLoading]  = useState(false);
-  const [activeArena, setActiveArena] = useState<ArenaSession | null>(null);
+  const [activeArenas, setActiveArenas] = useState<ArenaSession[]>([]);
   const [shadowSessions, setShadowSessions] = useState<ShadowSessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -293,7 +293,7 @@ export default function DashboardScreen() {
         dashboardApi.getSummary(),
         dashboardApi.getActiveBots(),
         tradesApi.getRecent(5).catch(() => [] as Trade[]),
-        arenaApi.getActiveSession().catch(() => null),
+        arenaApi.getActiveSessions().catch(() => []),
         botsService.getShadowSessions().then((res: any) => {
           const items = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
           return items.map((s: any) => ({id: s.id, botId: s.botId, status: s.status})) as ShadowSessionInfo[];
@@ -302,7 +302,7 @@ export default function DashboardScreen() {
       setSummary(s);
       setActiveBots(bots);
       setRecentTrades(trades);
-      setActiveArena(arenaSession);
+      setActiveArenas(Array.isArray(arenaSession) ? arenaSession : (arenaSession ? [arenaSession] : []));
       setShadowSessions(shadowRes);
       // Fetch equity separately (default 30 days)
       await fetchEquity(30);
@@ -794,26 +794,37 @@ export default function DashboardScreen() {
           </View>
         </View>
 
-        {/* Live Arena Battle Banner */}
-        {activeArena && activeArena.status === 'running' && (
-          <TouchableOpacity
-            style={styles.liveBattleBanner}
-            onPress={() => navigation.navigate('ArenaLive', {gladiatorIds: [], sessionId: activeArena.id})}
-            activeOpacity={0.8}>
-            <View style={styles.liveBattlePulse}>
-              <View style={styles.liveBattleDot} />
-            </View>
-            <View style={{flex: 1, marginLeft: 12}}>
-              <Text style={styles.liveBattleTitle}>Live Battle Running</Text>
-              <Text style={styles.liveBattleSub}>
-                {activeArena.gladiators.length} bots competing · {Math.round((activeArena.progress ?? 0) * 100)}% complete
-              </Text>
-            </View>
-            <View style={styles.liveBattleViewBtn}>
-              <Text style={styles.liveBattleViewText}>VIEW</Text>
-            </View>
-          </TouchableOpacity>
-        )}
+        {/* Live Arena Battle Banners — one per active/paused session */}
+        {activeArenas.map((arena, idx) => {
+          const isPaused = arena.status === 'paused';
+          return (
+            <TouchableOpacity
+              key={arena.id}
+              style={[
+                styles.liveBattleBanner,
+                isPaused && {borderColor: 'rgba(245,158,11,0.35)', backgroundColor: 'rgba(245,158,11,0.06)'},
+              ]}
+              onPress={() => navigation.navigate('ArenaLive', {gladiatorIds: [], sessionId: arena.id})}
+              activeOpacity={0.8}>
+              <View style={[styles.liveBattlePulse, isPaused && {backgroundColor: 'rgba(245,158,11,0.15)'}]}>
+                <View style={[styles.liveBattleDot, isPaused && {backgroundColor: '#F59E0B'}]} />
+              </View>
+              <View style={{flex: 1, marginLeft: 12}}>
+                <Text style={[styles.liveBattleTitle, isPaused && {color: '#F59E0B'}]}>
+                  {isPaused ? 'Battle Paused' : `Battle #${idx + 1} Running`}
+                </Text>
+                <Text style={styles.liveBattleSub}>
+                  {arena.gladiators.length} bots · {Math.round((arena.progress ?? 0) * 100)}% complete
+                </Text>
+              </View>
+              <View style={[styles.liveBattleViewBtn, isPaused && {borderColor: 'rgba(245,158,11,0.3)', backgroundColor: 'rgba(245,158,11,0.1)'}]}>
+                <Text style={[styles.liveBattleViewText, isPaused && {color: '#F59E0B'}]}>
+                  {isPaused ? 'RESUME' : 'VIEW'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
 
         {/* Arena Banner */}
         <TouchableOpacity

@@ -312,4 +312,52 @@ export const arenaApi = {
       session: r?.session,
     };
   },
+
+  /** Get ALL active sessions (running + paused). */
+  async getActiveSessions(): Promise<ArenaSession[]> {
+    // Try new multi-session endpoint first; fall back to legacy single endpoint
+    try {
+      const res = await api.get<DataWrap<any[]>>('/arena/sessions/active');
+      const items = Array.isArray(res?.data) ? res.data : [];
+      if (items.length > 0) {
+        return items.map(s => ({
+          id: s?.id ?? '',
+          status: s?.status ?? 'running',
+          durationSeconds: s?.durationSeconds ?? 300,
+          progress: s?.progress ?? 0,
+          elapsedSeconds: s?.elapsedSeconds ?? 0,
+          remainingSeconds: s?.remainingSeconds ?? 0,
+          gladiators: (s?.gladiators ?? []).map(mapGladiatorRow),
+          virtualBalance: s?.virtualBalance,
+          isMixed: s?.isMixed ?? false,
+          hasCrypto: s?.hasCrypto ?? true,
+          hasStocks: s?.hasStocks ?? false,
+          marketOpen: s?.marketOpen,
+          stats: s?.stats ?? null,
+        }));
+      }
+    } catch {}
+    // Fallback: legacy single active session endpoint
+    try {
+      const single = await arenaApi.getActiveSession();
+      return single ? [single] : [];
+    } catch {
+      return [];
+    }
+  },
+
+  /** Pause a running session. */
+  async pauseSession(sessionId: string): Promise<void> {
+    await api.post(`/arena/session/${sessionId}/pause`, {});
+  },
+
+  /** Resume a paused session. */
+  async resumeSession(sessionId: string): Promise<void> {
+    await api.post(`/arena/session/${sessionId}/resume`, {});
+  },
+
+  /** Kill (force-end) a session early. Finalizes standings immediately. */
+  async killSession(sessionId: string): Promise<void> {
+    await api.post(`/arena/session/${sessionId}/kill`, {});
+  },
 };

@@ -74,11 +74,13 @@ async function processArenaTick() {
             .where(and(eq(arenaSessions.status, 'running'), isNotNull(arenaSessions.startedAt)));
         if (runningSessions.length === 0)
             return;
+        // Note: paused and killed sessions are intentionally excluded — only 'running' sessions tick
         const marketOpen = isUSMarketOpen();
         for (const session of runningSessions) {
             try {
                 const startedAt = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
-                const elapsed = (Date.now() - startedAt) / 1000;
+                const pausedSecs = session.pausedDurationSeconds ?? 0;
+                const elapsed = (Date.now() - startedAt) / 1000 - pausedSecs;
                 const duration = session.durationSeconds ?? 180;
                 if (elapsed >= duration) {
                     await finalizeArenaSession(session.id, session.userId);

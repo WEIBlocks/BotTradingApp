@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 import { llmChat, getActiveProvider, getAvailableProviders } from '../../config/ai.js';
 import { env } from '../../config/env.js';
 import { db } from '../../config/database.js';
-import { chatMessages } from '../../db/schema/chat.js';
+import { chatMessages, conversations } from '../../db/schema/chat.js';
 import { bots, botStatistics } from '../../db/schema/bots.js';
 import { AppError } from '../../lib/errors.js';
 import { retrieveKnowledge, storeKnowledge } from '../../lib/rag.js';
@@ -657,6 +657,8 @@ async function fallbackChat(systemPrompt, messages, imageUrl) {
 // ─── Service Functions ───────────────────────────────────────────────────────
 export async function chat(userId, message, conversationId, attachmentUrl, botId) {
     const convId = conversationId ?? crypto.randomUUID();
+    // Ensure conversations row exists for this chat
+    await ensureConversation(userId, convId);
     console.log(`\n[AI:chat] ── New request ──────────────────────────────────`);
     console.log(`[AI:chat] userId=${userId} | convId=${convId} | botId=${botId ?? 'none'} | hasImage=${!!attachmentUrl}`);
     console.log(`[AI:chat] message: "${message.substring(0, 120)}${message.length > 120 ? '...' : ''}"`);
@@ -893,6 +895,8 @@ async function runAgenticLoop(messages, imageUrl, execTool) {
 // Yields SSE-formatted strings: "data: {...}\n\n"
 export async function* chatStream(userId, message, conversationId, attachmentUrl, botId) {
     const convId = conversationId ?? crypto.randomUUID();
+    // Ensure conversations row exists for this chat
+    await ensureConversation(userId, convId);
     console.log(`\n[AI:stream] ── New stream request ───────────────────────────`);
     console.log(`[AI:stream] userId=${userId} | convId=${convId} | botId=${botId ?? 'none'}`);
     // --- CONTENT MODERATION ---
@@ -1245,10 +1249,18 @@ export async function getCreatorSuggestions(userId) {
     return suggestions;
 }
 // ─── Conversations ───────────────────────────────────────────────────────────
+// Ensure a conversations row exists for a given convId; create it if not.
+// Called on the first message of a new chat. Uses INSERT … ON CONFLICT DO NOTHING.
+async function ensureConversation(userId, convId) {
+    await db
+        .insert(conversations)
+        .values({ id: convId, userId })
+        .onConflictDoNothing();
+}
 // List all conversations for a user
 export async function listConversations(userId) {
-    // Get distinct conversationIds with the first user message as title and last message date
-    const conversations = await db
+    // Get distinct conversationIds with stats
+    const convStats = await db
         .select({
         conversationId: chatMessages.conversationId,
         createdAt: sql `min(${chatMessages.createdAt})`,
@@ -1260,24 +1272,49 @@ export async function listConversations(userId) {
         .groupBy(chatMessages.conversationId)
         .orderBy(desc(sql `max(${chatMessages.createdAt})`))
         .limit(50);
-    // Get the first user message of each conversation as the title
+    // Get stored titles from conversations table
+    const storedTitles = await db
+        .select({ id: conversations.id, title: conversations.title })
+        .from(conversations)
+        .where(eq(conversations.userId, userId));
+    const titleMap = new Map(storedTitles.map(c => [c.id, c.title]));
+    // Build result — use stored title if set, else fall back to first user message substring
     const result = [];
-    for (const conv of conversations) {
-        const [firstMsg] = await db
-            .select({ content: chatMessages.content })
-            .from(chatMessages)
-            .where(and(eq(chatMessages.conversationId, conv.conversationId), eq(chatMessages.role, 'user')))
-            .orderBy(chatMessages.createdAt)
-            .limit(1);
+    for (const conv of convStats) {
+        let title = titleMap.get(conv.conversationId) ?? null;
+        if (!title) {
+            const [firstMsg] = await db
+                .select({ content: chatMessages.content })
+                .from(chatMessages)
+                .where(and(eq(chatMessages.conversationId, conv.conversationId), eq(chatMessages.role, 'user')))
+                .orderBy(chatMessages.createdAt)
+                .limit(1);
+            title = firstMsg?.content?.substring(0, 80) || 'New conversation';
+        }
         result.push({
             id: conv.conversationId,
-            title: firstMsg?.content?.substring(0, 80) || 'New conversation',
+            title,
             messageCount: conv.messageCount,
             createdAt: conv.createdAt,
             lastMessageAt: conv.lastMessageAt,
         });
     }
     return result;
+}
+// Rename a conversation
+export async function renameConversation(userId, conversationId, title) {
+    const trimmed = title.trim().substring(0, 120);
+    if (!trimmed)
+        throw new Error('Title cannot be empty');
+    // Upsert: if conversations row exists update it, else create it
+    await db
+        .insert(conversations)
+        .values({ id: conversationId, userId, title: trimmed })
+        .onConflictDoUpdate({
+        target: conversations.id,
+        set: { title: trimmed, updatedAt: sql `now()` },
+    });
+    return { conversationId, title: trimmed };
 }
 // Load a specific conversation
 export async function getConversation(userId, conversationId) {
@@ -1298,6 +1335,7 @@ export async function getConversation(userId, conversationId) {
 // Delete a conversation
 export async function deleteConversation(userId, conversationId) {
     await db.delete(chatMessages).where(and(eq(chatMessages.userId, userId), eq(chatMessages.conversationId, conversationId)));
+    await db.delete(conversations).where(and(eq(conversations.userId, userId), eq(conversations.id, conversationId)));
     return { deleted: true };
 }
 // ─── Chat History ────────────────────────────────────────────────────────────

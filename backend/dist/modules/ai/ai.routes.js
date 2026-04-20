@@ -43,28 +43,42 @@ export async function aiRoutes(app) {
     }, async () => {
         return { data: aiService.getProviderStatus() };
     });
+    // ── Conversation management — auth only, no subscription required ────────────
+    // These operate on the user's own history so they must work regardless of plan.
     // GET /ai/conversations - List all conversations
-    zApp.get('/conversations', {
-        schema: { response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
-    }, async (request) => {
+    app.get('/conversations', {
+        preHandler: [authenticate],
+    }, async (request, reply) => {
         const result = await aiService.listConversations(request.user.userId);
-        return { data: result };
+        return reply.send({ data: result });
     });
     // GET /ai/conversations/:conversationId - Load specific conversation
-    zApp.get('/conversations/:conversationId', {
-        schema: { response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
-    }, async (request) => {
+    app.get('/conversations/:conversationId', {
+        preHandler: [authenticate],
+    }, async (request, reply) => {
         const { conversationId } = request.params;
         const result = await aiService.getConversation(request.user.userId, conversationId);
-        return { data: result };
+        return reply.send({ data: result });
     });
     // DELETE /ai/conversations/:conversationId - Delete conversation
-    zApp.delete('/conversations/:conversationId', {
-        schema: { security: [{ bearerAuth: [] }] },
-    }, async (request) => {
+    app.delete('/conversations/:conversationId', {
+        preHandler: [authenticate],
+    }, async (request, reply) => {
         const { conversationId } = request.params;
         const result = await aiService.deleteConversation(request.user.userId, conversationId);
-        return { data: result };
+        return reply.send({ data: result });
+    });
+    // PATCH /ai/conversations/:conversationId - Rename conversation
+    app.patch('/conversations/:conversationId', {
+        preHandler: [authenticate],
+    }, async (request, reply) => {
+        const { conversationId } = request.params;
+        const { title } = request.body;
+        if (!title || typeof title !== 'string') {
+            return reply.status(400).send({ message: 'title is required' });
+        }
+        const result = await aiService.renameConversation(request.user.userId, conversationId, title);
+        return reply.send({ data: result });
     });
     // GET /ai/chat/history - Load latest conversation
     zApp.get('/chat/history', {

@@ -43,7 +43,7 @@ export declare function createSession(userId: string, botIds: string[], duration
     isMixed: boolean;
     hasCrypto: boolean;
     hasStocks: boolean;
-    status: "running" | "completed" | "setup" | null;
+    status: "paused" | "running" | "completed" | "setup" | "killed" | null;
     id: string;
     mode: "shadow" | "live" | null;
     createdAt: Date | null;
@@ -55,6 +55,8 @@ export declare function createSession(userId: string, botIds: string[], duration
     cryptoBalance: string | null;
     stockBalance: string | null;
     endedAt: Date | null;
+    pausedAt: Date | null;
+    pausedDurationSeconds: number | null;
 }>;
 export declare function getSession(sessionId: string, userId: string): Promise<{
     gladiators: {
@@ -120,11 +122,13 @@ export declare function getSession(sessionId: string, userId: string): Promise<{
     marketOpen: boolean;
     id: string;
     userId: string;
-    status: "running" | "completed" | "setup" | null;
+    status: "paused" | "running" | "completed" | "setup" | "killed" | null;
     mode: "shadow" | "live" | null;
     durationSeconds: number | null;
     startedAt: Date | null;
     endedAt: Date | null;
+    pausedAt: Date | null;
+    pausedDurationSeconds: number | null;
     notificationSent: boolean | null;
     createdAt: Date | null;
 }>;
@@ -192,17 +196,105 @@ export declare function getActiveSession(userId: string): Promise<{
     marketOpen: boolean;
     id: string;
     userId: string;
-    status: "running" | "completed" | "setup" | null;
+    status: "paused" | "running" | "completed" | "setup" | "killed" | null;
     mode: "shadow" | "live" | null;
     durationSeconds: number | null;
     startedAt: Date | null;
     endedAt: Date | null;
+    pausedAt: Date | null;
+    pausedDurationSeconds: number | null;
     notificationSent: boolean | null;
     createdAt: Date | null;
 } | null>;
+export declare function getActiveSessions(userId: string): Promise<{
+    gladiators: {
+        assetClass: "crypto" | "stocks" | "mixed";
+        isStockBot: boolean;
+        marketOpen: boolean;
+        startingAlloc: number;
+        currentReturn: number;
+        currentWinRate: number;
+        currentTrades: number;
+        currentPnl: number;
+        currentWins: number;
+        currentLosses: number;
+        openPositionCount: number;
+        closedPositionCount: number;
+        category: "Crypto" | "Stocks" | "Forex" | "Multi" | null;
+        trades: {
+            symbol: string;
+            status: "stopped" | "open" | "closed" | null;
+            entryPrice: number;
+            exitPrice: number | null;
+            amount: number;
+            entryValue: number;
+            exitValue: number | null;
+            pnl: number | null;
+            pnlPercent: number | null;
+            entryReasoning: string | null;
+            exitReasoning: string | null;
+            openedAt: Date | null;
+            closedAt: Date | null;
+        }[];
+        id: string;
+        botId: string;
+        rank: number | null;
+        finalReturn: string | null;
+        winRate: string | null;
+        totalTrades: number | null;
+        totalPnl: string | null;
+        equityData: unknown;
+        decisionLog: unknown;
+        isWinner: boolean | null;
+        botName: string;
+        botSubtitle: string | null;
+        botStrategy: string;
+        botCategory: "Crypto" | "Stocks" | "Forex" | "Multi" | null;
+        botAvatar: string | null;
+        botColor: string | null;
+        botRiskLevel: "Very Low" | "Low" | "Med" | "High" | "Very High" | null;
+        botConfig: unknown;
+    }[];
+    progress: number;
+    elapsedSeconds: number;
+    remainingSeconds: number;
+    virtualBalance: string | null;
+    cryptoBalance: string | null;
+    stockBalance: string | null;
+    isMixed: boolean;
+    hasCrypto: boolean | null;
+    hasStocks: boolean | null;
+    perBotAllocation: string | null;
+    perCryptoBotAlloc: string | null;
+    perStockBotAlloc: string | null;
+    marketOpen: boolean;
+    id: string;
+    userId: string;
+    status: "paused" | "running" | "completed" | "setup" | "killed" | null;
+    mode: "shadow" | "live" | null;
+    durationSeconds: number | null;
+    startedAt: Date | null;
+    endedAt: Date | null;
+    pausedAt: Date | null;
+    pausedDurationSeconds: number | null;
+    notificationSent: boolean | null;
+    createdAt: Date | null;
+}[]>;
+export declare function pauseSession(sessionId: string, userId: string): Promise<{
+    id: string;
+    status: string;
+}>;
+export declare function resumeSession(sessionId: string, userId: string): Promise<{
+    id: string;
+    status: string;
+}>;
+export declare function killSession(sessionId: string, userId: string): Promise<{
+    id: string;
+    status: string;
+}>;
 export declare function getHistory(userId: string): Promise<{
     id: string;
-    status: "running" | "completed" | "setup" | null;
+    status: "paused" | "running" | "completed" | "setup" | "killed" | null;
     mode: "shadow" | "live" | null;
     durationSeconds: number | null;
     virtualBalance: string | null;
@@ -221,7 +313,7 @@ export declare function getHistory(userId: string): Promise<{
 export declare function getSessionResults(sessionId: string, userId: string): Promise<{
     session: {
         id: string;
-        status: "running" | "completed" | "setup" | null;
+        status: "paused" | "running" | "completed" | "setup" | "killed" | null;
         mode: "shadow" | "live" | null;
         durationSeconds: number | null;
         virtualBalance: string | null;

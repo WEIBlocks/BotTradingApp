@@ -73,7 +73,7 @@ export async function request<T = unknown>(
   } = options;
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
     ...customHeaders,
   };
 

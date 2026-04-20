@@ -149,7 +149,7 @@ export default function ArenaSetupScreen() {
   const [gladiators, setGladiators] = useState<Gladiator[]>([]);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
-  const [activeSession, setActiveSession] = useState<ArenaSession | null>(null);
+  const [activeSessions, setActiveSessions] = useState<ArenaSession[]>([]);
   const [selectedDuration, setSelectedDuration] = useState(DURATION_OPTIONS[1]);
   const [arenaMode, setArenaMode] = useState<'shadow' | 'live'>('shadow');
 
@@ -169,11 +169,11 @@ export default function ArenaSetupScreen() {
       setLoading(true);
       Promise.all([
         arenaApi.getAvailableBots(),
-        arenaApi.getActiveSession().catch(() => null),
+        arenaApi.getActiveSessions().catch(() => []),
       ])
-        .then(([bots, session]) => {
+        .then(([bots, sessions]) => {
           setGladiators(bots);
-          setActiveSession(session);
+          setActiveSessions(sessions);
         })
         .catch(() => showAlert('Error', 'Failed to load arena bots. Please try again.'))
         .finally(() => setLoading(false));
@@ -245,16 +245,6 @@ export default function ArenaSetupScreen() {
   };
 
   const handleEnterArena = useCallback(async () => {
-    if (activeSession?.status === 'running') {
-      showConfirm({
-        title: 'Battle In Progress',
-        message: 'You already have an active arena battle. Watch it or wait for it to finish.',
-        confirmText: 'Watch Live',
-        onConfirm: () => navigation.navigate('ArenaLive', {gladiatorIds: [], sessionId: activeSession.id}),
-      });
-      return;
-    }
-
     const ids = selectedBots.map(g => g.id);
 
     // Build balance params
@@ -325,7 +315,7 @@ export default function ArenaSetupScreen() {
         setStarting(false);
       },
     });
-  }, [gladiators, navigation, activeSession, selectedDuration, arenaMode, cryptoVirtual, stockVirtual, singleVirtual, cryptoLiveInput, stockLiveInput, exchanges, isMixed, hasCrypto, hasStocks, selectedBots]);
+  }, [gladiators, navigation, selectedDuration, arenaMode, cryptoVirtual, stockVirtual, singleVirtual, cryptoLiveInput, stockLiveInput, exchanges, isMixed, hasCrypto, hasStocks, selectedBots]);
 
   return (
     <View style={styles.container}>
@@ -344,16 +334,40 @@ export default function ArenaSetupScreen() {
         <Text style={styles.title}>Select Your Bots</Text>
         <Text style={styles.subtitle}>Pick 2–{MAX_GLADIATORS} bots. The shared balance is split equally between them based on asset class.</Text>
 
-        {/* Active battle banner */}
-        {activeSession?.status === 'running' && (
-          <TouchableOpacity style={styles.activeBattleBanner} onPress={() => navigation.navigate('ArenaLive', {gladiatorIds: [], sessionId: activeSession.id})} activeOpacity={0.8}>
-            <View style={styles.activeBattlePulse}><View style={styles.activeBattleDot} /></View>
-            <View style={{flex: 1, marginLeft: 12}}>
-              <Text style={styles.activeBattleTitle}>Battle In Progress</Text>
-              <Text style={styles.activeBattleSub}>{activeSession.gladiators.length} bots · {Math.round((activeSession.progress ?? 0) * 100)}% complete</Text>
-            </View>
-            <View style={styles.activeBattleViewBtn}><Text style={styles.activeBattleViewText}>WATCH LIVE</Text></View>
-          </TouchableOpacity>
+        {/* Active battles list */}
+        {activeSessions.length > 0 && (
+          <View style={{marginBottom: 16, gap: 8}}>
+            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 2}}>
+              Active Battles ({activeSessions.length})
+            </Text>
+            {activeSessions.map(s => {
+              const isPaused = s.status === 'paused';
+              return (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[styles.activeBattleBanner, isPaused && {borderColor: 'rgba(245,158,11,0.35)', backgroundColor: 'rgba(245,158,11,0.06)'}]}
+                  onPress={() => navigation.navigate('ArenaLive', {gladiatorIds: [], sessionId: s.id})}
+                  activeOpacity={0.8}>
+                  <View style={[styles.activeBattlePulse, isPaused && {backgroundColor: 'rgba(245,158,11,0.15)'}]}>
+                    <View style={[styles.activeBattleDot, isPaused && {backgroundColor: '#F59E0B'}]} />
+                  </View>
+                  <View style={{flex: 1, marginLeft: 12}}>
+                    <Text style={styles.activeBattleTitle}>
+                      {isPaused ? 'Battle Paused' : 'Battle In Progress'}
+                    </Text>
+                    <Text style={styles.activeBattleSub}>
+                      {s.gladiators.length} bots · {Math.round((s.progress ?? 0) * 100)}% complete
+                    </Text>
+                  </View>
+                  <View style={[styles.activeBattleViewBtn, isPaused && {backgroundColor: 'rgba(245,158,11,0.15)', borderColor: 'rgba(245,158,11,0.3)'}]}>
+                    <Text style={[styles.activeBattleViewText, isPaused && {color: '#F59E0B'}]}>
+                      {isPaused ? 'RESUME' : 'WATCH LIVE'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         )}
 
         {/* Battle Mode */}

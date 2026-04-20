@@ -1,4 +1,4 @@
-import { eq, and, desc, sql } from 'drizzle-orm';
+import { eq, and, desc, sql, inArray } from 'drizzle-orm';
 import { db } from '../../config/database.js';
 import { arenaSessions, arenaGladiators } from '../../db/schema/arena.js';
 import { bots, botStatistics, botSubscriptions } from '../../db/schema/bots.js';
@@ -9,7 +9,6 @@ import { NotFoundError, ConflictError, AppError } from '../../lib/errors.js';
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const MAX_BOTS_PER_SESSION = 5;
-const MAX_CONCURRENT_SESSIONS = 3;
 const MAX_DURATION_SECONDS = 86400; // 24 hours max
 const MAX_SESSIONS_PER_DAY = 10;
 
@@ -101,14 +100,7 @@ export async function createSession(
   if (durationSeconds > MAX_DURATION_SECONDS) throw new AppError(400, 'Maximum battle duration is 24 hours.');
   if (durationSeconds < 60) throw new AppError(400, 'Minimum battle duration is 1 minute.');
 
-  // ── Concurrent / daily rate limits ──
-  const [concurrentCount]: any = await db.execute(sql`
-    SELECT count(*)::int as cnt FROM arena_sessions
-    WHERE user_id = ${userId} AND status = 'running'
-  `);
-  if ((concurrentCount?.rows?.[0]?.cnt ?? 0) >= MAX_CONCURRENT_SESSIONS) {
-    throw new ConflictError(`Maximum ${MAX_CONCURRENT_SESSIONS} concurrent arena battles allowed.`);
-  }
+  // ── Daily rate limit ──
   const [dailyCount]: any = await db.execute(sql`
     SELECT count(*)::int as cnt FROM arena_sessions
     WHERE user_id = ${userId} AND created_at >= now() - interval '24 hours'
@@ -394,16 +386,86 @@ export async function getSession(sessionId: string, userId: string) {
   };
 }
 
-// ─── Get Active Session ─────────────────────────────────────────────────────
+// ─── Get Active Sessions (all running + paused) ──────────────────────────────
 
 export async function getActiveSession(userId: string) {
   const [session] = await db.select().from(arenaSessions)
     .where(and(eq(arenaSessions.userId, userId), eq(arenaSessions.status, 'running')))
     .orderBy(desc(arenaSessions.startedAt))
     .limit(1);
-
   if (!session) return null;
   return getSession(session.id, userId);
+}
+
+export async function getActiveSessions(userId: string) {
+  const sessions = await db.select().from(arenaSessions)
+    .where(and(
+      eq(arenaSessions.userId, userId),
+      inArray(arenaSessions.status, ['running', 'paused']),
+    ))
+    .orderBy(desc(arenaSessions.startedAt));
+  return Promise.all(sessions.map(s => getSession(s.id, userId)));
+}
+
+// ─── Pause Session ───────────────────────────────────────────────────────────
+
+export async function pauseSession(sessionId: string, userId: string) {
+  const [session] = await db.select().from(arenaSessions)
+    .where(and(eq(arenaSessions.id, sessionId), eq(arenaSessions.userId, userId)));
+  if (!session) throw new NotFoundError('Session not found.');
+  if (session.status !== 'running') throw new AppError(400, 'Only running sessions can be paused.');
+
+  await db.update(arenaSessions)
+    .set({ status: 'paused', pausedAt: new Date() })
+    .where(eq(arenaSessions.id, sessionId));
+  return { id: sessionId, status: 'paused' };
+}
+
+// ─── Resume Session ──────────────────────────────────────────────────────────
+
+export async function resumeSession(sessionId: string, userId: string) {
+  const [session] = await db.select().from(arenaSessions)
+    .where(and(eq(arenaSessions.id, sessionId), eq(arenaSessions.userId, userId)));
+  if (!session) throw new NotFoundError('Session not found.');
+  if (session.status !== 'paused') throw new AppError(400, 'Only paused sessions can be resumed.');
+
+  const pausedAt = session.pausedAt ? new Date(session.pausedAt).getTime() : Date.now();
+  const pausedSeconds = Math.floor((Date.now() - pausedAt) / 1000);
+  const totalPaused = (session.pausedDurationSeconds ?? 0) + pausedSeconds;
+
+  await db.update(arenaSessions)
+    .set({ status: 'running', pausedAt: null, pausedDurationSeconds: totalPaused })
+    .where(eq(arenaSessions.id, sessionId));
+  return { id: sessionId, status: 'running' };
+}
+
+// ─── Kill Session ────────────────────────────────────────────────────────────
+
+export async function killSession(sessionId: string, userId: string) {
+  const [session] = await db.select().from(arenaSessions)
+    .where(and(eq(arenaSessions.id, sessionId), eq(arenaSessions.userId, userId)));
+  if (!session) throw new NotFoundError('Session not found.');
+  if (session.status === 'completed' || session.status === 'killed') {
+    throw new AppError(400, 'Session is already finished.');
+  }
+
+  // Finalize with current gladiator standings
+  const gladiators = await db.select().from(arenaGladiators)
+    .where(eq(arenaGladiators.sessionId, sessionId));
+
+  const sorted = [...gladiators].sort((a, b) =>
+    parseFloat(String(b.finalReturn ?? 0)) - parseFloat(String(a.finalReturn ?? 0)),
+  );
+  await Promise.all(sorted.map((g, i) =>
+    db.update(arenaGladiators)
+      .set({ rank: i + 1, isWinner: i === 0 })
+      .where(eq(arenaGladiators.id, g.id)),
+  ));
+
+  await db.update(arenaSessions)
+    .set({ status: 'killed', endedAt: new Date() })
+    .where(eq(arenaSessions.id, sessionId));
+  return { id: sessionId, status: 'killed' };
 }
 
 // ─── History ────────────────────────────────────────────────────────────────

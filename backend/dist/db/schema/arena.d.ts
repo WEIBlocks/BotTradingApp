@@ -1,4 +1,4 @@
-export declare const arenaStatusEnum: import("drizzle-orm/pg-core").PgEnum<["setup", "running", "completed"]>;
+export declare const arenaStatusEnum: import("drizzle-orm/pg-core").PgEnum<["setup", "running", "paused", "killed", "completed"]>;
 export declare const arenaModeEnum: import("drizzle-orm/pg-core").PgEnum<["shadow", "live"]>;
 export declare const arenaSessions: import("drizzle-orm/pg-core").PgTableWithColumns<{
     name: "arena_sessions";
@@ -43,14 +43,14 @@ export declare const arenaSessions: import("drizzle-orm/pg-core").PgTableWithCol
             tableName: "arena_sessions";
             dataType: "string";
             columnType: "PgEnumColumn";
-            data: "running" | "completed" | "setup";
+            data: "paused" | "running" | "completed" | "setup" | "killed";
             driverParam: string;
             notNull: false;
             hasDefault: true;
             isPrimaryKey: false;
             isAutoincrement: false;
             hasRuntimeDefault: false;
-            enumValues: ["setup", "running", "completed"];
+            enumValues: ["setup", "running", "paused", "killed", "completed"];
             baseColumn: never;
             identity: undefined;
             generated: undefined;
@@ -234,6 +234,40 @@ export declare const arenaSessions: import("drizzle-orm/pg-core").PgTableWithCol
             driverParam: string;
             notNull: false;
             hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        pausedAt: import("drizzle-orm/pg-core").PgColumn<{
+            name: "paused_at";
+            tableName: "arena_sessions";
+            dataType: "date";
+            columnType: "PgTimestamp";
+            data: Date;
+            driverParam: string;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        pausedDurationSeconds: import("drizzle-orm/pg-core").PgColumn<{
+            name: "paused_duration_seconds";
+            tableName: "arena_sessions";
+            dataType: "number";
+            columnType: "PgInteger";
+            data: number;
+            driverParam: string | number;
+            notNull: false;
+            hasDefault: true;
             isPrimaryKey: false;
             isAutoincrement: false;
             hasRuntimeDefault: false;

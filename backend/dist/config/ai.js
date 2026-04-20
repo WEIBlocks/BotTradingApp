@@ -220,7 +220,7 @@ async function callOpenAI(messages, opts, model) {
     const response = await client.chat.completions.create({
         model,
         messages: apiMessages,
-        max_tokens: opts.maxTokens ?? 4096,
+        max_completion_tokens: opts.maxTokens ?? 4096,
         ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
     });
     const text = response.choices[0]?.message?.content ?? '';

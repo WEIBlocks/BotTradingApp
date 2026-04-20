@@ -98,55 +98,17 @@ export async function connectWithApiKey(userId, provider, apiKey, apiSecret, san
         lastSyncAt: new Date(),
     })
         .returning();
-    // Fetch initial balances in the background — do NOT await this.
-    // The connection is already saved; balance sync is best-effort and should
-    // not block the response (avoids client timeout on slow exchanges).
+    // Trigger a full portfolio sync immediately after connect — populates exchange_assets,
+    // computes allocations, saves a snapshot, and pushes a portfolio_update via WebSocket
+    // so the portfolio page shows real data the moment the user lands on it.
     setImmediate(async () => {
-        let bgAdapter;
         try {
-            bgAdapter = createAdapter(provider);
-            await bgAdapter.connect({ apiKey, apiSecret, sandbox });
-            const balances = await bgAdapter.getBalances();
-            let totalUsd = 0;
-            for (const bal of balances) {
-                let valueUsd = 0;
-                try {
-                    if (['USDT', 'USDC', 'USD', 'BUSD', 'DAI'].includes(bal.currency)) {
-                        valueUsd = bal.total;
-                    }
-                    else if (assetClass === 'stocks') {
-                        valueUsd = bal.total;
-                    }
-                    else {
-                        const ticker = await bgAdapter.getTicker(`${bal.currency}/USDT`);
-                        valueUsd = bal.total * ticker.last;
-                    }
-                }
-                catch {
-                    // Could not fetch ticker, leave valueUsd as 0
-                }
-                totalUsd += valueUsd;
-                const assetAmount = assetClass === 'stocks' && !['USD', 'USDT', 'USDC', 'BUSD', 'DAI'].includes(bal.currency)
-                    ? bal.free
-                    : bal.total;
-                await db.insert(exchangeAssets).values({
-                    exchangeConnId: connection.id,
-                    symbol: bal.currency,
-                    amount: String(assetAmount),
-                    valueUsd: String(valueUsd.toFixed(2)),
-                }).catch(() => { });
-            }
-            await db
-                .update(exchangeConnections)
-                .set({ totalBalance: String(totalUsd.toFixed(2)) })
-                .where(eq(exchangeConnections.id, connection.id));
-            await bgAdapter.disconnect().catch(() => { });
-            console.log(`[Exchange] Background balance sync complete for ${provider} (${connection.id.slice(0, 8)})`);
+            const { refreshUserPortfolio } = await import('../../jobs/portfolio-update.job.js');
+            await refreshUserPortfolio(userId);
+            console.log(`[Exchange] Immediate portfolio sync complete for ${provider} (${connection.id.slice(0, 8)})`);
         }
         catch (err) {
-            console.warn(`[Exchange] Background balance sync failed for ${provider}:`, err.message);
-            if (bgAdapter)
-                await bgAdapter.disconnect().catch(() => { });
+            console.warn(`[Exchange] Immediate portfolio sync failed for ${provider}:`, err.message);
         }
     });
     await sendNotification(userId, {
