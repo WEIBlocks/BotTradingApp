@@ -114,16 +114,20 @@ export class KrakenAdapter implements ExchangeAdapter {
   ): Promise<OrderResult> {
     if (!this.exchange) throw new Error('Not connected');
 
+    const roundedAmount = this.exchange.markets?.[symbol]
+      ? parseFloat(this.exchange.amountToPrecision(symbol, amount))
+      : parseFloat(amount.toFixed(8));
+
     const order = type === 'limit'
-      ? await this.exchange.createOrder(symbol, type, side, amount, price)
-      : await this.exchange.createOrder(symbol, type, side, amount);
+      ? await this.exchange.createOrder(symbol, type, side, roundedAmount, price)
+      : await this.exchange.createOrder(symbol, type, side, roundedAmount);
 
     return {
       id: order.id,
       symbol: order.symbol,
       side: order.side,
       type: order.type,
-      amount: order.amount ?? amount,
+      amount: order.amount ?? roundedAmount,
       price: order.price ?? order.average ?? 0,
       status: order.status ?? 'open',
       timestamp: order.timestamp ?? Date.now(),

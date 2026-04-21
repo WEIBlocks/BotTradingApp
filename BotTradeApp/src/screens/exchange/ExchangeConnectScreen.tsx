@@ -166,22 +166,22 @@ const EXCHANGE_GUIDES: ExchangeGuide[] = [
       {step: 6, text: 'Enable "Enable Spot & Margin Trading" permission'},
     ],
     permissions: ['Read', 'Spot & Margin Trading'],
-    warning: 'Never enable Withdrawals permission. We only need read + trade access.',
+    warning: 'Never enable Withdrawals. Note: Binance is geo-restricted in the US — use Testnet or a non-US account for best results.',
   },
   {
     name: 'Coinbase',
     color: '#0052FF',
-    url: 'coinbase.com/settings/api',
+    url: 'cdp.coinbase.com/projects',
     steps: [
-      {step: 1, text: 'Log in to Coinbase Advanced'},
-      {step: 2, text: 'Go to Settings → API'},
-      {step: 3, text: 'Click "New API Key"'},
-      {step: 4, text: 'Select your portfolio and set permissions'},
-      {step: 5, text: 'Complete 2FA verification'},
-      {step: 6, text: 'Copy API Key and API Secret immediately'},
+      {step: 1, text: 'Go to Coinbase Developer Platform (cdp.coinbase.com)'},
+      {step: 2, text: 'Create a project or open an existing one'},
+      {step: 3, text: 'Go to API Keys → Create API Key'},
+      {step: 4, text: 'Enable "Trade" permission for your portfolio'},
+      {step: 5, text: 'Download the JSON file — it contains your Key Name and EC Private Key'},
+      {step: 6, text: 'Paste the Key Name into "API Key" field and the full EC Private Key into "API Secret" field'},
     ],
     permissions: ['View', 'Trade'],
-    warning: 'The Secret is shown only once. Save it immediately.',
+    warning: 'The EC Private Key is a multi-line PEM block starting with "-----BEGIN EC PRIVATE KEY-----". Paste the entire block including the header and footer lines.',
   },
   {
     name: 'Kraken',
@@ -542,11 +542,13 @@ const ExchangeConnectScreen = () => {
       ) : null}
 
       {/* API Key Input */}
-      <Text style={styles.sectionLabel}>API Key</Text>
+      <Text style={styles.sectionLabel}>
+        {selectedExchange === 'Coinbase' ? 'API Key Name' : 'API Key'}
+      </Text>
       <View style={styles.inputContainer}>
         <TextInput
           style={styles.textInput}
-          placeholder="Enter your API key"
+          placeholder={selectedExchange === 'Coinbase' ? 'organizations/xxx/apiKeys/xxx' : 'Enter your API key'}
           placeholderTextColor="rgba(255,255,255,0.3)"
           value={apiKey}
           onChangeText={setApiKey}
@@ -556,25 +558,47 @@ const ExchangeConnectScreen = () => {
       </View>
 
       {/* API Secret Input */}
-      <Text style={styles.sectionLabel}>API Secret</Text>
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={[styles.textInput, {flex: 1}]}
-          placeholder="Enter your API secret"
-          placeholderTextColor="rgba(255,255,255,0.3)"
-          value={apiSecret}
-          onChangeText={setApiSecret}
-          secureTextEntry={!showSecret}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        <TouchableOpacity
-          style={styles.eyeToggle}
-          activeOpacity={0.6}
-          onPress={() => setShowSecret(!showSecret)}>
-          {showSecret ? <EyeOffIcon /> : <EyeIcon />}
-        </TouchableOpacity>
-      </View>
+      <Text style={styles.sectionLabel}>
+        {selectedExchange === 'Coinbase' ? 'EC Private Key (PEM)' : 'API Secret'}
+      </Text>
+      {selectedExchange === 'Coinbase' ? (
+        <>
+          <View style={[styles.inputContainer, {height: 120, alignItems: 'flex-start', paddingTop: 12}]}>
+            <TextInput
+              style={[styles.textInput, {flex: 1, textAlignVertical: 'top', height: 96}]}
+              placeholder={'-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----'}
+              placeholderTextColor="rgba(255,255,255,0.25)"
+              value={apiSecret}
+              onChangeText={setApiSecret}
+              multiline
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 16, paddingHorizontal: 4}}>
+            Paste the full PEM block from your downloaded JSON file (privateKey field)
+          </Text>
+        </>
+      ) : (
+        <View style={styles.inputContainer}>
+          <TextInput
+            style={[styles.textInput, {flex: 1}]}
+            placeholder="Enter your API secret"
+            placeholderTextColor="rgba(255,255,255,0.3)"
+            value={apiSecret}
+            onChangeText={setApiSecret}
+            secureTextEntry={!showSecret}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TouchableOpacity
+            style={styles.eyeToggle}
+            activeOpacity={0.6}
+            onPress={() => setShowSecret(!showSecret)}>
+            {showSecret ? <EyeOffIcon /> : <EyeIcon />}
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Action Buttons */}
       <TouchableOpacity

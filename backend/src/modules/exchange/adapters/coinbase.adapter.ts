@@ -14,6 +14,9 @@ export class CoinbaseAdapter implements ExchangeAdapter {
   async connect(credentials: ExchangeCredentials): Promise<void> {
     const ccxt = await import('ccxt');
 
+    // Coinbase Advanced Trade (CDP) uses JWT auth: apiKey = org key name, secret = EC PEM block.
+    // ccxt auto-detects CDP format when apiKey contains "organizations/" or secret starts with "-----BEGIN".
+    // Old Coinbase Pro (apiKey + secret + passphrase) is no longer supported.
     this.exchange = new ccxt.default.coinbase({
       apiKey: credentials.apiKey,
       secret: credentials.apiSecret,
@@ -114,16 +117,20 @@ export class CoinbaseAdapter implements ExchangeAdapter {
   ): Promise<OrderResult> {
     if (!this.exchange) throw new Error('Not connected');
 
+    const roundedAmount = this.exchange.markets?.[symbol]
+      ? parseFloat(this.exchange.amountToPrecision(symbol, amount))
+      : parseFloat(amount.toFixed(8));
+
     const order = type === 'limit'
-      ? await this.exchange.createOrder(symbol, type, side, amount, price)
-      : await this.exchange.createOrder(symbol, type, side, amount);
+      ? await this.exchange.createOrder(symbol, type, side, roundedAmount, price)
+      : await this.exchange.createOrder(symbol, type, side, roundedAmount);
 
     return {
       id: order.id,
       symbol: order.symbol,
       side: order.side,
       type: order.type,
-      amount: order.amount ?? amount,
+      amount: order.amount ?? roundedAmount,
       price: order.price ?? order.average ?? 0,
       status: order.status ?? 'open',
       timestamp: order.timestamp ?? Date.now(),
