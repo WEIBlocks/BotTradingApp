@@ -207,9 +207,32 @@ export class BinanceAdapter {
         if (!this.exchange)
             throw new Error('Not connected');
         // Round amount to exchange lot size — prevents LOT_SIZE filter failures
-        const roundedAmount = this.exchange.markets?.[symbol]
-            ? parseFloat(this.exchange.amountToPrecision(symbol, amount))
-            : amount;
+        let roundedAmount;
+        if (this.exchange.markets?.[symbol]) {
+            roundedAmount = parseFloat(this.exchange.amountToPrecision(symbol, amount));
+        }
+        else {
+            // Symbol not in KuCoin-pre-populated cache (exotic pair) — derive step size from Binance
+            // exchangeInfo authenticated call (never geo-blocked) to get LOT_SIZE filter
+            try {
+                const binanceSymbol = symbol.replace('/', '');
+                const info = await this.exchange.publicGetExchangeinfo({ symbol: binanceSymbol });
+                const lotFilter = (info?.symbols?.[0]?.filters ?? []).find((f) => f.filterType === 'LOT_SIZE');
+                if (lotFilter?.stepSize) {
+                    const stepSize = parseFloat(lotFilter.stepSize);
+                    const decimals = stepSize < 1 ? Math.round(-Math.log10(stepSize)) : 0;
+                    roundedAmount = Math.floor(amount / stepSize) * stepSize;
+                    roundedAmount = parseFloat(roundedAmount.toFixed(decimals));
+                }
+                else {
+                    roundedAmount = parseFloat(amount.toFixed(8));
+                }
+            }
+            catch {
+                // Best-effort — use 8dp which is valid for most Binance pairs
+                roundedAmount = parseFloat(amount.toFixed(8));
+            }
+        }
         const order = type === 'limit'
             ? await this.exchange.createOrder(symbol, type, side, roundedAmount, price)
             : await this.exchange.createOrder(symbol, type, side, roundedAmount);

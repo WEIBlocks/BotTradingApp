@@ -162,7 +162,7 @@ export declare function resumeBot(userId: string, botSubId: string): Promise<{
     userConfig: unknown;
     updatedAt: Date | null;
 }>;
-export declare function purchaseBot(userId: string, botId: string, mode: 'live' | 'paper', requestedAmount?: number, minOrderValue?: number): Promise<{
+export declare function purchaseBot(userId: string, botId: string, mode: 'live' | 'paper', requestedAmount?: number, minOrderValue?: number, preferredExchangeConnId?: string): Promise<{
     status: "active" | "paused" | "stopped" | "shadow" | "expired" | null;
     id: string;
     mode: "live" | "paper" | null;

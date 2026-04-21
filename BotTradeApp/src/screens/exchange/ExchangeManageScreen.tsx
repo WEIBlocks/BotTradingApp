@@ -186,6 +186,17 @@ const ExchangeManageScreen = () => {
                     <Text style={styles.testnetText}>Testnet</Text>
                   </View>
                 )}
+                {exchange.provider?.toLowerCase() === 'alpaca' && (
+                  <View style={[styles.testnetBadge, exchange.sandbox
+                    ? {backgroundColor: 'rgba(251,191,36,0.15)'}
+                    : {backgroundColor: 'rgba(16,185,129,0.12)'}]}>
+                    <Text style={[styles.testnetText, exchange.sandbox
+                      ? {color: '#FBBF24'}
+                      : {color: '#10B981'}]}>
+                      {exchange.sandbox ? 'PAPER' : 'LIVE'}
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.statusBadge}>
                   <View style={styles.statusDot} />
                   <Text style={styles.statusText}>Connected</Text>

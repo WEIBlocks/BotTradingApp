@@ -181,7 +181,7 @@ export async function resumeBot(userId, botSubId) {
         .returning();
     return updated;
 }
-export async function purchaseBot(userId, botId, mode, requestedAmount, minOrderValue) {
+export async function purchaseBot(userId, botId, mode, requestedAmount, minOrderValue, preferredExchangeConnId) {
     // Check bot exists
     const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
     if (!bot) {
@@ -207,7 +207,13 @@ export async function purchaseBot(userId, botId, mode, requestedAmount, minOrder
             .select()
             .from(exchangeConnections)
             .where(and(eq(exchangeConnections.userId, userId), eq(exchangeConnections.status, 'connected')));
-        const matchingConn = userExchanges.find(c => (c.assetClass ?? 'crypto') === requiredAssetClass);
+        // Use the user's preferred exchange if specified and valid, else pick first match
+        let matchingConn = preferredExchangeConnId
+            ? userExchanges.find(c => c.id === preferredExchangeConnId && (c.assetClass ?? 'crypto') === requiredAssetClass)
+            : null;
+        if (!matchingConn) {
+            matchingConn = userExchanges.find(c => (c.assetClass ?? 'crypto') === requiredAssetClass) ?? null;
+        }
         if (!matchingConn) {
             const label = requiredAssetClass === 'stocks' ? 'stock (Alpaca)' : 'crypto';
             throw new AppError(400, `No connected ${label} exchange found. Please connect a ${label} exchange before going live with this bot.`);

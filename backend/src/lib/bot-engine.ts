@@ -1075,6 +1075,8 @@ export async function executeLiveTrade(
       }
     }
 
+    // Always fetch a FRESH balance from the exchange — never rely on cached portfolio value.
+    // A previous trade may have filled moments ago; stale balance would over-allocate.
     const balances = await adapter.getBalances();
     let amount: number;
     let tradeValue: number;
@@ -1093,33 +1095,49 @@ export async function executeLiveTrade(
       const sizePercent = decision.sizePercent && decision.sizePercent > 0 ? decision.sizePercent : 10;
       tradeValue = quoteBalance * sizePercent / 100;
       amount = tradeValue / decision.price;
-
-      console.log(`[BotEngine] BUY ${decision.symbol}: quoteBalance=${quoteBalance} ${quoteCurrency}, sizePercent=${sizePercent}%, tradeValue=$${tradeValue.toFixed(2)}`);
+      console.log(`[BotEngine] BUY ${decision.symbol}: liveBalance=${quoteBalance} ${quoteCurrency}, size=${sizePercent}%, value=$${tradeValue.toFixed(2)}`);
     } else {
       const base = isStock ? decision.symbol : decision.symbol.split('/')[0];
       amount = balances.find(b => b.currency === base)?.free ?? 0;
       tradeValue = amount * decision.price;
-
-      console.log(`[BotEngine] SELL ${decision.symbol}: base balance=${amount} ${base}, tradeValue=$${tradeValue.toFixed(2)}`);
+      console.log(`[BotEngine] SELL ${decision.symbol}: liveBalance=${amount} ${base}, value=$${tradeValue.toFixed(2)}`);
     }
 
-    // Minimum order size: use user's configured value from subscription, else env default
+    // Minimum order size check
     const subMinOrder = parseFloat(sub?.minOrderValue ?? '0');
     const MIN_ORDER_VALUE = subMinOrder > 0
       ? subMinOrder
       : isStock ? (env.MIN_STOCK_ORDER_USD ?? 1) : (env.MIN_CRYPTO_ORDER_USD ?? 10);
     if (tradeValue < MIN_ORDER_VALUE) {
       await adapter.disconnect();
-      return { success: false, error: `Insufficient balance for ${decision.symbol} (${quoteCurrency} balance too low for min $${MIN_ORDER_VALUE} order)` };
+      return { success: false, error: `Trade value $${tradeValue.toFixed(2)} below min $${MIN_ORDER_VALUE} for ${decision.symbol}` };
     }
-
     if (amount <= 0) {
       await adapter.disconnect();
-      return { success: false, error: `Insufficient balance` };
+      return { success: false, error: `Insufficient balance for ${decision.symbol}` };
     }
 
-    // Limit order slippage buffer: buy slightly below ask, sell slightly above bid
-    // 0.1% default keeps orders competitive without being too aggressive
+    // Slippage guard for market orders: reject if live price has moved >2% from decision price
+    // Prevents bad fills on illiquid pairs or during flash spikes.
+    const MARKET_SLIPPAGE_GUARD = 0.02; // 2%
+    if (orderType === 'market') {
+      try {
+        const { getLivePrice } = await import('../modules/market/market.service.js');
+        const liveNow = await getLivePrice(decision.symbol, conn.provider?.toLowerCase());
+        if (liveNow && liveNow.price > 0) {
+          const drift = Math.abs(liveNow.price - decision.price) / decision.price;
+          if (drift > MARKET_SLIPPAGE_GUARD) {
+            await adapter.disconnect();
+            return { success: false, error: `Price drifted ${(drift * 100).toFixed(1)}% since decision (${decision.price} → ${liveNow.price}). Trade skipped to avoid bad fill.` };
+          }
+          // Use the freshest price for the order calculation
+          if (decision.action === 'BUY') {
+            amount = tradeValue / liveNow.price;
+          }
+        }
+      } catch { /* slippage check is best-effort — proceed if it fails */ }
+    }
+
     const LIMIT_SLIPPAGE = env.LIMIT_ORDER_SLIPPAGE_PCT ? env.LIMIT_ORDER_SLIPPAGE_PCT / 100 : 0.001;
     const limitPrice = orderType === 'limit'
       ? (decision.action === 'BUY' ? decision.price * (1 - LIMIT_SLIPPAGE) : decision.price * (1 + LIMIT_SLIPPAGE))

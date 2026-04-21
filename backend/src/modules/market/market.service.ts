@@ -2,55 +2,84 @@ import ccxt from 'ccxt';
 import { redisConnection } from '../../config/queue.js';
 import { env } from '../../config/env.js';
 
-// ─── Crypto Candles — KuCoin primary, Kraken fallback ───────────────────────
-// Binance public API is geo-blocked on DigitalOcean NYC (HTTP 451).
-// KuCoin and Kraken have no such geo-restrictions.
+// ─── Constants ────────────────────────────────────────────────────────────────
 
 const VALID_CRYPTO_TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d', '1w'];
 
-// KuCoin timeframe mapping
 const KUCOIN_TF_MAP: Record<string, string> = {
-  '1m': '1min', '5m': '5min', '15m': '15min', '1h': '1hour',
-  '4h': '4hour', '1d': '1day', '1w': '1week',
+  '1m':'1min','5m':'5min','15m':'15min','1h':'1hour','4h':'4hour','1d':'1day','1w':'1week',
 };
 
-// Kraken timeframe mapping (minutes)
 const KRAKEN_TF_MAP: Record<string, number> = {
-  '1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1d': 1440, '1w': 10080,
+  '1m':1,'5m':5,'15m':15,'1h':60,'4h':240,'1d':1440,'1w':10080,
 };
 
-// KuCoin symbol mapping: BTC/USDT → BTC-USDT
-function toKucoinSymbol(symbol: string): string {
-  return symbol.replace('/', '-');
+// Kraken REST OHLC pair names.
+// MATIC → POLUSD (Polygon rebranded to POL on Kraken, Sep 2024)
+const KRAKEN_SYMBOL_MAP: Record<string, string> = {
+  'BTC/USDT':'XBTUSD','ETH/USDT':'ETHUSD','SOL/USDT':'SOLUSD',
+  'BNB/USDT':'BNBUSD','XRP/USDT':'XRPUSD','ADA/USDT':'ADAUSD',
+  'DOGE/USDT':'XDGUSD','LTC/USDT':'LTCUSD','LINK/USDT':'LINKUSD',
+  'DOT/USDT':'DOTUSD','AVAX/USDT':'AVAXUSD',
+  'MATIC/USDT':'POLUSD','POL/USDT':'POLUSD', // MATIC renamed to POL
+  'ATOM/USDT':'ATOMUSD','UNI/USDT':'UNIUSD',
+  'NEAR/USDT':'NEARUSD','FIL/USDT':'FILUSD','AAVE/USDT':'AAVEUSD',
+  'MKR/USDT':'MKRUSD','SNX/USDT':'SNXUSD','CRV/USDT':'CRVUSD',
+  'COMP/USDT':'COMPUSD','YFI/USDT':'YFIUSD','SUSHI/USDT':'SUSHIUSD',
+  'INJ/USDT':'INJUSD','OP/USDT':'OPUSD','ARB/USDT':'ARBUSD',
+  'TIA/USDT':'TIAUSD','SEI/USDT':'SEIUSD','SUI/USDT':'SUIUSD',
+  'APT/USDT':'APTUSD','RNDR/USDT':'RENDERUSD','RENDER/USDT':'RENDERUSD',
+  'FET/USDT':'FETUSD','IMX/USDT':'IMXUSD','PEPE/USDT':'PEPEUSD',
+};
+
+// CoinGecko ID map — exotic/LST tokens not listed on Kraken/Binance/Coinbase
+const COINGECKO_ID_MAP: Record<string, string> = {
+  'BSOL':'blazestake-staked-sol','MSOL':'msol','JITOSOL':'jito-staked-sol',
+  'STSOL':'lido-staked-sol','WSOL':'wrapped-solana','RAY':'raydium',
+  'SRM':'serum','BONK':'bonk','WIF':'dogwifcoin','JUP':'jupiter',
+  'PYTH':'pyth-network','TIA':'celestia','SEI':'sei-network',
+  'SUI':'sui','APT':'aptos','INJ':'injective-protocol',
+  'RNDR':'render-token','RENDER':'render-token','FET':'fetch-ai',
+  'IMX':'immutable-x','NEAR':'near','FIL':'filecoin',
+  'AAVE':'aave','MKR':'maker','SNX':'havven','CRV':'curve-dao-token',
+  'COMP':'compound-governance-token','YFI':'yearn-finance','SUSHI':'sushi',
+  '1INCH':'1inch','SAND':'the-sandbox','MANA':'decentraland',
+  'AXS':'axie-infinity','GALA':'gala','CHZ':'chiliz','ENJ':'enjincoin',
+  'BAT':'basic-attention-token','ZRX':'0x','KNC':'kyber-network-crystal',
+  'LRC':'loopring','OP':'optimism','ARB':'arbitrum','WLD':'worldcoin-wld',
+  'BLUR':'blur','PEPE':'pepe','FLOKI':'floki','ORDI':'ordinals',
+  'MATIC':'matic-network','POL':'matic-network',
+  'GRT':'the-graph','OCEAN':'ocean-protocol','STORJ':'storj',
+};
+
+function getCoinGeckoId(symbol: string): string | null {
+  const base = symbol.split('/')[0]?.toUpperCase() ?? '';
+  return COINGECKO_ID_MAP[base] ?? null;
 }
 
-// Kraken symbol mapping: BTC/USDT → XBTUSD, ETH/USDT → ETHUSD, etc.
-const KRAKEN_SYMBOL_MAP: Record<string, string> = {
-  'BTC/USDT': 'XBTUSD', 'ETH/USDT': 'ETHUSD', 'SOL/USDT': 'SOLUSD',
-  'BNB/USDT': 'BNBUSD', 'XRP/USDT': 'XRPUSD', 'ADA/USDT': 'ADAUSD',
-  'DOGE/USDT': 'XDGUSD', 'LTC/USDT': 'LTCUSD', 'LINK/USDT': 'LINKUSD',
-  'DOT/USDT': 'DOTUSD', 'AVAX/USDT': 'AVAXUSD', 'MATIC/USDT': 'MATICUSD',
-  'ATOM/USDT': 'ATOMUSD', 'UNI/USDT': 'UNIUSD',
-};
+// KuCoin symbol — most exotic tokens listed as BASE-USDT
+// For MATIC, KuCoin still uses MATIC-USDT (not POL)
+function toKucoinSymbol(symbol: string): string {
+  // Handle MATIC alias
+  const s = symbol.replace('POL/', 'MATIC/');
+  return s.replace('/', '-');
+}
+
+// ─── Candle fetchers ──────────────────────────────────────────────────────────
 
 async function fetchKucoinCandles(symbol: string, tf: string, limit: number): Promise<any[]> {
   const interval = KUCOIN_TF_MAP[tf];
   if (!interval) throw new Error(`Invalid KuCoin timeframe: ${tf}`);
-
   const kcSymbol = toKucoinSymbol(symbol);
   const endAt = Math.floor(Date.now() / 1000);
-  // KuCoin returns max 1500 candles per request
   const url = `https://api.kucoin.com/api/v1/market/candles?type=${interval}&symbol=${kcSymbol}&endAt=${endAt}`;
-
-  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  const res = await fetch(url, {signal: AbortSignal.timeout(10000)});
   if (!res.ok) throw new Error(`KuCoin HTTP ${res.status}`);
   const json: any = await res.json();
-  if (json.code !== '200000' || !Array.isArray(json.data)) {
-    throw new Error(`KuCoin error: ${json.msg ?? json.code}`);
+  if (json.code !== '200000' || !Array.isArray(json.data) || json.data.length === 0) {
+    throw new Error(`KuCoin no data: ${json.msg ?? json.code}`);
   }
-
-  // KuCoin returns newest first: [time, open, close, high, low, volume, turnover]
-  const candles = json.data
+  return json.data
     .slice(0, limit)
     .reverse()
     .map((c: string[]) => ({
@@ -61,25 +90,20 @@ async function fetchKucoinCandles(symbol: string, tf: string, limit: number): Pr
       low:    parseFloat(c[4]),
       volume: parseFloat(c[5]),
     }));
-  return candles;
 }
 
 async function fetchKrakenCandles(symbol: string, tf: string, limit: number): Promise<any[]> {
   const interval = KRAKEN_TF_MAP[tf];
   if (!interval) throw new Error(`Invalid Kraken timeframe: ${tf}`);
-
-  const krakenPair = KRAKEN_SYMBOL_MAP[symbol] ?? symbol.replace('/USDT', 'USD').replace('/', '');
+  const krakenPair = KRAKEN_SYMBOL_MAP[symbol] ?? symbol.replace('/USDT','USD').replace('/USD','USD').replace('/','');
   const since = Math.floor((Date.now() - limit * interval * 60 * 1000) / 1000);
   const url = `https://api.kraken.com/0/public/OHLC?pair=${krakenPair}&interval=${interval}&since=${since}`;
-
-  const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+  const res = await fetch(url, {signal: AbortSignal.timeout(10000)});
   if (!res.ok) throw new Error(`Kraken HTTP ${res.status}`);
   const json: any = await res.json();
   if (json.error?.length) throw new Error(`Kraken error: ${json.error[0]}`);
-
-  const pairKey = Object.keys(json.result).find(k => k !== 'last');
-  if (!pairKey) throw new Error('Kraken: no pair data in response');
-
+  const pairKey = Object.keys(json.result ?? {}).find(k => k !== 'last');
+  if (!pairKey) throw new Error('Kraken: no pair data');
   return json.result[pairKey]
     .slice(-limit)
     .map((c: any[]) => ({
@@ -92,156 +116,363 @@ async function fetchKrakenCandles(symbol: string, tf: string, limit: number): Pr
     }));
 }
 
-async function fetchCryptoCandles(symbol: string, tf: string, limit: number): Promise<any[]> {
-  // Try KuCoin first (wider coin coverage, no geo-block)
-  try {
-    const candles = await fetchKucoinCandles(symbol, tf, limit);
-    if (candles.length > 0) {
-      console.log(`[Market] ${symbol} candles from KuCoin (${candles.length} bars)`);
-      return candles;
-    }
-  } catch (err: any) {
-    console.warn(`[Market] KuCoin candles failed for ${symbol}: ${err.message}`);
-  }
-
-  // Fallback: Kraken (most major pairs)
-  try {
-    const candles = await fetchKrakenCandles(symbol, tf, limit);
-    if (candles.length > 0) {
-      console.log(`[Market] ${symbol} candles from Kraken (${candles.length} bars)`);
-      return candles;
-    }
-  } catch (err: any) {
-    console.warn(`[Market] Kraken candles failed for ${symbol}: ${err.message}`);
-  }
-
-  return [];
+async function fetchBinanceCandles(symbol: string, tf: string, limit: number): Promise<any[]> {
+  const binSym = symbol.replace('/', '').toUpperCase();
+  const url = `https://api.binance.com/api/v3/klines?symbol=${binSym}&interval=${tf}&limit=${limit}`;
+  const res = await fetch(url, {signal: AbortSignal.timeout(8000)});
+  if (!res.ok) throw new Error(`Binance HTTP ${res.status}`);
+  const json: any[] = await res.json();
+  return json.map((c: any[]) => ({
+    timestamp: Number(c[0]),
+    open:   parseFloat(c[1]), high: parseFloat(c[2]),
+    low:    parseFloat(c[3]), close: parseFloat(c[4]),
+    volume: parseFloat(c[5]),
+  }));
 }
 
-// Alpaca timeframe mapping for REST API
+async function fetchCoinbaseCandles(symbol: string, tf: string, limit: number): Promise<any[]> {
+  // Coinbase product IDs: BTC/USDT → BTC-USD, MATIC/USDT → MATIC-USD (Coinbase hasn't rebranded)
+  const productId = symbol
+    .replace('/USDT','-USD').replace('/USD','-USD').replace('/','-')
+    .replace('POL-USD','MATIC-USD'); // Coinbase still uses MATIC
+  const granMap: Record<string,string> = {
+    '1m':'ONE_MINUTE','5m':'FIVE_MINUTE','15m':'FIFTEEN_MINUTE',
+    '1h':'ONE_HOUR','4h':'SIX_HOUR','1d':'ONE_DAY',
+  };
+  const granularity = granMap[tf] ?? 'ONE_HOUR';
+  const granSecs: Record<string,number> = {
+    'ONE_MINUTE':60,'FIVE_MINUTE':300,'FIFTEEN_MINUTE':900,
+    'ONE_HOUR':3600,'SIX_HOUR':21600,'ONE_DAY':86400,
+  };
+  const end   = Math.floor(Date.now() / 1000);
+  const start = end - limit * (granSecs[granularity] ?? 3600);
+  const url = `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}/candles?start=${start}&end=${end}&granularity=${granularity}&limit=${limit}`;
+  const res = await fetch(url, {signal: AbortSignal.timeout(8000)});
+  if (!res.ok) throw new Error(`Coinbase HTTP ${res.status}`);
+  const json: any = await res.json();
+  if (!Array.isArray(json.candles) || json.candles.length === 0) throw new Error('Coinbase: no candles');
+  return json.candles.slice(0, limit).reverse().map((c: any) => ({
+    timestamp: Number(c.start) * 1000,
+    open:   parseFloat(c.open), high: parseFloat(c.high),
+    low:    parseFloat(c.low),  close: parseFloat(c.close),
+    volume: parseFloat(c.volume),
+  }));
+}
+
+// CoinGecko OHLC — rate-limited via Redis (max 1 req/geckoId per 90s across all server instances)
+async function fetchCoinGeckoCandles(symbol: string, _tf: string, limit: number): Promise<{candles: any[]; source: string}> {
+  const geckoId = getCoinGeckoId(symbol);
+  if (!geckoId) throw new Error(`No CoinGecko ID for ${symbol}`);
+
+  // Server-side rate limit guard: at most 1 OHLC request per geckoId per 90s
+  const rateLimitKey = `cg:ohlc:rl:${geckoId}`;
+  const alreadyFetched = await redisConnection.get(rateLimitKey).catch(() => null);
+  if (alreadyFetched) {
+    const cached = await redisConnection.get(`cg:ohlc:${geckoId}`).catch(() => null);
+    if (cached) return JSON.parse(cached);
+    // Rate-limited, no cache — wait rather than throw so caller can retry later
+    return {candles: [], source: 'CoinGecko'};
+  }
+
+  const days = limit > 90 ? 180 : limit > 30 ? 90 : limit > 14 ? 30 : 14;
+  const url = `https://api.coingecko.com/api/v3/coins/${geckoId}/ohlc?vs_currency=usd&days=${days}`;
+  const res = await fetch(url, {signal: AbortSignal.timeout(10000)});
+  if (!res.ok) throw new Error(`CoinGecko HTTP ${res.status}`);
+  const json: any[] = await res.json();
+  if (!Array.isArray(json) || json.length === 0) throw new Error('CoinGecko: empty response');
+
+  const candles = json.slice(-limit).map((c: any[]) => ({
+    timestamp: Number(c[0]),
+    open: Number(c[1]), high: Number(c[2]), low: Number(c[3]), close: Number(c[4]),
+    volume: 0,
+  }));
+  const result = {candles, source: 'CoinGecko'};
+
+  // Cache for 5 minutes + set rate limit key for 90s
+  await Promise.all([
+    redisConnection.set(`cg:ohlc:${geckoId}`, JSON.stringify(result), 'EX', 300).catch(() => {}),
+    redisConnection.set(rateLimitKey, '1', 'EX', 90).catch(() => {}),
+  ]);
+  return result;
+}
+
+// ─── Main crypto candle fetcher with full fallback chain ──────────────────────
+
+async function fetchCryptoCandles(symbol: string, tf: string, limit: number, exchange?: string): Promise<{candles: any[]; source: string}> {
+  const attempts: Array<() => Promise<{candles: any[]; source: string}>> = [];
+
+  // Exchange-first ordering
+  if (exchange === 'binance') {
+    attempts.push(async () => { const c = await fetchBinanceCandles(symbol, tf, limit); return {candles: c, source: 'Binance'}; });
+  }
+  if (exchange === 'coinbase') {
+    attempts.push(async () => { const c = await fetchCoinbaseCandles(symbol, tf, limit); return {candles: c, source: 'Coinbase'}; });
+  }
+  if (exchange === 'kraken' || !exchange) {
+    attempts.push(async () => { const c = await fetchKrakenCandles(symbol, tf, limit); return {candles: c, source: 'Kraken'}; });
+  }
+
+  // Universal fallbacks (always tried if primary fails)
+  attempts.push(async () => { const c = await fetchKucoinCandles(symbol, tf, limit); return {candles: c, source: 'KuCoin'}; });
+
+  if (exchange !== 'kraken') {
+    attempts.push(async () => { const c = await fetchKrakenCandles(symbol, tf, limit); return {candles: c, source: 'Kraken'}; });
+  }
+  if (exchange !== 'binance') {
+    attempts.push(async () => { const c = await fetchBinanceCandles(symbol, tf, limit); return {candles: c, source: 'Binance'}; });
+  }
+  if (exchange !== 'coinbase') {
+    attempts.push(async () => { const c = await fetchCoinbaseCandles(symbol, tf, limit); return {candles: c, source: 'Coinbase'}; });
+  }
+
+  // Last resort: CoinGecko (rate-limited, exotic tokens only)
+  attempts.push(() => fetchCoinGeckoCandles(symbol, tf, limit));
+
+  for (const attempt of attempts) {
+    try {
+      const result = await attempt();
+      if (result.candles.length > 0) return result;
+    } catch (e: any) {
+      console.warn(`[Market] candle fallback failed for ${symbol}: ${e.message}`);
+    }
+  }
+
+  return {candles: [], source: 'none'};
+}
+
+// ─── Stock candles (Alpaca primary, Twelve Data fallback) ─────────────────────
+
 const ALPACA_TF_MAP: Record<string, string> = {
-  '1m': '1Min', '5m': '5Min', '15m': '15Min',
-  '1h': '1Hour', '4h': '4Hour', '1d': '1Day', '1w': '1Week',
+  '1m':'1Min','5m':'5Min','15m':'15Min','1h':'1Hour','4h':'4Hour','1d':'1Day','1w':'1Week',
 };
 
-/**
- * Fetch stock bars — tries Alpaca first, falls back to Twelve Data free tier.
- */
 async function fetchStockBars(symbol: string, timeframe: string, limit: number): Promise<any[]> {
-  // Try Alpaca Data API first
-  const apiKey = env.ALPACA_API_KEY;
+  const apiKey    = env.ALPACA_API_KEY;
   const apiSecret = env.ALPACA_API_SECRET;
 
   if (apiKey && apiSecret && apiKey !== 'PLACEHOLDER') {
     try {
-      // Calculate start date: trading days ≈ 5 per week, so limit bars needs limit*7/5 calendar days
-      const calendarDays = Math.ceil(limit * 7 / 5) + 5; // extra padding for holidays
+      const calendarDays = Math.ceil(limit * 7 / 5) + 5;
       const start = new Date(Date.now() - calendarDays * 86400000).toISOString().split('T')[0];
       const url = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=${timeframe}&limit=${limit}&feed=sip&sort=asc&start=${start}`;
       const response = await fetch(url, {
-        headers: { 'APCA-API-KEY-ID': apiKey, 'APCA-API-SECRET-KEY': apiSecret },
+        headers: {'APCA-API-KEY-ID': apiKey, 'APCA-API-SECRET-KEY': apiSecret},
       });
       if (response.ok) {
         const data = await response.json();
         if (data.bars?.length > 0) {
-          // If we got fewer bars than the limit, these are all the most recent bars — perfect
-          // If we got exactly `limit` bars starting from `start`, we might be missing the latest ones
-          // In that case, also fetch the most recent page
           let bars = data.bars;
-
-          // Check if last bar is more than 3 days old — fetch newer bars too
+          // If last bar is stale, fetch more recent bars
           const lastBarDate = new Date(bars[bars.length - 1].t);
-          const daysSinceLastBar = (Date.now() - lastBarDate.getTime()) / 86400000;
-          if (daysSinceLastBar > 3 && bars.length >= limit) {
-            // Fetch the most recent bars separately
+          if ((Date.now() - lastBarDate.getTime()) / 86400000 > 3 && bars.length >= limit) {
             const recentStart = new Date(lastBarDate.getTime() + 86400000).toISOString().split('T')[0];
-            const recentUrl = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=${timeframe}&limit=30&feed=sip&sort=asc&start=${recentStart}`;
-            const recentRes = await fetch(recentUrl, {
-              headers: { 'APCA-API-KEY-ID': apiKey, 'APCA-API-SECRET-KEY': apiSecret },
-            });
+            const recentRes = await fetch(
+              `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=${timeframe}&limit=30&feed=sip&sort=asc&start=${recentStart}`,
+              {headers: {'APCA-API-KEY-ID': apiKey, 'APCA-API-SECRET-KEY': apiSecret}},
+            );
             if (recentRes.ok) {
-              const recentData = await recentRes.json();
-              if (recentData.bars?.length > 0) {
-                bars = [...bars, ...recentData.bars];
-                // Trim to keep only the last `limit` bars
+              const rd = await recentRes.json();
+              if (rd.bars?.length > 0) {
+                bars = [...bars, ...rd.bars];
                 if (bars.length > limit) bars = bars.slice(-limit);
               }
             }
           }
-
-          console.log(`[Market] ${symbol} candles from Alpaca SIP (${bars.length} bars, latest: ${bars[bars.length - 1].t})`);
           return bars.map((b: any) => ({
             timestamp: new Date(b.t).getTime(), open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v,
           }));
         }
       } else {
-        const errText = await response.text();
-        console.warn(`[Market] Alpaca ${symbol} failed: ${response.status} ${errText.slice(0, 100)}`);
+        console.warn(`[Market] Alpaca ${symbol} failed: ${response.status}`);
       }
     } catch (err: any) {
       console.warn(`[Market] Alpaca ${symbol} error: ${err.message}`);
     }
   }
 
-  // Fallback: Twelve Data free tier (800 calls/day, no signup needed for basic)
+  // Twelve Data fallback
   try {
     const tdInterval = timeframe === '1Day' ? '1day' : timeframe === '1Hour' ? '1h' : timeframe === '4Hour' ? '4h' : timeframe === '1Week' ? '1week' : '1day';
     const tdKey = env.TWELVE_DATA_API_KEY || 'demo';
-    const url = `https://api.twelvedata.com/time_series?symbol=${symbol}&interval=${tdInterval}&outputsize=${limit}&format=JSON&apikey=${tdKey}`;
-    const response = await fetch(url);
+    const response = await fetch(`https://api.twelvedata.com/time_series?symbol=${symbol}&interval=${tdInterval}&outputsize=${limit}&format=JSON&apikey=${tdKey}`);
     if (response.ok) {
       const data = await response.json();
       if (data.values?.length > 0) {
-        console.log(`[Market] ${symbol} candles from Twelve Data fallback (${data.values.length} bars)`);
         return data.values.reverse().map((v: any) => ({
           timestamp: new Date(v.datetime).getTime(),
-          open: parseFloat(v.open), high: parseFloat(v.high), low: parseFloat(v.low),
-          close: parseFloat(v.close), volume: parseInt(v.volume || '0'),
+          open: parseFloat(v.open), high: parseFloat(v.high),
+          low: parseFloat(v.low),  close: parseFloat(v.close),
+          volume: parseInt(v.volume || '0'),
         }));
       }
     }
   } catch {}
 
-  // Fallback 2: Generate from ccxt alpaca (crypto pairs on Alpaca)
+  // ccxt alpaca fallback
   try {
-    const alpacaExchange = new ccxt.alpaca({ enableRateLimit: true });
+    const alpacaExchange = new ccxt.alpaca({enableRateLimit: true});
     const ohlcv = await alpacaExchange.fetchOHLCV(`${symbol}/USD`, timeframe === '1Day' ? '1d' : '1h', undefined, limit);
     return ohlcv.map(c => ({
-      timestamp: Number(c[0]), open: Number(c[1]), high: Number(c[2]), low: Number(c[3]), close: Number(c[4]), volume: Number(c[5]),
+      timestamp: Number(c[0]), open: Number(c[1]), high: Number(c[2]),
+      low: Number(c[3]), close: Number(c[4]), volume: Number(c[5]),
     }));
   } catch {}
 
   return [];
 }
 
-export async function getCandles(symbol: string, timeframe: string = '4h', limit: number = 100) {
-  const tf = timeframe.toLowerCase();
-  const isStock = !symbol.includes('/');
+// ─── Public getCandles ────────────────────────────────────────────────────────
 
-  // Check cache (v2 key to invalidate old stale data)
-  const cacheKey = `ohlcv2:${symbol.replace('/', ':')}:${tf}:${limit}`;
+export async function getCandles(symbol: string, timeframe: string = '4h', limit: number = 100, exchange?: string) {
+  const tf     = timeframe.toLowerCase();
+  const isStock = !symbol.includes('/');
+  const exKey  = exchange ?? 'default';
+  const cacheKey = `ohlcv3:${symbol.replace('/','+')}:${tf}:${limit}:${exKey}`;
+
   const cached = await redisConnection.get(cacheKey).catch(() => null);
   if (cached) return JSON.parse(cached);
 
   let candles: any[];
+  let source = 'unknown';
 
   if (isStock) {
     const alpacaTF = ALPACA_TF_MAP[tf];
-    if (!alpacaTF) throw new Error(`Invalid timeframe for stocks: ${tf}. Valid: ${Object.keys(ALPACA_TF_MAP).join(', ')}`);
-
-    const cleanSymbol = symbol.replace('/USD', '');
-    candles = await fetchStockBars(cleanSymbol, alpacaTF, limit);
+    if (!alpacaTF) throw new Error(`Invalid timeframe for stocks: ${tf}`);
+    candles = await fetchStockBars(symbol.replace('/USD',''), alpacaTF, limit);
+    source  = 'Alpaca';
   } else {
-    if (!VALID_CRYPTO_TIMEFRAMES.includes(tf)) {
-      throw new Error(`Invalid timeframe: ${tf}. Valid: ${VALID_CRYPTO_TIMEFRAMES.join(', ')}`);
-    }
-
-    candles = await fetchCryptoCandles(symbol, tf, limit);
+    if (!VALID_CRYPTO_TIMEFRAMES.includes(tf)) throw new Error(`Invalid timeframe: ${tf}`);
+    const result = await fetchCryptoCandles(symbol, tf, limit, exchange);
+    candles = result.candles;
+    source  = result.source;
   }
 
-  // Cache: stocks 60s (market hours data changes), crypto varies by TF
-  const ttl = isStock ? 60 : (tf === '1m' ? 60 : tf === '5m' ? 120 : 300);
-  await redisConnection.set(cacheKey, JSON.stringify(candles), 'EX', ttl).catch(() => {});
+  const ttl = isStock ? 60 : (tf === '1m' ? 30 : tf === '5m' ? 60 : 300);
+  const payload = {candles, source};
+  // Only cache non-empty results — empty results should be retried next request
+  if (candles.length > 0) {
+    await redisConnection.set(cacheKey, JSON.stringify(payload), 'EX', ttl).catch(() => {});
+  }
+  return payload;
+}
 
-  return candles;
+// ─── Live Price ───────────────────────────────────────────────────────────────
+
+async function fetchLivePriceKraken(symbol: string): Promise<number | null> {
+  try {
+    const pair = KRAKEN_SYMBOL_MAP[symbol] ?? symbol.replace('/USDT','USD').replace('/USD','USD').replace('/','');
+    const res = await fetch(`https://api.kraken.com/0/public/Ticker?pair=${pair}`, {signal: AbortSignal.timeout(5000)});
+    if (!res.ok) return null;
+    const json: any = await res.json();
+    if (json.error?.length) return null;
+    const key = Object.keys(json.result ?? {})[0];
+    if (!key) return null;
+    return parseFloat(json.result[key].c[0]);
+  } catch { return null; }
+}
+
+async function fetchLivePriceBinance(symbol: string): Promise<number | null> {
+  try {
+    const s = symbol.replace('/','').toUpperCase();
+    const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${s}`, {signal: AbortSignal.timeout(5000)});
+    if (!res.ok) return null;
+    const json: any = await res.json();
+    return parseFloat(json.price);
+  } catch { return null; }
+}
+
+async function fetchLivePriceCoinbase(symbol: string): Promise<number | null> {
+  try {
+    // Coinbase still uses MATIC, not POL
+    const productId = symbol.replace('/USDT','-USD').replace('/USD','-USD').replace('/','-').replace('POL-USD','MATIC-USD');
+    const res = await fetch(`https://api.coinbase.com/api/v3/brokerage/market/products/${productId}`, {signal: AbortSignal.timeout(5000)});
+    if (!res.ok) return null;
+    const json: any = await res.json();
+    return parseFloat(json.price ?? json.best_bid ?? '0') || null;
+  } catch { return null; }
+}
+
+async function fetchLivePriceKuCoin(symbol: string): Promise<number | null> {
+  try {
+    const kcSym = toKucoinSymbol(symbol);
+    const res = await fetch(`https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${kcSym}`, {signal: AbortSignal.timeout(5000)});
+    if (!res.ok) return null;
+    const json: any = await res.json();
+    return parseFloat(json.data?.price ?? '0') || null;
+  } catch { return null; }
+}
+
+async function fetchLivePriceCoinGecko(symbol: string): Promise<number | null> {
+  try {
+    const geckoId = getCoinGeckoId(symbol);
+    if (!geckoId) return null;
+    // Rate-limit guard: 1 request per geckoId per 30s
+    const rlKey = `cg:price:rl:${geckoId}`;
+    const blocked = await redisConnection.get(rlKey).catch(() => null);
+    if (blocked) {
+      // Return cached price if available
+      const cached = await redisConnection.get(`cg:price:${geckoId}`).catch(() => null);
+      return cached ? parseFloat(cached) : null;
+    }
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${geckoId}&vs_currencies=usd`,
+      {signal: AbortSignal.timeout(5000)},
+    );
+    if (!res.ok) return null;
+    const json: any = await res.json();
+    const price = json[geckoId]?.usd ?? null;
+    if (price) {
+      await Promise.all([
+        redisConnection.set(`cg:price:${geckoId}`, String(price), 'EX', 60).catch(() => {}),
+        redisConnection.set(rlKey, '1', 'EX', 30).catch(() => {}),
+      ]);
+    }
+    return price;
+  } catch { return null; }
+}
+
+export async function getLivePrice(symbol: string, exchange?: string): Promise<{price: number; source: string} | null> {
+  const isStock = !symbol.includes('/');
+
+  if (isStock) {
+    try {
+      const apiKey    = env.ALPACA_API_KEY;
+      const apiSecret = env.ALPACA_API_SECRET;
+      if (!apiKey || apiKey === 'PLACEHOLDER') return null;
+      const cleanSym = symbol.replace('/USD','');
+      const res = await fetch(`https://data.alpaca.markets/v2/stocks/${cleanSym}/trades/latest`, {
+        headers: {'APCA-API-KEY-ID': apiKey, 'APCA-API-SECRET-KEY': apiSecret},
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return null;
+      const json: any = await res.json();
+      const price = parseFloat(json.trade?.p ?? '0');
+      return price > 0 ? {price, source: 'Alpaca'} : null;
+    } catch { return null; }
+  }
+
+  // Full fallback chain — requested exchange first, then all others
+  const tryOrder = exchange
+    ? [exchange, 'kraken', 'kucoin', 'coinbase', 'binance', 'coingecko']
+    : ['kraken', 'kucoin', 'coinbase', 'binance', 'coingecko'];
+  const seen = new Set<string>();
+
+  for (const ex of tryOrder) {
+    if (seen.has(ex)) continue;
+    seen.add(ex);
+    let price: number | null = null;
+    let source = '';
+
+    switch (ex) {
+      case 'kraken':    price = await fetchLivePriceKraken(symbol);   source = 'Kraken';    break;
+      case 'binance':   price = await fetchLivePriceBinance(symbol);  source = 'Binance';   break;
+      case 'coinbase':  price = await fetchLivePriceCoinbase(symbol); source = 'Coinbase';  break;
+      case 'kucoin':    price = await fetchLivePriceKuCoin(symbol);   source = 'KuCoin';    break;
+      case 'coingecko': price = await fetchLivePriceCoinGecko(symbol);source = 'CoinGecko'; break;
+    }
+
+    if (price && price > 0) return {price, source};
+  }
+
+  return null;
 }

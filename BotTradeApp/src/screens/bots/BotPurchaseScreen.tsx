@@ -74,6 +74,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const [amountError, setAmountError] = useState('');
   const [minOrderInput, setMinOrderInput] = useState('');
   const [minOrderError, setMinOrderError] = useState('');
+  const [selectedExchangeId, setSelectedExchangeId] = useState<string | null>(null);
 
   const {purchaseBot, processing: iapProcessing, isPro} = useIAP();
   const {alert: showAlert, showConfirm} = useToast();
@@ -104,9 +105,11 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
 
         // Pre-fill amount with available balance for matching exchange
         const required = getRequiredAssetClass(botData.category ?? 'Crypto');
-        const match = exchangeList.find((e: ExchangeInfo) => e.assetClass === required && e.status === 'connected');
-        if (match) {
-          setAllocatedAmount(String(Math.floor(match.totalBalance)));
+        const matches = exchangeList.filter((e: ExchangeInfo) => e.assetClass === required && e.status === 'connected');
+        const firstMatch = matches[0] ?? null;
+        if (firstMatch) {
+          setSelectedExchangeId(firstMatch.id);
+          setAllocatedAmount(String(Math.floor(firstMatch.totalBalance)));
         }
         // Default min order: $1 for stocks, $10 for crypto (reuse `required` declared above)
         setMinOrderInput(required === 'stocks' ? '1' : '10');
@@ -116,7 +119,8 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   }, [route.params.botId]);
 
   const requiredAssetClass = bot ? getRequiredAssetClass(bot.category ?? 'Crypto') : 'crypto';
-  const matchingExchange = exchanges.find(e => e.assetClass === requiredAssetClass && e.status === 'connected');
+  const matchingExchanges = exchanges.filter(e => e.assetClass === requiredAssetClass && e.status === 'connected');
+  const matchingExchange = matchingExchanges.find(e => e.id === selectedExchangeId) ?? matchingExchanges[0] ?? null;
   const availableBalance = matchingExchange ? matchingExchange.totalBalance : 0;
   const parsedAmount = parseFloat(allocatedAmount) || 0;
 
@@ -171,7 +175,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
 
     setActivating(true);
     try {
-      await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: parsedAmount, minOrderValue: parsedMinOrder});
+      await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: parsedAmount, minOrderValue: parsedMinOrder, exchangeConnId: matchingExchange?.id});
       showAlert('Bot Activated!', `${bot.name} is now running live with $${parsedAmount.toLocaleString()} allocated.`);
       navigation.navigate('Main');
     } catch (err: any) {
@@ -199,7 +203,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
           try {
             const success = await purchaseBot(bot.id, bot.price);
             if (success) {
-              await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: parsedAmount, minOrderValue: parsedMinOrder});
+              await botsService.purchase(bot.id, {mode: 'live', allocatedAmount: parsedAmount, minOrderValue: parsedMinOrder, exchangeConnId: matchingExchange?.id});
               showAlert('Bot Activated!', `${bot.name} is now running live with $${parsedAmount.toLocaleString()} allocated.`);
               navigation.navigate('Main');
             }
@@ -297,36 +301,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
         {/* Exchange info */}
         <Text style={styles.sectionLabel}>TRADING CAPITAL</Text>
 
-        {matchingExchange ? (
-          <>
-            <View style={[styles.exchangeCard, {borderColor: hasInsufficientBalance ? 'rgba(239,68,68,0.3)' : `${assetColor}30`}]}>
-              <View style={styles.exchangeRow}>
-                <View style={[styles.exchangeDot, {backgroundColor: hasInsufficientBalance ? '#EF4444' : assetColor}]} />
-                <Text style={styles.exchangeName}>{matchingExchange.provider}</Text>
-                {matchingExchange.sandbox && (
-                  <View style={styles.sandboxBadge}>
-                    <Text style={styles.sandboxText}>TEST</Text>
-                  </View>
-                )}
-                <Text style={[styles.exchangeBalance, hasInsufficientBalance && {color: '#EF4444'}]}>
-                  ${availableBalance.toLocaleString(undefined, {maximumFractionDigits: 2})}
-                </Text>
-              </View>
-              <Text style={styles.exchangeSub}>Available {assetLabel} balance</Text>
-            </View>
-            {hasInsufficientBalance && (
-              <View style={styles.noExchangeCard}>
-                <WarningIcon size={18} />
-                <View style={{flex: 1}}>
-                  <Text style={styles.noExchangeTitle}>No Funds Available</Text>
-                  <Text style={styles.noExchangeSub}>
-                    Your {matchingExchange.provider} account has $0 balance. Deposit funds to activate live trading.
-                  </Text>
-                </View>
-              </View>
-            )}
-          </>
-        ) : (
+        {matchingExchanges.length === 0 ? (
           <View style={styles.noExchangeCard}>
             <WarningIcon size={18} />
             <View style={{flex: 1}}>
@@ -334,10 +309,86 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
               <Text style={styles.noExchangeSub}>
                 {isStockBot
                   ? 'Connect an Alpaca account to run this stock bot.'
-                  : 'Connect Binance or Coinbase to run this crypto bot.'}
+                  : 'Connect Binance, Coinbase, or Kraken to run this crypto bot.'}
               </Text>
             </View>
           </View>
+        ) : (
+          <>
+            {/* Exchange selector — shown when multiple exchanges connected */}
+            {matchingExchanges.length > 1 && (
+              <>
+                <Text style={[styles.sectionLabel, {marginBottom: 8}]}>SELECT EXCHANGE</Text>
+                <View style={styles.exchangeSelectorRow}>
+                  {matchingExchanges.map(ex => {
+                    const selected = ex.id === (matchingExchange?.id);
+                    return (
+                      <TouchableOpacity
+                        key={ex.id}
+                        style={[styles.exchangeSelectorBtn, selected && {borderColor: assetColor, backgroundColor: `${assetColor}14`}]}
+                        onPress={() => {
+                          setSelectedExchangeId(ex.id);
+                          const val = String(Math.floor(ex.totalBalance));
+                          setAllocatedAmount(val);
+                          setAmountError(validateAmount(val));
+                        }}
+                        activeOpacity={0.75}>
+                        <View style={[styles.exchangeDot, {backgroundColor: selected ? assetColor : 'rgba(255,255,255,0.25)'}]} />
+                        <View style={{flex: 1}}>
+                          <Text style={[styles.exchangeSelectorName, selected && {color: '#FFFFFF'}]}>{ex.provider}</Text>
+                          <Text style={styles.exchangeSelectorBal}>
+                            ${ex.totalBalance.toLocaleString(undefined, {maximumFractionDigits: 2})}
+                          </Text>
+                        </View>
+                        {ex.sandbox && (
+                          <View style={styles.sandboxBadge}>
+                            <Text style={styles.sandboxText}>TEST</Text>
+                          </View>
+                        )}
+                        {selected && (
+                          <View style={[styles.exchangeSelectedMark, {backgroundColor: assetColor}]}>
+                            <Text style={styles.exchangeSelectedMarkText}>✓</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+
+            {/* Selected exchange card */}
+            {matchingExchange && (
+              <>
+                <View style={[styles.exchangeCard, {borderColor: hasInsufficientBalance ? 'rgba(239,68,68,0.3)' : `${assetColor}30`}]}>
+                  <View style={styles.exchangeRow}>
+                    <View style={[styles.exchangeDot, {backgroundColor: hasInsufficientBalance ? '#EF4444' : assetColor}]} />
+                    <Text style={styles.exchangeName}>{matchingExchange.provider}</Text>
+                    {matchingExchange.sandbox && (
+                      <View style={styles.sandboxBadge}>
+                        <Text style={styles.sandboxText}>TEST</Text>
+                      </View>
+                    )}
+                    <Text style={[styles.exchangeBalance, hasInsufficientBalance && {color: '#EF4444'}]}>
+                      ${availableBalance.toLocaleString(undefined, {maximumFractionDigits: 2})}
+                    </Text>
+                  </View>
+                  <Text style={styles.exchangeSub}>Available {assetLabel} balance · bot will trade on this exchange</Text>
+                </View>
+                {hasInsufficientBalance && (
+                  <View style={styles.noExchangeCard}>
+                    <WarningIcon size={18} />
+                    <View style={{flex: 1}}>
+                      <Text style={styles.noExchangeTitle}>No Funds Available</Text>
+                      <Text style={styles.noExchangeSub}>
+                        Your {matchingExchange.provider} account has $0 balance. Deposit funds to activate live trading.
+                      </Text>
+                    </View>
+                  </View>
+                )}
+              </>
+            )}
+          </>
         )}
 
         {/* Allocated amount input */}
@@ -477,6 +528,13 @@ const styles = StyleSheet.create({
   exchangeSub: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', marginLeft: 16},
   sandboxBadge: {backgroundColor: 'rgba(251,191,36,0.15)', borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2},
   sandboxText: {fontFamily: 'Inter-Bold', fontSize: 9, color: '#FBBF24', letterSpacing: 0.5},
+
+  exchangeSelectorRow: {flexDirection: 'column', gap: 8, marginBottom: 12},
+  exchangeSelectorBtn: {flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#161B22', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)'},
+  exchangeSelectorName: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: 'rgba(255,255,255,0.6)', marginBottom: 1},
+  exchangeSelectorBal: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)'},
+  exchangeSelectedMark: {width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center'},
+  exchangeSelectedMarkText: {fontFamily: 'Inter-Bold', fontSize: 11, color: '#FFFFFF'},
 
   noExchangeCard: {flexDirection: 'row', alignItems: 'flex-start', gap: 12, backgroundColor: 'rgba(249,115,22,0.08)', borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(249,115,22,0.25)'},
   noExchangeTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#F97316', marginBottom: 3},

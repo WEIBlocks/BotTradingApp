@@ -6,8 +6,9 @@ import { exchangeAssets, exchangeConnections } from '../db/schema/exchanges.js';
 import { eq, sql } from 'drizzle-orm';
 
 
-// Map common ticker symbols to CoinGecko IDs (covers the most popular tokens)
+// Map common ticker symbols to CoinGecko IDs (covers 60+ tokens including exotics)
 const COINGECKO_ID_MAP: Record<string, string> = {
+  // Major crypto
   BTC: 'bitcoin', ETH: 'ethereum', SOL: 'solana', BNB: 'binancecoin',
   XRP: 'ripple', ADA: 'cardano', AVAX: 'avalanche-2', DOT: 'polkadot',
   MATIC: 'matic-network', LINK: 'chainlink', UNI: 'uniswap', LTC: 'litecoin',
@@ -15,7 +16,23 @@ const COINGECKO_ID_MAP: Record<string, string> = {
   DOGE: 'dogecoin', SHIB: 'shiba-inu', PEPE: 'pepe', FLOKI: 'floki',
   TRX: 'tron', TON: 'the-open-network', APT: 'aptos', SUI: 'sui',
   INJ: 'injective-protocol', SEI: 'sei-network', FET: 'fetch-ai',
-  RENDER: 'render-token', WLD: 'worldcoin-wld', JUP: 'jupiter-exchange-solana',
+  RNDR: 'render-token', RENDER: 'render-token', WLD: 'worldcoin-wld',
+  JUP: 'jupiter', PYTH: 'pyth-network', TIA: 'celestia',
+  // Solana LSTs and ecosystem tokens
+  BSOL: 'blazestake-staked-sol', MSOL: 'msol', JITOSOL: 'jito-staked-sol',
+  STSOL: 'lido-staked-sol', WSOL: 'wrapped-solana', RAY: 'raydium',
+  BONK: 'bonk', WIF: 'dogwifcoin', ORCA: 'orca', MNGO: 'mango-markets',
+  // DeFi
+  AAVE: 'aave', MKR: 'maker', SNX: 'havven', CRV: 'curve-dao-token',
+  COMP: 'compound-governance-token', YFI: 'yearn-finance', SUSHI: 'sushi',
+  '1INCH': '1inch', BAL: 'balancer', LRC: 'loopring', ZRX: '0x',
+  // NFT/Gaming
+  SAND: 'the-sandbox', MANA: 'decentraland', AXS: 'axie-infinity',
+  GALA: 'gala', CHZ: 'chiliz', ENJ: 'enjincoin', IMX: 'immutable-x',
+  BLUR: 'blur', ORDI: 'ordinals',
+  // Layer 2 / Infrastructure
+  FIL: 'filecoin', GRT: 'the-graph', BAT: 'basic-attention-token',
+  KNC: 'kyber-network-crystal', STORJ: 'storj', OCEAN: 'ocean-protocol',
 };
 
 async function fetchCoinGeckoPriceById(symbol: string): Promise<{
@@ -370,6 +387,23 @@ export async function getPrice(symbol: string): Promise<{
       };
       await redisConnection.set(redisKey, JSON.stringify(data), 'EX', 120);
       return data;
+    }
+  } catch {
+    // fall through to KuCoin
+  }
+
+  // KuCoin fallback — covers exotic tokens like bSOL, mSOL, RAY, BONK, etc.
+  try {
+    const kcSym = symbol.replace('/', '-');
+    const kcRes = await fetch(`https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${kcSym}`, {signal: AbortSignal.timeout(5000)});
+    if (kcRes.ok) {
+      const kcJson: any = await kcRes.json();
+      const price = parseFloat(kcJson?.data?.price ?? '0');
+      if (price > 0) {
+        const data = {price, change24h: 0, volume: 0, high24h: price, low24h: price, timestamp: Date.now()};
+        await redisConnection.set(redisKey, JSON.stringify(data), 'EX', 120);
+        return data;
+      }
     }
   } catch {
     // fall through to CoinGecko

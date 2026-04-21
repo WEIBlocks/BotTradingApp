@@ -31,6 +31,7 @@ export type PurchaseBody = {
   mode: 'live' | 'paper';
   allocatedAmount?: number;
   minOrderValue?: number;
+  exchangeConnId?: string;
 };
 
 // ─── API ─────────────────────────────────────────────────────────────────────

@@ -247,12 +247,15 @@ export declare const purchaseBotBodySchema: z.ZodObject<{
     mode: z.ZodDefault<z.ZodEnum<["live", "paper"]>>;
     allocatedAmount: z.ZodOptional<z.ZodNumber>;
     minOrderValue: z.ZodOptional<z.ZodNumber>;
+    exchangeConnId: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
     mode: "live" | "paper";
+    exchangeConnId?: string | undefined;
     allocatedAmount?: number | undefined;
     minOrderValue?: number | undefined;
 }, {
     mode?: "live" | "paper" | undefined;
+    exchangeConnId?: string | undefined;
     allocatedAmount?: number | undefined;
     minOrderValue?: number | undefined;
 }>;

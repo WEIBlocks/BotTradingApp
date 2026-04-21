@@ -3,11 +3,12 @@
  * Uses the hybrid AI engine + real exchange execution
  */
 
-import { eq, and, sql } from 'drizzle-orm';
+import { eq, and, sql, lt, sum } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import { bots, botSubscriptions } from '../db/schema/bots.js';
 import { exchangeConnections } from '../db/schema/exchanges.js';
 import { botDecisions } from '../db/schema/decisions.js';
+import { trades } from '../db/schema/trades.js';
 import { processSymbol, executeLiveTrade } from '../lib/bot-engine.js';
 import { sendNotification } from '../lib/notify.js';
 import { refreshUserPortfolio } from './portfolio-update.job.js';
@@ -159,8 +160,35 @@ async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
           }
         }
 
+        // autoStopLossPercent — stop bot if cumulative realized loss exceeds threshold
+        if (userConfig.autoStopLossPercent !== undefined && userConfig.autoStopLossPercent > 0 && allocatedAmount > 0) {
+          const [lossRow] = await db
+            .select({ totalLoss: sum(trades.pnl) })
+            .from(trades)
+            .where(and(
+              eq(trades.botSubscriptionId, subscription.id),
+              lt(trades.pnl, '0'),
+            ));
+          const totalLoss = Math.abs(parseFloat(lossRow?.totalLoss ?? '0'));
+          const lossPercent = (totalLoss / allocatedAmount) * 100;
+          if (lossPercent >= userConfig.autoStopLossPercent) {
+            await db.update(botSubscriptions)
+              .set({ status: 'stopped', updatedAt: new Date() })
+              .where(eq(botSubscriptions.id, subscription.id));
+            await sendNotification(subscription.userId, {
+              type: 'alert',
+              title: `Bot Stopped — Loss Limit Reached`,
+              body: `${bot.name} was stopped after reaching ${lossPercent.toFixed(1)}% loss (limit: ${userConfig.autoStopLossPercent}%).`,
+              priority: 'high',
+            }).catch(() => {});
+            console.log(`[LiveTrade] Subscription ${subscription.id} stopped — autoStopLossPercent (${lossPercent.toFixed(1)}% >= ${userConfig.autoStopLossPercent}%)`);
+            continue;
+          }
+        }
+
         // Verify exchange exists and isn't disconnected/errored
-        const [conn] = await db
+        // Auto-heal stale exchangeConnId: if stored conn is gone/disconnected, find a new one
+        let [conn] = await db
           .select()
           .from(exchangeConnections)
           .where(
@@ -172,19 +200,43 @@ async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
           .limit(1);
 
         if (!conn || conn.status === 'disconnected' || conn.status === 'error') {
-          console.warn(`[LiveTrade] Exchange unavailable for subscription ${subscription.id}`);
-          await db
-            .update(botSubscriptions)
-            .set({ status: 'paused', updatedAt: new Date() })
-            .where(eq(botSubscriptions.id, subscription.id));
+          if (!isStockBot) {
+            // Try to find another connected crypto exchange for this user
+            const [fallbackConn] = await db
+              .select()
+              .from(exchangeConnections)
+              .where(and(
+                eq(exchangeConnections.userId, subscription.userId),
+                eq(exchangeConnections.assetClass, 'crypto'),
+                eq(exchangeConnections.status, 'connected'),
+              ))
+              .limit(1);
 
-          await sendNotification(subscription.userId, {
-            type: 'alert',
-            title: 'Bot Paused — Exchange Disconnected',
-            body: `${bot.name} has been paused because your exchange connection is no longer active.`,
-            priority: 'high',
-          }).catch(() => {});
-          continue;
+            if (fallbackConn) {
+              console.log(`[LiveTrade] Auto-healed stale exchangeConnId for sub ${subscription.id}: ${exchangeConnId} → ${fallbackConn.id}`);
+              await db.update(botSubscriptions)
+                .set({ exchangeConnId: fallbackConn.id, updatedAt: new Date() })
+                .where(eq(botSubscriptions.id, subscription.id));
+              exchangeConnId = fallbackConn.id;
+              conn = fallbackConn;
+            }
+          }
+
+          if (!conn || conn.status === 'disconnected' || conn.status === 'error') {
+            console.warn(`[LiveTrade] Exchange unavailable for subscription ${subscription.id}`);
+            await db
+              .update(botSubscriptions)
+              .set({ status: 'paused', updatedAt: new Date() })
+              .where(eq(botSubscriptions.id, subscription.id));
+
+            await sendNotification(subscription.userId, {
+              type: 'alert',
+              title: 'Bot Paused — Exchange Disconnected',
+              body: `${bot.name} has been paused because your exchange connection is no longer active.`,
+              priority: 'high',
+            }).catch(() => {});
+            continue;
+          }
         }
 
         // Skip stock bots when US market is closed — but log a HOLD so the live feed isn't empty
@@ -219,9 +271,32 @@ async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
           }
         }
 
-        // Force fresh price fetch for each pair before trading (avoids stale cache)
+        // Force fresh price fetch using the bot's own exchange for accuracy
+        // This eliminates cross-exchange price differences — bot trades at the same price it decides on
+        const exchangeProvider = conn.provider?.toLowerCase() ?? '';
         for (const pair of pairs) {
-          await getPrice(pair); // ensures Redis has latest price (fetches live if cache expired)
+          try {
+            const { getLivePrice } = await import('../modules/market/market.service.js');
+            const liveData = await getLivePrice(pair, isStockBot ? 'alpaca' : exchangeProvider);
+            if (liveData && liveData.price > 0) {
+              // Store in Redis under standard key so bot-engine picks it up
+              const { redisConnection } = await import('../config/queue.js');
+              const redisKey = `price:${pair.replace('/', ':')}`;
+              const existing = await redisConnection.get(redisKey).catch(() => null);
+              const parsed = existing ? JSON.parse(existing) : {};
+              await redisConnection.set(redisKey, JSON.stringify({
+                ...parsed,
+                price: liveData.price,
+                timestamp: Date.now(),
+                source: liveData.source,
+              }), 'EX', 60);
+            } else {
+              // Fallback to global price sync cache
+              await getPrice(pair);
+            }
+          } catch {
+            await getPrice(pair);
+          }
         }
 
         for (const pair of pairs) {

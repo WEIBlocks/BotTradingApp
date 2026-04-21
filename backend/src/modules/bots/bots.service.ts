@@ -245,7 +245,7 @@ export async function resumeBot(userId: string, botSubId: string) {
   return updated;
 }
 
-export async function purchaseBot(userId: string, botId: string, mode: 'live' | 'paper', requestedAmount?: number, minOrderValue?: number) {
+export async function purchaseBot(userId: string, botId: string, mode: 'live' | 'paper', requestedAmount?: number, minOrderValue?: number, preferredExchangeConnId?: string) {
   // Check bot exists
   const [bot] = await db.select().from(bots).where(eq(bots.id, botId));
   if (!bot) {
@@ -286,7 +286,13 @@ export async function purchaseBot(userId: string, botId: string, mode: 'live' | 
         ),
       );
 
-    const matchingConn = userExchanges.find(c => (c.assetClass ?? 'crypto') === requiredAssetClass);
+    // Use the user's preferred exchange if specified and valid, else pick first match
+    let matchingConn = preferredExchangeConnId
+      ? userExchanges.find(c => c.id === preferredExchangeConnId && (c.assetClass ?? 'crypto') === requiredAssetClass)
+      : null;
+    if (!matchingConn) {
+      matchingConn = userExchanges.find(c => (c.assetClass ?? 'crypto') === requiredAssetClass) ?? null;
+    }
 
     if (!matchingConn) {
       const label = requiredAssetClass === 'stocks' ? 'stock (Alpaca)' : 'crypto';
