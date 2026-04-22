@@ -241,11 +241,12 @@ async function saveDailySnapshots(userTotals: Map<string, { totalValue: number; 
       const change = data.totalValue - data.prevValue;
       const changePercent = data.prevValue > 0 ? (change / data.prevValue) * 100 : 0;
 
-      // Upsert: one snapshot per user per UTC day
+      // Upsert: one snapshot per user per UTC day (exclude hourly rows)
       const [existing] = await db.select({ id: portfolioSnapshots.id })
         .from(portfolioSnapshots)
         .where(and(
           eq(portfolioSnapshots.userId, userId),
+          sql`COALESCE(portfolio_snapshots.granularity, 'daily') = 'daily'`,
           sql`date_trunc('day', ${portfolioSnapshots.date} AT TIME ZONE 'UTC') = ${todayUTC.toISOString()}::timestamptz`,
         ))
         .limit(1);

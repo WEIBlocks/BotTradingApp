@@ -164,9 +164,21 @@ export async function getEquityHistory(userId: string, days = 30, granularity: '
     shadowDates.push(p.closedAt instanceof Date ? p.closedAt : new Date(p.closedAt ?? Date.now()));
   }
 
-  if (snapshots.length > 0) {
+  // Deduplicate: keep only the latest row per time bucket (day or hour)
+  // This handles any duplicate rows already in the DB from before the upsert fix
+  const seen = new Map<string, typeof snapshots[0]>();
+  for (const s of snapshots) {
+    const d = new Date(s.date);
+    const key = useHourly
+      ? `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}-${d.getUTCHours()}`
+      : `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
+    seen.set(key, s); // later row wins (orderBy date ASC, so last write wins)
+  }
+  const dedupedSnapshots = Array.from(seen.values());
+
+  if (dedupedSnapshots.length > 0) {
     // Real live exchange data available
-    const equityData = snapshots.map(s => ({
+    const equityData = dedupedSnapshots.map(s => ({
       date: s.date,
       value: parseFloat(s.totalValue),
       change: parseFloat(s.change24h ?? '0'),
