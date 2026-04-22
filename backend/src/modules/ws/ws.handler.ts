@@ -268,12 +268,13 @@ export async function handleBotDecisionsWs(socket: WebSocket, request: FastifyRe
  * All messages use the envelope: { topic: string, payload: unknown }
  *
  * Topics pushed to client:
- *   "trade"            → new trade executed for this user
- *   "equity_update"    → bot equity curve updated  { botId, equityData?, newPoint?, totalPnl }
- *   "portfolio_update" → portfolio equity updated   { equityData?, newPoint?, totalValue }
- *   "notification"     → new notification
- *   "stock_price"      → real-time stock tick       { symbol, price, change, changePercent, timestamp }
- *   "stock_bar"        → 1-min OHLCV bar            { symbol, open, high, low, close, volume, timestamp }
+ *   "trade"                → new trade executed for this user
+ *   "equity_update"        → live bot equity curve updated  { botId, equityData?, newPoint?, totalPnl }
+ *   "portfolio_update"     → live portfolio equity updated  { equityData?, newPoint?, totalValue }
+ *   "shadow_equity_update" → shadow bot equity updated      { sessionId, botId, newPoint, totalPnl, currentBalance }
+ *   "notification"         → new notification
+ *   "stock_price"          → real-time stock tick           { symbol, price, change, changePercent, timestamp }
+ *   "stock_bar"            → 1-min OHLCV bar               { symbol, open, high, low, close, volume, timestamp }
  */
 export async function handleAppWs(socket: WebSocket, request: FastifyRequest): Promise<void> {
   const user = authenticateWs(request);
@@ -379,6 +380,13 @@ export async function handleAppWs(socket: WebSocket, request: FastifyRequest): P
   };
   await subscribeChannel(botEquityChannel, botEquityListener);
 
+  // ── Subscribe to shadow equity events (separate from live) ────────────
+  const shadowEquityChannel = `shadow:equity:${user.userId}`;
+  const shadowEquityListener = (message: string) => {
+    try { emit('shadow_equity_update', JSON.parse(message)); } catch {}
+  };
+  await subscribeChannel(shadowEquityChannel, shadowEquityListener);
+
   sendJson(socket, { topic: 'connected', payload: { userId: user.userId } });
 
   const cleanup = async () => {
@@ -386,6 +394,7 @@ export async function handleAppWs(socket: WebSocket, request: FastifyRequest): P
     await unsubscribeChannel(notifChannel, notifListener);
     await unsubscribeChannel(portfolioChannel, portfolioListener);
     await unsubscribeChannel(botEquityChannel, botEquityListener);
+    await unsubscribeChannel(shadowEquityChannel, shadowEquityListener);
   };
 
   socket.on('close', cleanup);

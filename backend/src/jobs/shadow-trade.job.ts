@@ -270,6 +270,36 @@ async function processShadowTrades() {
               amount: balanceDelta.toFixed(2),
             });
           } catch {}
+
+          // Push real-time shadow equity update via WebSocket (separate from live equity)
+          try {
+            const { publishMessage } = await import('../config/redis.js');
+            const closedPos = await db
+              .select({ pnl: trades.pnl })
+              .from(trades)
+              .where(and(
+                eq(trades.shadowSessionId, session.id),
+                eq(trades.userId, session.userId),
+                eq(trades.isPaper, true),
+                eq(trades.side, 'SELL'),
+              ));
+
+            let cumPnl = 0;
+            for (const p of closedPos) {
+              cumPnl += parseFloat(p.pnl ?? '0');
+            }
+
+            await publishMessage(`shadow:equity:${session.userId}`, {
+              sessionId: session.id,
+              botId: bot.id,
+              userId: session.userId,
+              newPoint: Math.round(cumPnl * 100) / 100,
+              totalPnl: Math.round(cumPnl * 100) / 100,
+              currentBalance: updatedBalance,
+            });
+          } catch (wsErr: any) {
+            console.warn(`[ShadowTrade] WS push failed for session ${session.id}:`, wsErr.message);
+          }
         }
       } catch (err: any) {
         console.error(`[ShadowTrade] Error processing session ${session.id}:`, err.message);

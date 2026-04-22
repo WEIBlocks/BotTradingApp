@@ -56,7 +56,7 @@ export const exchangeAssets = pgTable("exchange_assets", {
     iconColor: varchar("icon_color", { length: 9 }),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
-// Daily portfolio snapshots for equity history chart
+// Portfolio snapshots for equity history chart — daily and hourly granularity
 export const portfolioSnapshots = pgTable("portfolio_snapshots", {
     id: uuid("id")
         .primaryKey()
@@ -69,6 +69,8 @@ export const portfolioSnapshots = pgTable("portfolio_snapshots", {
     change24h: numeric("change_24h", { precision: 14, scale: 2 }).default("0"),
     changePercent: numeric("change_percent", { precision: 8, scale: 4 }).default("0"),
     assetCount: integer("asset_count").default(0),
+    granularity: varchar("granularity", { length: 10 }).default("daily"),
 }, (t) => ({
     userDateIdx: index("portfolio_snapshots_user_date_idx").on(t.userId, t.date),
+    userGranularityIdx: index("portfolio_snapshots_user_gran_idx").on(t.userId, t.granularity),
 }));

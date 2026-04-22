@@ -191,17 +191,30 @@ export const dashboardApi = {
     }
   },
 
-  async getEquityHistoryFull(days = 30): Promise<{equityData: number[]; dates: (string | Date)[]; isRealData: boolean}> {
+  async getEquityHistoryFull(days = 30, granularity: 'hourly' | 'daily' = 'daily'): Promise<{
+    equityPoints: Array<{time: number; value: number}>;
+    isRealData: boolean;
+  }> {
     try {
-      const res = await api.get<DataWrap<any>>(`/portfolio/equity-history?days=${days}`);
+      const res = await api.get<DataWrap<any>>(`/portfolio/equity-history?days=${days}&granularity=${granularity}`);
       const d = res?.data;
+      console.log('[dashboardApi] equity raw keys:', Object.keys(res ?? {}), 'data keys:', Object.keys(d ?? {}), 'equityData len:', d?.equityData?.length, 'isRealData:', d?.isRealData);
+      const values: number[]  = Array.isArray(d?.equityData) ? d.equityData : [];
+      const dates: any[]      = Array.isArray(d?.dates) ? d.dates : [];
+
+      // Zip values + dates into {time (unix seconds), value} pairs
+      const equityPoints = values.map((v: number, i: number) => {
+        const raw = dates[i];
+        const ms  = raw ? new Date(raw).getTime() : Date.now();
+        return {time: Math.floor(ms / 1000), value: v};
+      }).filter(p => p.value > 0 && p.time > 0);
+
       return {
-        equityData: Array.isArray(d?.equityData) ? d.equityData : [],
-        dates: Array.isArray(d?.dates) ? d.dates : [],
+        equityPoints,
         isRealData: Boolean(d?.isRealData),
       };
     } catch {
-      return {equityData: [], dates: [], isRealData: false};
+      return {equityPoints: [], isRealData: false};
     }
   },
 };

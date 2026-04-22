@@ -1,5 +1,5 @@
 import React, {useCallback, useState} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, ActivityIndicator, RefreshControl, Modal, TextInput} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, Dimensions, ActivityIndicator, RefreshControl, Modal, TextInput} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
 import Svg, {Circle as SvgCircle, Path} from 'react-native-svg';
@@ -21,7 +21,6 @@ import StarIcon from '../../components/icons/StarIcon';
 import XIcon from '../../components/icons/XIcon';
 import {useToast} from '../../context/ToastContext';
 import {useMarketKline, type ExchangeId} from '../../hooks/useMarketKline';
-import {useLiveEquity} from '../../hooks/useLiveEquity';
 
 const {width} = Dimensions.get('window');
 const CHART_W = width - 40;
@@ -87,12 +86,6 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const [configPanelExpanded, setConfigPanelExpanded] = useState(false);
   const [strategyExpanded, setStrategyExpanded] = useState(false);
 
-  // Equity curve (line chart from real P&L) — REST seed
-  const [equityCurveRest, setEquityCurveRest] = useState<number[]>([]);
-  const [equityDates, setEquityDates]          = useState<(string | Date)[]>([]);
-  const [equityLoading, setEquityLoading]      = useState(false);
-  const [equityPnlRest, setEquityPnlRest]      = useState(0);
-
   // Candlestick per trading pair
   const [selectedPair, setSelectedPair] = useState<string | null>(null);
   const [candleTF, setCandleTF]         = useState('4h'); // API timeframe sent to backend
@@ -110,13 +103,6 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     connected:  candleConnected,
     source:     candleSource,
   } = useMarketKline(selectedPair ?? undefined, candleTF, chartExchange);
-
-  // Equity: backend WS appends new points as bot trades execute
-  const {equityData: equityCurve, totalPnl: equityPnl} = useLiveEquity({
-    botId:       route.params.botId,
-    initialData: equityCurveRest,
-    initialPnl:  equityPnlRest,
-  });
 
   const DURATION_OPTIONS: {label: string; minutes?: number; days?: number}[] = [
     {label: '1 Min', minutes: 1},
@@ -260,23 +246,6 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     }
   }, [route.params.botId]);
 
-  // Fetch bot equity curve (cumulative P&L) — seeds the live hook
-  const fetchEquityCurve = useCallback(async (days: number) => {
-    setEquityLoading(true);
-    try {
-      const res = await api.get<{data: any}>(`/bots/${route.params.botId}/equity-curve?days=${days}`);
-      const d = res?.data;
-      setEquityCurveRest(Array.isArray(d?.equityData) ? d.equityData : []);
-      setEquityDates(Array.isArray(d?.dates) ? d.dates : []);
-      setEquityPnlRest(Number(d?.totalPnl ?? 0));
-    } catch {
-      setEquityCurveRest([]);
-      setEquityDates([]);
-    } finally {
-      setEquityLoading(false);
-    }
-  }, [route.params.botId]);
-
   // Fetch trade markers only — candle data now comes from useBinanceKline hook
   const fetchTradeMarkers = useCallback(async (pair: string) => {
     try {
@@ -303,10 +272,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
   useFocusEffect(useCallback(() => {
     fetchData();
-    fetchEquityCurve(30);
     // No more setInterval — live data comes from WebSocket hooks
     return () => {};
-  }, [fetchData, fetchEquityCurve]));
+  }, [fetchData]));
 
   // Auto-open shadow modal when navigated with openShadow=true (e.g. from Marketplace)
   const openShadowTriggered = React.useRef(false);
@@ -614,20 +582,18 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       {/* ── Tab bar (sticky, outside ScrollView) ── shown when user has any personal relationship */}
       {hasPersonalTab && (
         <View style={styles.tabBarWrap}>
-          <TouchableOpacity
-            activeOpacity={0.8}
+          <Pressable
             style={[styles.tabBarBtn, activeStatsTab === 'live' && styles.tabBarBtnLiveActive]}
             onPress={() => setActiveStatsTab('live')}>
             <View style={[styles.tabBarDot, {backgroundColor: activeStatsTab === 'live' ? '#10B981' : 'rgba(255,255,255,0.2)'}]} />
             <Text style={[styles.tabBarBtnText, activeStatsTab === 'live' && {color: '#10B981'}]}>PUBLIC LIVE</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            activeOpacity={0.8}
+          </Pressable>
+          <Pressable
             style={[styles.tabBarBtn, activeStatsTab === 'my' && (isLiveActive ? styles.tabBarBtnLiveActive : styles.tabBarBtnShadowActive)]}
             onPress={() => setActiveStatsTab('my')}>
             <View style={[styles.tabBarDot, {backgroundColor: activeStatsTab === 'my' ? (isLiveActive ? '#10B981' : '#3B82F6') : 'rgba(255,255,255,0.2)'}]} />
             <Text style={[styles.tabBarBtnText, activeStatsTab === 'my' && {color: isLiveActive ? '#10B981' : '#3B82F6'}]}>{myTabLabel}</Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       )}
 
@@ -677,8 +643,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         </View>
 
         {/* ══ PUBLIC LIVE TAB — complete screen ══ */}
-        {(!hasPersonalTab || activeStatsTab === 'live') && (
-          <View>
+        <View style={{display: (!hasPersonalTab || activeStatsTab === 'live') ? 'flex' : 'none'}}>
             {/* Stats 2x2 grid */}
             <View style={styles.statsGrid}>
               {statCells.map(cell => (
@@ -1178,12 +1143,10 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 ))}
               </View>
             )}
-          </View>
-        )}
-
+        </View>
         {/* ══ MY TAB — personal live or shadow stats ══ */}
-        {hasPersonalTab && activeStatsTab === 'my' && (
-          <View>
+        {hasPersonalTab && (
+        <View style={{display: activeStatsTab === 'my' ? 'flex' : 'none'}}>
             {myTabStats ? (
               <View>
                 {/* 2x2 stat grid */}
@@ -1250,109 +1213,6 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                         isRealData={true}
                         loading={false}
                       />
-                    </View>
-                  );
-                })()}
-
-                {/* Candlestick — same hook, shares exchange tab + pair selection */}
-                {(() => {
-                  const pairs = bot.config?.pairs ?? ['BTC/USDT'];
-                  const isStockBot2 = bot.category === 'Stocks';
-                  const cryptoExchanges2: {id: ExchangeId; label: string; color: string}[] = [
-                    {id: 'kraken',   label: 'Kraken',   color: '#5741D9'},
-                    {id: 'binance',  label: 'Binance',  color: '#F3BA2F'},
-                    {id: 'coinbase', label: 'Coinbase', color: '#0052FF'},
-                  ];
-                  const tfOptions2 = ['1m','5m','15m','1h','4h','1d','1M'];
-                  return (
-                    <View style={styles.chartSection}>
-                      <Text style={styles.chartSectionLabel}>PRICE ACTION</Text>
-
-                      {!isStockBot2 && (
-                        <View style={{flexDirection: 'row', gap: 8, marginBottom: 14}}>
-                          {cryptoExchanges2.map(ex => (
-                            <TouchableOpacity key={ex.id} activeOpacity={0.7}
-                              onPress={() => setChartExchange(ex.id)}
-                              style={{
-                                flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center',
-                                backgroundColor: chartExchange === ex.id ? `${ex.color}20` : 'rgba(255,255,255,0.04)',
-                                borderWidth: 1,
-                                borderColor: chartExchange === ex.id ? `${ex.color}60` : 'rgba(255,255,255,0.08)',
-                              }}>
-                              <Text style={{
-                                fontFamily: chartExchange === ex.id ? 'Inter-SemiBold' : 'Inter-Regular',
-                                fontSize: 12,
-                                color: chartExchange === ex.id ? ex.color : 'rgba(255,255,255,0.45)',
-                              }}>{ex.label}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      )}
-
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8, marginBottom: 14}}>
-                        {pairs.map(pair => (
-                          <TouchableOpacity key={pair} activeOpacity={0.7}
-                            style={[styles.pairChip, selectedPair === pair && styles.pairChipActive]}
-                            onPress={() => handlePairSelect(pair)}>
-                            <Text style={[styles.pairChipText, selectedPair === pair && styles.pairChipTextActive]}>{pair}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                      {liveCandles.length > 0 ? (
-                        <View>
-                          <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 10}}>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 6}} style={{flex: 1}}>
-                              {tfOptions2.map(tf => (
-                                <TouchableOpacity key={tf} activeOpacity={0.7} style={[styles.tfChip, displayTF === tf && styles.tfChipActive]} onPress={() => handleCandleTFChange(tf)}>
-                                  <Text style={[styles.tfChipText, displayTF === tf && styles.tfChipTextActive]}>{tf.toUpperCase()}</Text>
-                                </TouchableOpacity>
-                              ))}
-                            </ScrollView>
-                            {(() => {
-                              const isLiveWS2 = candleSource?.startsWith('Live');
-                              const isRest2 = candleSource?.startsWith('REST');
-                              const isLoading2 = !candleSource || candleSource === 'Loading...';
-                              const dot2 = isLiveWS2 ? '#10B981' : isRest2 ? '#F59E0B' : isLoading2 ? 'rgba(255,255,255,0.25)' : '#10B981';
-                              return (
-                                <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8}}>
-                                  <View style={{width: 6, height: 6, borderRadius: 3, backgroundColor: dot2}} />
-                                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: dot2}}>
-                                    {isLoading2 ? 'Loading' : candleSource}
-                                  </Text>
-                                </View>
-                              );
-                            })()}
-                          </View>
-                          {binanceLivePrice && (
-                            <View style={{flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 8}}>
-                              <Text style={{fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF'}}>
-                                ${binanceLivePrice.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
-                              </Text>
-                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)'}}>
-                                {selectedPair}
-                              </Text>
-                            </View>
-                          )}
-                          <View
-                            onTouchStart={() => setChartTouching(true)}
-                            onTouchEnd={() => setChartTouching(false)}
-                            onTouchCancel={() => setChartTouching(false)}>
-                            <TradingViewChart
-                              data={liveCandles}
-                              livePrice={binanceLivePrice}
-                              width={CHART_W}
-                              height={320}
-                              showVolume
-                              timeframe={displayTF}
-                              markers={tradeMarkers.map(m => ({time: m.timestamp, action: m.action as 'BUY'|'SELL', price: m.price}))}
-                            />
-                          </View>
-                        </View>
-                      ) : (
-                        <View style={{alignItems: 'center', paddingVertical: 30}}>
-                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)'}}>Select a pair to view price chart</Text>
-                        </View>
-                      )}
                     </View>
                   );
                 })()}
@@ -1468,7 +1328,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 </Text>
               </View>
             )}
-          </View>
+        </View>
         )}
 
         <View style={{height: 120}} />

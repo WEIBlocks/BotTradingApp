@@ -23,7 +23,7 @@ export declare function getAssets(userId: string, mode?: 'live' | 'testnet'): Pr
     provider: string;
     sandbox: boolean | null;
 }[]>;
-export declare function getEquityHistory(userId: string, days?: number): Promise<{
+export declare function getEquityHistory(userId: string, days?: number, granularity?: 'hourly' | 'daily'): Promise<{
     equityData: number[];
     dates: Date[];
     detailed: {
@@ -32,6 +32,8 @@ export declare function getEquityHistory(userId: string, days?: number): Promise
         change: number;
         changePercent: number;
     }[];
+    shadowEquityData: number[];
+    shadowDates: (string | Date)[];
     days: number;
     isRealData: boolean;
 }>;

@@ -224,6 +224,7 @@ async function processPortfolioUpdate() {
     }
 
     await saveDailySnapshots(userTotals);
+    await saveHourlySnapshots(userTotals);
 
   } catch (err: any) {
     console.error('[PortfolioUpdate] Error:', err.message);
@@ -231,20 +232,21 @@ async function processPortfolioUpdate() {
 }
 
 async function saveDailySnapshots(userTotals: Map<string, { totalValue: number; prevValue: number; assetCount: number }>) {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Always use UTC date for consistency regardless of server timezone
+  const now = new Date();
+  const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 
   for (const [userId, data] of userTotals.entries()) {
     try {
       const change = data.totalValue - data.prevValue;
       const changePercent = data.prevValue > 0 ? (change / data.prevValue) * 100 : 0;
 
-      // Upsert: one snapshot per user per day
+      // Upsert: one snapshot per user per UTC day
       const [existing] = await db.select({ id: portfolioSnapshots.id })
         .from(portfolioSnapshots)
         .where(and(
           eq(portfolioSnapshots.userId, userId),
-          sql`date_trunc('day', ${portfolioSnapshots.date}) = ${today.toISOString()}::timestamptz`,
+          sql`date_trunc('day', ${portfolioSnapshots.date} AT TIME ZONE 'UTC') = ${todayUTC.toISOString()}::timestamptz`,
         ))
         .limit(1);
 
@@ -258,7 +260,7 @@ async function saveDailySnapshots(userTotals: Map<string, { totalValue: number; 
       } else {
         await db.insert(portfolioSnapshots).values({
           userId,
-          date: today,
+          date: todayUTC,
           totalValue: data.totalValue.toFixed(2),
           change24h: change.toFixed(2),
           changePercent: changePercent.toFixed(4),
@@ -267,6 +269,50 @@ async function saveDailySnapshots(userTotals: Map<string, { totalValue: number; 
       }
     } catch (err: any) {
       console.error(`[PortfolioUpdate] Snapshot error for ${userId}:`, err.message);
+    }
+  }
+}
+
+async function saveHourlySnapshots(userTotals: Map<string, { totalValue: number; prevValue: number; assetCount: number }>) {
+  const now = new Date();
+  // Truncate to current UTC hour
+  const hourUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), now.getUTCHours()));
+
+  for (const [userId, data] of userTotals.entries()) {
+    try {
+      const change = data.totalValue - data.prevValue;
+      const changePercent = data.prevValue > 0 ? (change / data.prevValue) * 100 : 0;
+
+      // Upsert: one hourly snapshot per user per UTC hour
+      const [existing] = await db.select({ id: portfolioSnapshots.id })
+        .from(portfolioSnapshots)
+        .where(and(
+          eq(portfolioSnapshots.userId, userId),
+          sql`COALESCE(portfolio_snapshots.granularity, 'daily') = 'hourly'`,
+          sql`date_trunc('hour', ${portfolioSnapshots.date} AT TIME ZONE 'UTC') = ${hourUTC.toISOString()}::timestamptz`,
+        ))
+        .limit(1);
+
+      if (existing) {
+        await db.update(portfolioSnapshots).set({
+          totalValue: data.totalValue.toFixed(2),
+          change24h: change.toFixed(2),
+          changePercent: changePercent.toFixed(4),
+          assetCount: data.assetCount,
+        }).where(eq(portfolioSnapshots.id, existing.id));
+      } else {
+        await db.insert(portfolioSnapshots).values({
+          userId,
+          date: hourUTC,
+          totalValue: data.totalValue.toFixed(2),
+          change24h: change.toFixed(2),
+          changePercent: changePercent.toFixed(4),
+          assetCount: data.assetCount,
+          granularity: 'hourly',
+        } as any);
+      }
+    } catch (err: any) {
+      console.error(`[PortfolioUpdate] Hourly snapshot error for ${userId}:`, err.message);
     }
   }
 }

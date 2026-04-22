@@ -94,8 +94,10 @@ export async function getAssets(userId, mode) {
         .where(and(eq(exchangeConnections.userId, userId), ...sandboxClause, sql `${exchangeAssets.amount}::numeric > 0`));
     return rows;
 }
-export async function getEquityHistory(userId, days = 30) {
-    // Read real snapshots from DB
+export async function getEquityHistory(userId, days = 30, granularity = 'daily') {
+    // For short timeframes (≤2 days) use hourly snapshots, else daily
+    const useHourly = granularity === 'hourly';
+    // Live equity: exchange portfolio snapshots (real exchange balances only)
     const snapshots = await db
         .select({
         date: portfolioSnapshots.date,
@@ -104,10 +106,30 @@ export async function getEquityHistory(userId, days = 30) {
         changePercent: portfolioSnapshots.changePercent,
     })
         .from(portfolioSnapshots)
-        .where(and(eq(portfolioSnapshots.userId, userId), gte(portfolioSnapshots.date, sql `now() - (${days} || ' days')::interval`)))
+        .where(and(eq(portfolioSnapshots.userId, userId), sql `COALESCE(${portfolioSnapshots.granularity}, 'daily') = ${useHourly ? 'hourly' : 'daily'}`, gte(portfolioSnapshots.date, sql `now() - (${days} || ' days')::interval`)))
         .orderBy(portfolioSnapshots.date);
+    // Shadow equity: cumulative PnL from paper/shadow bot positions only
+    const shadowPositions = await db
+        .select({
+        closedAt: botPositions.closedAt,
+        pnl: botPositions.pnl,
+    })
+        .from(botPositions)
+        .where(and(eq(botPositions.userId, userId), eq(botPositions.status, 'closed'), eq(botPositions.isPaper, true), gte(botPositions.closedAt, sql `now() - (${days} || ' days')::interval`)))
+        .orderBy(botPositions.closedAt);
+    // Build shadow equity curve (cumulative PnL, starting at 0)
+    let shadowCum = 0;
+    const shadowEquityData = shadowPositions.length > 0 ? [0] : [];
+    const shadowDates = shadowPositions.length > 0
+        ? [new Date(Date.now() - days * 86400000)]
+        : [];
+    for (const p of shadowPositions) {
+        shadowCum += parseFloat(p.pnl ?? '0');
+        shadowEquityData.push(Math.round(shadowCum * 100) / 100);
+        shadowDates.push(p.closedAt instanceof Date ? p.closedAt : new Date(p.closedAt ?? Date.now()));
+    }
     if (snapshots.length > 0) {
-        // Real data available — return actual equity curve
+        // Real live exchange data available
         const equityData = snapshots.map(s => ({
             date: s.date,
             value: parseFloat(s.totalValue),
@@ -129,25 +151,28 @@ export async function getEquityHistory(userId, days = 30) {
             equityData: equityData.map(d => d.value),
             dates: equityData.map(d => d.date),
             detailed: equityData,
+            shadowEquityData,
+            shadowDates,
             days,
             isRealData: true,
         };
     }
-    // No snapshots yet — generate a minimal curve from current value
-    // This only happens for new users who just connected their exchange
+    // No live snapshots — return empty live equity, but still return shadow equity
     const assets = await getAssets(userId);
     const totalNow = assets.reduce((s, a) => s + parseFloat(String(a.valueUsd)), 0);
-    if (totalNow === 0) {
-        return { equityData: [], dates: [], detailed: [], days, isRealData: false };
+    if (totalNow === 0 && shadowEquityData.length === 0) {
+        return { equityData: [], dates: [], detailed: [], shadowEquityData: [], shadowDates: [], days, isRealData: false };
     }
-    // Return just the current value as a single point
-    // Snapshots will build up over the coming days
+    const liveEquityData = totalNow > 0 ? [totalNow] : [];
+    const liveDates = totalNow > 0 ? [new Date()] : [];
     return {
-        equityData: [totalNow],
-        dates: [new Date()],
-        detailed: [{ date: new Date(), value: totalNow, change: 0, changePercent: 0 }],
+        equityData: liveEquityData,
+        dates: liveDates,
+        detailed: liveEquityData.map(v => ({ date: new Date(), value: v, change: 0, changePercent: 0 })),
+        shadowEquityData,
+        shadowDates,
         days,
-        isRealData: false,
+        isRealData: totalNow > 0,
     };
 }
 export async function getAllocation(userId, mode) {

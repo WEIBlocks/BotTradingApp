@@ -1,31 +1,33 @@
 /**
- * useLiveEquity — subscribes to your backend WebSocket for real-time equity updates.
+ * useLiveEquity — subscribes to WebSocket for real-time equity updates.
  *
- * Usage (BotDetailsScreen):
- *   const { equityData, totalPnl } = useLiveEquity({ botId, initialData, initialPnl });
+ * Live equity  → exchange portfolio snapshots (real money, exchange balances)
+ * Shadow equity → cumulative PnL from paper/shadow bot sessions
  *
- * Usage (DashboardScreen):
- *   const { equityData } = useLiveEquity({ initialData });
+ * These are kept COMPLETELY SEPARATE so shadow paper trading never
+ * distorts the live portfolio chart.
  *
- * - Seeds from whatever REST data you already fetched (no extra request)
- * - Backend emits "equity_update"   → { botId, equityData, totalPnl }
- * - Backend emits "portfolio_update" → { equityData, totalValue }
- * - On each event: appends the latest point + trims to last 200 points (prevents unbounded growth)
- * - Falls back gracefully if backend WS isn't running (just uses REST seed)
+ * Topics:
+ *   "portfolio_update"     → live exchange equity { equityData?, newPoint?, totalValue }
+ *   "equity_update"        → live bot equity      { botId, equityData?, newPoint?, totalPnl }
+ *   "shadow_equity_update" → shadow equity        { sessionId, botId, newPoint, totalPnl, currentBalance }
  */
 
 import {useEffect, useRef, useState} from 'react';
 import {wsService} from '../services/websocket';
 
 interface UseLiveEquityOptions {
-  botId?: string;           // If set: subscribes to bot-specific equity
-  initialData: number[];    // Seed from your existing REST fetch
+  botId?: string;
+  initialData: number[];
   initialPnl?: number;
+  // Shadow equity seed (from REST fetch of /portfolio/equity-history)
+  initialShadowData?: number[];
 }
 
 interface LiveEquityState {
-  equityData: number[];
-  totalPnl:   number;
+  equityData: number[];       // live exchange equity
+  totalPnl: number;
+  shadowEquityData: number[]; // shadow/paper bot cumulative PnL curve
 }
 
 const MAX_POINTS = 200;
@@ -34,13 +36,16 @@ export function useLiveEquity({
   botId,
   initialData,
   initialPnl = 0,
+  initialShadowData = [],
 }: UseLiveEquityOptions): LiveEquityState {
 
   const [equityData, setEquityData] = useState<number[]>(initialData);
   const [totalPnl,   setTotalPnl]   = useState(initialPnl);
-  const dataRef = useRef<number[]>(initialData);
+  const [shadowEquityData, setShadowEquityData] = useState<number[]>(initialShadowData);
+  const dataRef       = useRef<number[]>(initialData);
+  const shadowDataRef = useRef<number[]>(initialShadowData);
 
-  // Sync when initial data changes (parent re-fetched from REST)
+  // Sync when parent re-fetches REST data
   useEffect(() => {
     dataRef.current = initialData;
     setEquityData(initialData);
@@ -50,20 +55,23 @@ export function useLiveEquity({
     setTotalPnl(initialPnl);
   }, [initialPnl]);
 
-  // ── Bot-specific equity stream ────────────────────────────────────────────
+  useEffect(() => {
+    shadowDataRef.current = initialShadowData;
+    setShadowEquityData(initialShadowData);
+  }, [initialShadowData]);
+
+  // ── Bot-specific live equity stream ─────────────────────────────────────
   useEffect(() => {
     if (!botId) return;
 
     const unsub = wsService.subscribe('equity_update', (payload: unknown) => {
       const p = payload as {botId?: string; equityData?: number[]; totalPnl?: number; newPoint?: number};
-      if (p.botId !== botId) return; // ignore events for other bots
+      if (p.botId !== botId) return;
 
       if (Array.isArray(p.equityData) && p.equityData.length > 0) {
-        // Full refresh from backend
         dataRef.current = p.equityData.slice(-MAX_POINTS);
         setEquityData([...dataRef.current]);
       } else if (typeof p.newPoint === 'number') {
-        // Single new point — append
         const next = [...dataRef.current, p.newPoint].slice(-MAX_POINTS);
         dataRef.current = next;
         setEquityData([...next]);
@@ -75,9 +83,9 @@ export function useLiveEquity({
     return unsub;
   }, [botId]);
 
-  // ── Portfolio equity stream (Dashboard, no botId) ─────────────────────────
+  // ── Live portfolio equity stream (Dashboard, no botId) ──────────────────
   useEffect(() => {
-    if (botId) return; // bot-specific hook handles this case above
+    if (botId) return;
 
     const unsub = wsService.subscribe('portfolio_update', (payload: unknown) => {
       const p = payload as {equityData?: number[]; totalValue?: number; newPoint?: number};
@@ -95,13 +103,30 @@ export function useLiveEquity({
     return unsub;
   }, [botId]);
 
-  // ── Trade event → append new equity point ────────────────────────────────
-  // When any trade fires we compute the new cumulative equity point
+  // ── Shadow equity stream — NEVER mixed with live ─────────────────────────
+  useEffect(() => {
+    if (botId) return; // bot-specific view doesn't need shadow stream
+
+    const unsub = wsService.subscribe('shadow_equity_update', (payload: unknown) => {
+      const p = payload as {newPoint?: number; totalPnl?: number; currentBalance?: number};
+
+      if (typeof p.newPoint === 'number') {
+        const next = [...shadowDataRef.current, p.newPoint].slice(-MAX_POINTS);
+        shadowDataRef.current = next;
+        setShadowEquityData([...next]);
+      }
+    });
+
+    return unsub;
+  }, [botId]);
+
+  // ── Live trade event → append live equity point ──────────────────────────
   useEffect(() => {
     const unsub = wsService.subscribe('trade', (payload: unknown) => {
-      const p = payload as {botId?: string; pnl?: number; cumulativeEquity?: number};
+      const p = payload as {botId?: string; pnl?: number; cumulativeEquity?: number; isPaper?: boolean};
 
-      // Only update if this trade matches our context
+      // Paper/shadow trades must NOT update the live equity curve
+      if (p.isPaper) return;
       if (botId && p.botId !== botId) return;
 
       if (typeof p.cumulativeEquity === 'number') {
@@ -117,5 +142,5 @@ export function useLiveEquity({
     return unsub;
   }, [botId]);
 
-  return {equityData, totalPnl};
+  return {equityData, totalPnl, shadowEquityData};
 }

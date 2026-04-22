@@ -50,6 +50,8 @@ export interface PortfolioLineChartProps {
   onTimeframeChange?: (days: number) => void;
   loading?: boolean;
   style?: ViewStyle;
+  // Shadow/paper trading equity curve — rendered as a separate dashed line
+  shadowData?: number[];
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -151,6 +153,54 @@ function buildSkiaPaths(
   return {line, fill, isPositive: data[endI] >= data[0]};
 }
 
+// Build shadow equity path — normalised to the same Y range as the main data
+// so both lines share the same axis. Shadow data is cumulative PnL (starts at 0).
+function buildShadowPath(
+  shadowData: number[],
+  mainData: number[],
+  chartW: number,
+  chartH: number,
+  zoom: number,
+  panPx: number,
+): ReturnType<typeof Skia.Path.Make> {
+  'worklet';
+  const ns = shadowData.length;
+  const nm = mainData.length;
+  if (ns < 2 || nm < 2) return Skia.Path.Make();
+
+  const virtualW = chartW * zoom;
+  // Shadow line spans the full width using its own point count
+  const pppS = virtualW / (ns - 1);
+
+  // Y range from main data visible slice (so shadow shares same scale)
+  const pppM   = virtualW / (nm - 1);
+  const startI = Math.max(0, Math.floor(panPx / pppM));
+  const endI   = Math.min(nm - 1, Math.ceil((panPx + chartW) / pppM));
+  let minV = mainData[startI], maxV = mainData[startI];
+  for (let i = startI + 1; i <= endI; i++) {
+    if (mainData[i] < minV) minV = mainData[i];
+    if (mainData[i] > maxV) maxV = mainData[i];
+  }
+  const range    = maxV - minV || (Math.abs(maxV) * 0.01) || 1;
+  const adjMin   = minV - range * 0.05;
+  const adjRange = range * 1.1;
+
+  // Offset shadow data by mainData[0] so 0-pnl aligns with the starting value
+  const offset = mainData[0];
+  const toX = (i: number) => PAD_L + i * pppS - panPx;
+  const toY = (v: number) => PAD_T + chartH - ((v - adjMin) / adjRange) * chartH;
+
+  const path = Skia.Path.Make();
+  path.moveTo(toX(0), toY(offset + shadowData[0]));
+  for (let i = 1; i < ns; i++) {
+    const px = toX(i - 1), py = toY(offset + shadowData[i - 1]);
+    const cx = toX(i),     cy = toY(offset + shadowData[i]);
+    const t = 0.35;
+    path.cubicTo(px + (cx - px) * t, py, cx - (cx - px) * t, cy, cx, cy);
+  }
+  return path;
+}
+
 // Resolve crosshair from raw screen X → snapped screen X, Y, value
 function resolveCrosshair(
   data: number[],
@@ -188,6 +238,8 @@ function resolveCrosshair(
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
+const COLOR_SHADOW = '#8B5CF6'; // purple for shadow/paper trades
+
 export default function PortfolioLineChart({
   data,
   dates,
@@ -198,6 +250,7 @@ export default function PortfolioLineChart({
   onTimeframeChange,
   loading      = false,
   style,
+  shadowData,
 }: PortfolioLineChartProps) {
 
   const chartW = width  - PAD_L - PAD_R;
@@ -236,6 +289,14 @@ export default function PortfolioLineChart({
 
   const derivedFillPath = useDerivedValue(() => derivedPathsObj.value.fill, [derivedPathsObj]);
   const derivedLinePath = useDerivedValue(() => derivedPathsObj.value.line, [derivedPathsObj]);
+
+  // Shadow equity secondary line — only rendered when shadowData has ≥2 points
+  const shadowDataRef = useMemo(() => shadowData ?? [], [shadowData]);
+  const hasShadow = shadowDataRef.length >= 2;
+  const derivedShadowPath = useDerivedValue(() => {
+    if (!hasShadow) return Skia.Path.Make();
+    return buildShadowPath(shadowDataRef, dataRef, cW, cH, sv_zoom.value, sv_pan.value);
+  }, [sv_zoom, sv_pan]);
 
   const derivedCross = useDerivedValue(() => {
     if (sv_cross.value < 0) return {sx: -1, sy: -1, value: 0, idx: -1};
@@ -509,6 +570,16 @@ export default function PortfolioLineChart({
         ))}
       </ScrollView>
 
+      {/* Legend — only shown when shadow line is visible */}
+      {hasShadow && (
+        <View style={styles.legendRow}>
+          <View style={[styles.legendDot, {backgroundColor: skiaLineColor}]} />
+          <Text style={styles.legendTxt}>Live Portfolio</Text>
+          <View style={[styles.legendDot, {backgroundColor: COLOR_SHADOW, marginLeft: 12}]} />
+          <Text style={styles.legendTxt}>Paper Trading P&L</Text>
+        </View>
+      )}
+
       {/* Zoom pill */}
       {isZoomed && (
         <View style={styles.zoomPill}>
@@ -564,6 +635,17 @@ export default function PortfolioLineChart({
                   strokeJoin="round"
                   color={skiaLineColor}
                 />
+                {/* Shadow/paper equity secondary line — purple, dashed-look via lower opacity */}
+                {hasShadow && (
+                  <SkPath
+                    path={derivedShadowPath}
+                    style="stroke"
+                    strokeWidth={1.5}
+                    strokeCap="round"
+                    strokeJoin="round"
+                    color={COLOR_SHADOW + 'CC'}
+                  />
+                )}
               </Group>
 
               {/* Crosshair (driven by derivedCross — UI thread only) */}
@@ -774,5 +856,21 @@ const styles = StyleSheet.create({
     fontSize: 8,
     color: '#FFFFFF',
     textAlign: 'center',
+  },
+  legendRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    gap: 6,
+  },
+  legendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  legendTxt: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.4)',
   },
 });

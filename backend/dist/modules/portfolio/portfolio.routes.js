@@ -52,7 +52,8 @@ export async function portfolioRoutes(app) {
         },
     }, async (request) => {
         const days = Number(request.query?.days) || 30;
-        const result = await getEquityHistory(request.user.userId, days);
+        const granularity = (request.query?.granularity === 'hourly') ? 'hourly' : 'daily';
+        const result = await getEquityHistory(request.user.userId, days, granularity);
         return { data: result };
     });
     // GET /pnl — P&L breakdown by bot

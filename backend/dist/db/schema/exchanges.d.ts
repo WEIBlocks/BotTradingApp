@@ -607,6 +607,25 @@ export declare const portfolioSnapshots: import("drizzle-orm/pg-core").PgTableWi
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        granularity: import("drizzle-orm/pg-core").PgColumn<{
+            name: "granularity";
+            tableName: "portfolio_snapshots";
+            dataType: "string";
+            columnType: "PgVarchar";
+            data: string;
+            driverParam: string;
+            notNull: false;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: [string, ...string[]];
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {
+            length: 10;
+        }>;
     };
     dialect: "pg";
 }>;

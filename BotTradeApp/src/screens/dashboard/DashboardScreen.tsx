@@ -1,4 +1,4 @@
-import React, {useState, useCallback, useRef} from 'react';
+import React, {useState,useEffect, useCallback, useRef} from 'react';
 import {View, Text, StyleSheet, ScrollView, TouchableOpacity, useWindowDimensions, ActivityIndicator, RefreshControl, Animated} from 'react-native';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import {NativeStackNavigationProp} from '@react-navigation/native-stack';
@@ -8,7 +8,6 @@ import {RootStackParamList, Trade} from '../../types';
 import {useAuth} from '../../context/AuthContext';
 import {useToast} from '../../context/ToastContext';
 import {dashboardApi, DashboardSummary, ActiveBot as DashActiveBot, ExchangePower} from '../../services/dashboard';
-import {useLiveEquity} from '../../hooks/useLiveEquity';
 import {botsService} from '../../services/bots';
 import {tradesApi} from '../../services/trades';
 import {arenaApi, ArenaSession} from '../../services/arena';
@@ -43,7 +42,7 @@ function resolveBotDisplayStatus(bot: DashActiveBot, shadowSessions: ShadowSessi
   // stopped / expired with no shadow session
   return {label: 'SHADOW DONE', color: '#10B981', icon: 'completed' as const};
 }
-import PortfolioLineChart from '../../components/charts/PortfolioLineChart';
+import PortfolioTVChart from '../../components/charts/PortfolioTVChart';
 import PlusIcon from '../../components/icons/PlusIcon';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
@@ -270,11 +269,9 @@ export default function DashboardScreen() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [activeBots, setActiveBots] = useState<DashActiveBot[]>([]);
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
-  // REST seed state — passed into useLiveEquity as initial data
-  const [equityDataRest, setEquityDataRest] = useState<number[]>([]);
-  const [equityDates,    setEquityDates]    = useState<(string | Date)[]>([]);
-  const [equityIsReal,   setEquityIsReal]   = useState(false);
-  const [equityLoading,  setEquityLoading]  = useState(false);
+  // Live portfolio equity points {time (unix s), value} — live exchange only, no paper/shadow
+  const [equityPoints,  setEquityPoints]  = useState<Array<{time: number; value: number}>>([]);
+  const [equityLoading, setEquityLoading] = useState(false);
   const [activeArenas, setActiveArenas] = useState<ArenaSession[]>([]);
   const [shadowSessions, setShadowSessions] = useState<ShadowSessionInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -282,15 +279,14 @@ export default function DashboardScreen() {
   const [bpOpen, setBpOpen] = useState(false);
   const bpAnim = useRef(new Animated.Value(0)).current;
 
-  const fetchEquity = useCallback(async (days: number) => {
+  const fetchEquity = useCallback(async (days: number, granularity: 'hourly' | 'daily' = 'daily') => {
     setEquityLoading(true);
     try {
-      const result = await dashboardApi.getEquityHistoryFull(days);
-      setEquityDataRest(result.equityData);
-      setEquityDates(result.dates);
-      setEquityIsReal(result.isRealData);
-    } catch {
-      // keep existing data
+      const result = await dashboardApi.getEquityHistoryFull(days, granularity);
+      console.log('[Equity] points received:', result.equityPoints.length, 'isRealData:', result.isRealData, 'sample:', JSON.stringify(result.equityPoints.slice(0,2)));
+      setEquityPoints(result.equityPoints);
+    } catch (e: any) {
+      console.log('[Equity] fetch error:', e?.message);
     } finally {
       setEquityLoading(false);
     }
@@ -313,20 +309,25 @@ export default function DashboardScreen() {
       setRecentTrades(trades);
       setActiveArenas(Array.isArray(arenaSession) ? arenaSession : (arenaSession ? [arenaSession] : []));
       setShadowSessions(shadowRes);
-      // Fetch equity separately (default 30 days)
-      await fetchEquity(30);
     } catch (e) {
       showAlert('Error', 'Failed to load dashboard data. Pull down to retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [fetchEquity]);
+  }, [showAlert]);
+
+  // Fetch equity on first load (separate from fetchData — no refetch on every screen focus)
+  useEffect(() => {
+    fetchEquity(30);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
 
-  // Live equity — seeds from REST, then receives WS updates for new trade points
-  const {equityData} = useLiveEquity({initialData: equityDataRest});
+  // equityPoints are passed directly to PortfolioTVChart.
+  // Real-time current value is passed via currentValue prop — the TV chart updates
+  // the last candle live without re-fetching the full history.
 
   const displayName = authUser?.name || 'Trader';
   const firstName = displayName.split(' ')[0];
@@ -541,15 +542,13 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* Equity Curve */}
+        {/* Live portfolio equity — TradingView Lightweight Charts, live exchange only */}
         <View style={styles.chartCard}>
-          <PortfolioLineChart
-            data={equityData}
-            dates={equityDates}
+          <PortfolioTVChart
+            data={equityPoints}
             currentValue={totalBalance}
             width={CHART_WIDTH - 32}
-            height={220}
-            isRealData={equityIsReal}
+            height={240}
             loading={equityLoading}
             onTimeframeChange={fetchEquity}
           />

@@ -60,7 +60,8 @@ export async function portfolioRoutes(app: FastifyInstance) {
     },
   }, async (request) => {
     const days = Number((request.query as any)?.days) || 30;
-    const result = await getEquityHistory(request.user.userId, days);
+    const granularity = ((request.query as any)?.granularity === 'hourly') ? 'hourly' : 'daily';
+    const result = await getEquityHistory(request.user.userId, days, granularity as 'hourly' | 'daily');
     return { data: result };
   });
 
