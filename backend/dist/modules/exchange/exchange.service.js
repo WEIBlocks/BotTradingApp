@@ -65,7 +65,15 @@ export async function connectWithApiKey(userId, provider, apiKey, apiSecret, san
     if (adapter) {
         // connect() can be slow on Binance (KuCoin market pre-load) — cap at 30s
         await withTimeout(adapter.connect({ apiKey, apiSecret, sandbox }), 30_000, `Connection to ${provider} timed out. The exchange may be slow — please try again.`);
-        const success = await withTimeout(adapter.testConnection(), 15_000, `${provider} did not respond in time. Please try again.`);
+        let success;
+        try {
+            success = await withTimeout(adapter.testConnection(), 15_000, `${provider} did not respond in time. Please try again.`);
+        }
+        catch (testErr) {
+            await adapter.disconnect().catch(() => { });
+            // Surface the adapter's own error message (e.g. Binance's specific rejection reason)
+            throw new AppError(400, testErr.message ?? `Failed to connect to ${provider}. Please check your API credentials.`);
+        }
         if (!success) {
             await adapter.disconnect().catch(() => { });
             await sendNotification(userId, {
@@ -129,7 +137,14 @@ export async function testConnection(provider, apiKey, apiSecret, sandbox = fals
     try {
         // connect() can be slow on Binance (KuCoin market pre-load) — cap at 30s
         await withTimeout(adapter.connect({ apiKey, apiSecret, sandbox }), 30_000, `Connection to ${provider} timed out. The exchange may be slow — please try again.`);
-        const success = await withTimeout(adapter.testConnection(), 15_000, `${provider} did not respond in time. Please try again.`);
+        let success;
+        try {
+            success = await withTimeout(adapter.testConnection(), 15_000, `${provider} did not respond in time. Please try again.`);
+        }
+        catch (testErr) {
+            await adapter.disconnect().catch(() => { });
+            throw new AppError(400, testErr.message ?? `Failed to connect to ${provider}. Please verify your API key and secret.`);
+        }
         await adapter.disconnect().catch(() => { });
         if (!success) {
             throw new AppError(400, `Failed to connect to ${provider}. Please check your API credentials.`);

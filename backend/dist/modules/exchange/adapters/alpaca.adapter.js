@@ -2,12 +2,20 @@ export class AlpacaAdapter {
     name = 'alpaca';
     assetClass = 'stocks';
     client = null;
+    apiKey = '';
+    apiSecret = '';
+    isPaper = false;
     async connect(credentials) {
         const Alpaca = (await import('@alpacahq/alpaca-trade-api')).default;
+        // Paper keys always start with "PK" — auto-detect to avoid 401s on live endpoint
+        const isPaperKey = credentials.apiKey?.startsWith('PK');
+        this.isPaper = credentials.sandbox === true || isPaperKey;
+        this.apiKey = credentials.apiKey ?? '';
+        this.apiSecret = credentials.apiSecret ?? '';
         this.client = new Alpaca({
-            keyId: credentials.apiKey,
-            secretKey: credentials.apiSecret,
-            paper: credentials.sandbox === true, // only use paper trading when explicitly opted in
+            keyId: this.apiKey,
+            secretKey: this.apiSecret,
+            paper: this.isPaper,
             usePolygon: false,
         });
     }
@@ -15,8 +23,44 @@ export class AlpacaAdapter {
         this.client = null;
     }
     async testConnection() {
-        if (!this.client)
+        if (!this.client || !this.apiKey)
             return false;
+        // Paper: use paper trading API — never geo-blocked
+        if (this.isPaper) {
+            try {
+                await this.client.getAccount();
+                return true;
+            }
+            catch {
+                // Try data API as fallback
+                try {
+                    const res = await fetch('https://paper-api.alpaca.markets/v2/account', {
+                        headers: { 'APCA-API-KEY-ID': this.apiKey, 'APCA-API-SECRET-KEY': this.apiSecret },
+                        signal: AbortSignal.timeout(10000),
+                    });
+                    return res.status === 200;
+                }
+                catch {
+                    return false;
+                }
+            }
+        }
+        // Live: api.alpaca.markets is geo-blocked on cloud servers (DigitalOcean, AWS, etc.)
+        // Validate keys using the market data API which is NOT geo-blocked.
+        // A 200 means valid keys. A 401/403 means bad keys. Other errors = network/geo issue.
+        try {
+            const res = await fetch('https://data.alpaca.markets/v2/stocks/AAPL/trades/latest', {
+                headers: { 'APCA-API-KEY-ID': this.apiKey, 'APCA-API-SECRET-KEY': this.apiSecret },
+                signal: AbortSignal.timeout(10000),
+            });
+            if (res.status === 200)
+                return true;
+            if (res.status === 401 || res.status === 403)
+                return false; // bad credentials
+            // 5xx or other — try account endpoint anyway as last resort
+        }
+        catch { }
+        // Last resort: try trading API (might work for some server IPs)
         try {
             await this.client.getAccount();
             return true;
@@ -29,14 +73,39 @@ export class AlpacaAdapter {
         if (!this.client)
             throw new Error('Not connected');
         const result = [];
-        // Get account cash balance
+        // Live trading API is geo-blocked on cloud servers — use REST directly
+        if (!this.isPaper) {
+            const base = 'https://api.alpaca.markets/v2';
+            const headers = { 'APCA-API-KEY-ID': this.apiKey, 'APCA-API-SECRET-KEY': this.apiSecret };
+            const [accRes, posRes] = await Promise.all([
+                fetch(`${base}/account`, { headers, signal: AbortSignal.timeout(10000) }),
+                fetch(`${base}/positions`, { headers, signal: AbortSignal.timeout(10000) }),
+            ]);
+            if (!accRes.ok)
+                throw new Error(`Alpaca account fetch failed: ${accRes.status}`);
+            const account = await accRes.json();
+            const cash = parseFloat(account.cash ?? '0');
+            const buyingPower = parseFloat(account.buying_power ?? '0');
+            if (cash > 0)
+                result.push({ currency: 'USD', free: buyingPower, total: cash });
+            if (posRes.ok) {
+                const positions = await posRes.json();
+                for (const pos of positions) {
+                    const qty = parseFloat(pos.qty ?? '0');
+                    const marketValue = parseFloat(pos.market_value ?? '0');
+                    if (qty > 0)
+                        result.push({ currency: pos.symbol, free: qty, total: marketValue });
+                }
+            }
+            return result;
+        }
+        // Paper: use SDK client (paper-api.alpaca.markets — not geo-blocked)
         const account = await this.client.getAccount();
         const cash = parseFloat(account.cash ?? '0');
         const buyingPower = parseFloat(account.buying_power ?? '0');
         if (cash > 0) {
             result.push({ currency: 'USD', free: buyingPower, total: cash });
         }
-        // Get stock positions
         const positions = await this.client.getPositions();
         for (const pos of positions) {
             const qty = parseFloat(pos.qty ?? '0');
@@ -45,7 +114,7 @@ export class AlpacaAdapter {
                 result.push({
                     currency: pos.symbol,
                     free: qty,
-                    total: marketValue, // total as market value in USD for portfolio
+                    total: marketValue,
                 });
             }
         }
@@ -118,7 +187,28 @@ export class AlpacaAdapter {
         if (options?.extendedHours) {
             orderParams.extended_hours = true;
         }
-        const order = await this.client.createOrder(orderParams);
+        let order;
+        if (!this.isPaper) {
+            // Live: use direct REST (geo-block bypass)
+            const res = await fetch('https://api.alpaca.markets/v2/orders', {
+                method: 'POST',
+                headers: {
+                    'APCA-API-KEY-ID': this.apiKey,
+                    'APCA-API-SECRET-KEY': this.apiSecret,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(orderParams),
+                signal: AbortSignal.timeout(15000),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message ?? `Order failed: ${res.status}`);
+            }
+            order = await res.json();
+        }
+        else {
+            order = await this.client.createOrder(orderParams);
+        }
         return {
             id: order.id,
             symbol: order.symbol,
@@ -166,6 +256,17 @@ export class AlpacaAdapter {
         if (!this.client)
             return false;
         try {
+            if (!this.isPaper) {
+                const res = await fetch('https://api.alpaca.markets/v2/clock', {
+                    headers: { 'APCA-API-KEY-ID': this.apiKey, 'APCA-API-SECRET-KEY': this.apiSecret },
+                    signal: AbortSignal.timeout(8000),
+                });
+                if (res.ok) {
+                    const d = await res.json();
+                    return d.is_open ?? false;
+                }
+                return false;
+            }
             const clock = await this.client.getClock();
             return clock.is_open;
         }

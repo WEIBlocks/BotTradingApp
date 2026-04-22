@@ -8,6 +8,9 @@ export class KrakenAdapter {
             secret: credentials.apiSecret,
             enableRateLimit: true,
         });
+        // Pre-load markets so fetchBalance doesn't need to call loadMarkets() synchronously
+        // during testConnection (which has a tight timeout). Errors are non-fatal.
+        this.exchange.loadMarkets().catch(() => { });
     }
     async disconnect() {
         this.exchange = null;

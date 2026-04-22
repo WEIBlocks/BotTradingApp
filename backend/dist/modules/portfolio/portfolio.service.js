@@ -106,7 +106,7 @@ export async function getEquityHistory(userId, days = 30, granularity = 'daily')
         changePercent: portfolioSnapshots.changePercent,
     })
         .from(portfolioSnapshots)
-        .where(and(eq(portfolioSnapshots.userId, userId), sql `COALESCE(${portfolioSnapshots.granularity}, 'daily') = ${useHourly ? 'hourly' : 'daily'}`, gte(portfolioSnapshots.date, sql `now() - (${days} || ' days')::interval`)))
+        .where(and(eq(portfolioSnapshots.userId, userId), sql `COALESCE(portfolio_snapshots.granularity, 'daily') = ${useHourly ? 'hourly' : 'daily'}`, gte(portfolioSnapshots.date, sql `now() - (${days} || ' days')::interval`)))
         .orderBy(portfolioSnapshots.date);
     // Shadow equity: cumulative PnL from paper/shadow bot positions only
     const shadowPositions = await db
@@ -128,17 +128,35 @@ export async function getEquityHistory(userId, days = 30, granularity = 'daily')
         shadowEquityData.push(Math.round(shadowCum * 100) / 100);
         shadowDates.push(p.closedAt instanceof Date ? p.closedAt : new Date(p.closedAt ?? Date.now()));
     }
-    if (snapshots.length > 0) {
-        // Real live exchange data available
-        const equityData = snapshots.map(s => ({
+    // Deduplicate: keep only the latest row per time bucket (day or hour)
+    const seen = new Map();
+    for (const s of snapshots) {
+        const d = new Date(s.date);
+        const key = useHourly
+            ? `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}-${d.getUTCHours()}`
+            : `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}`;
+        seen.set(key, s); // later row wins (orderBy date ASC, so last write wins)
+    }
+    // Sort output by date ascending after dedup (Map insertion order preserves ASC from query)
+    const dedupedSnapshots = Array.from(seen.values()).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    if (dedupedSnapshots.length > 0) {
+        // Append current live value as latest point first so we know the current balance
+        const summary = await getSummary(userId);
+        const currentValue = parseFloat(summary.totalValue);
+        // Filter out stale snapshots that are outliers relative to current balance.
+        // If current balance exists, drop any historical point that is < 1% of the current
+        // value — these are leftover test/placeholder rows (e.g. $30 vs $108K).
+        const filtered = currentValue > 0
+            ? dedupedSnapshots.filter(s => parseFloat(s.totalValue) >= currentValue * 0.01)
+            : dedupedSnapshots;
+        // Use all snapshots if filtering removed everything (edge case: balance dropped a lot)
+        const finalSnapshots = filtered.length > 0 ? filtered : dedupedSnapshots;
+        const equityData = finalSnapshots.map(s => ({
             date: s.date,
             value: parseFloat(s.totalValue),
             change: parseFloat(s.change24h ?? '0'),
             changePercent: parseFloat(s.changePercent ?? '0'),
         }));
-        // Append current live value as latest point
-        const summary = await getSummary(userId);
-        const currentValue = parseFloat(summary.totalValue);
         if (currentValue > 0) {
             equityData.push({
                 date: new Date(),

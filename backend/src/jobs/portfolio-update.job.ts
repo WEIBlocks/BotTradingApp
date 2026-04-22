@@ -232,16 +232,30 @@ async function processPortfolioUpdate() {
 }
 
 async function saveDailySnapshots(userTotals: Map<string, { totalValue: number; prevValue: number; assetCount: number }>) {
-  // Always use UTC date for consistency regardless of server timezone
   const now = new Date();
   const todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  // 24h ago for true daily change
+  const oneDayAgoUTC = new Date(todayUTC.getTime() - 86400_000);
 
   for (const [userId, data] of userTotals.entries()) {
     try {
-      const change = data.totalValue - data.prevValue;
-      const changePercent = data.prevValue > 0 ? (change / data.prevValue) * 100 : 0;
+      // Compute true 24h change by comparing to the snapshot closest to 24h ago
+      const [dayAgoSnap] = await db
+        .select({ totalValue: portfolioSnapshots.totalValue })
+        .from(portfolioSnapshots)
+        .where(and(
+          eq(portfolioSnapshots.userId, userId),
+          sql`COALESCE(portfolio_snapshots.granularity, 'daily') = 'daily'`,
+          sql`${portfolioSnapshots.date} <= ${oneDayAgoUTC.toISOString()}::timestamptz`,
+        ))
+        .orderBy(sql`${portfolioSnapshots.date} DESC`)
+        .limit(1);
 
-      // Upsert: one snapshot per user per UTC day (exclude hourly rows)
+      const baseValue = dayAgoSnap ? parseFloat(dayAgoSnap.totalValue) : data.prevValue;
+      const change = data.totalValue - baseValue;
+      const changePercent = baseValue > 0 ? (change / baseValue) * 100 : 0;
+
+      // Upsert: one snapshot per user per UTC day
       const [existing] = await db.select({ id: portfolioSnapshots.id })
         .from(portfolioSnapshots)
         .where(and(
@@ -276,13 +290,25 @@ async function saveDailySnapshots(userTotals: Map<string, { totalValue: number; 
 
 async function saveHourlySnapshots(userTotals: Map<string, { totalValue: number; prevValue: number; assetCount: number }>) {
   const now = new Date();
-  // Truncate to current UTC hour
   const hourUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), now.getUTCHours()));
+  // 24h ago for hourly change_24h column (still shows 24h diff for consistency with daily)
+  const oneDayAgoUTC = new Date(hourUTC.getTime() - 86400_000);
 
   for (const [userId, data] of userTotals.entries()) {
     try {
-      const change = data.totalValue - data.prevValue;
-      const changePercent = data.prevValue > 0 ? (change / data.prevValue) * 100 : 0;
+      const [dayAgoSnap] = await db
+        .select({ totalValue: portfolioSnapshots.totalValue })
+        .from(portfolioSnapshots)
+        .where(and(
+          eq(portfolioSnapshots.userId, userId),
+          sql`${portfolioSnapshots.date} <= ${oneDayAgoUTC.toISOString()}::timestamptz`,
+        ))
+        .orderBy(sql`${portfolioSnapshots.date} DESC`)
+        .limit(1);
+
+      const baseValue = dayAgoSnap ? parseFloat(dayAgoSnap.totalValue) : data.prevValue;
+      const change = data.totalValue - baseValue;
+      const changePercent = baseValue > 0 ? (change / baseValue) * 100 : 0;
 
       // Upsert: one hourly snapshot per user per UTC hour
       const [existing] = await db.select({ id: portfolioSnapshots.id })
@@ -341,16 +367,19 @@ export async function refreshUserPortfolio(userId: string) {
       totalValue += await syncConnectionBalances(conn);
     }
 
-    // Fetch the last 30 equity snapshots to send as the updated curve
+    // Fetch the last 30 daily equity snapshots for the updated curve
     const snapshots = await db
-      .select({ totalValue: portfolioSnapshots.totalValue })
+      .select({ totalValue: portfolioSnapshots.totalValue, date: portfolioSnapshots.date })
       .from(portfolioSnapshots)
-      .where(eq(portfolioSnapshots.userId, userId))
-      .orderBy(portfolioSnapshots.date)
+      .where(and(
+        eq(portfolioSnapshots.userId, userId),
+        sql`COALESCE(portfolio_snapshots.granularity, 'daily') = 'daily'`,
+      ))
+      .orderBy(sql`${portfolioSnapshots.date} DESC`)
       .limit(30);
 
-    const equityData = snapshots.map(s => parseFloat(s.totalValue));
-    // Append current live value as the last point
+    // Reverse so oldest→newest, then append current value
+    const equityData = snapshots.reverse().map(s => parseFloat(s.totalValue));
     equityData.push(totalValue);
 
     // Publish to Redis so /ws/app handler fan-outs to the mobile client

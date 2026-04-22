@@ -2,6 +2,10 @@ import type { ExchangeAdapter, ExchangeCredentials, Balance, Ticker, Market, Ord
 export declare class BinanceAdapter implements ExchangeAdapter {
     readonly name = "binance";
     private exchange;
+    private apiKey;
+    private apiSecret;
+    private isTestnet;
+    private baseUrl;
     connect(credentials: ExchangeCredentials): Promise<void>;
     disconnect(): Promise<void>;
     testConnection(): Promise<boolean>;

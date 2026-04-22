@@ -90,11 +90,18 @@ export async function connectWithApiKey(
       `Connection to ${provider} timed out. The exchange may be slow — please try again.`,
     );
 
-    const success = await withTimeout(
-      adapter.testConnection(),
-      15_000,
-      `${provider} did not respond in time. Please try again.`,
-    );
+    let success: boolean;
+    try {
+      success = await withTimeout(
+        adapter.testConnection(),
+        15_000,
+        `${provider} did not respond in time. Please try again.`,
+      );
+    } catch (testErr: any) {
+      await adapter.disconnect().catch(() => {});
+      // Surface the adapter's own error message (e.g. Binance's specific rejection reason)
+      throw new AppError(400, testErr.message ?? `Failed to connect to ${provider}. Please check your API credentials.`);
+    }
 
     if (!success) {
       await adapter.disconnect().catch(() => {});
@@ -175,11 +182,17 @@ export async function testConnection(
       `Connection to ${provider} timed out. The exchange may be slow — please try again.`,
     );
 
-    const success = await withTimeout(
-      adapter.testConnection(),
-      15_000,
-      `${provider} did not respond in time. Please try again.`,
-    );
+    let success: boolean;
+    try {
+      success = await withTimeout(
+        adapter.testConnection(),
+        15_000,
+        `${provider} did not respond in time. Please try again.`,
+      );
+    } catch (testErr: any) {
+      await adapter.disconnect().catch(() => {});
+      throw new AppError(400, testErr.message ?? `Failed to connect to ${provider}. Please verify your API key and secret.`);
+    }
 
     await adapter.disconnect().catch(() => {});
 

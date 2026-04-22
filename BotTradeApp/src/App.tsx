@@ -50,7 +50,7 @@ function PushNotificationSetup() {
           if (token) return token;
         } catch (err) {
           console.log(`[Push] Token attempt ${i + 1}/${maxRetries} failed:`, (err as Error).message?.slice(0, 60));
-          await new Promise(r => setTimeout(r, 3000 * Math.pow(2, i)));
+          await new Promise<void>(r => setTimeout(r, 3000 * Math.pow(2, i)));
         }
       }
       return null;
@@ -84,11 +84,11 @@ function PushNotificationSetup() {
         }
 
         // Foreground messages (modular API)
-        unsubForeground = onMessage(msg, async remoteMessage => {
+        unsubForeground = onMessage(msg, async (remoteMessage: any) => {
           const title = remoteMessage.notification?.title || remoteMessage.data?.title || 'New notification';
           const body = remoteMessage.notification?.body || remoteMessage.data?.body || '';
 
-          const rawType = (remoteMessage.data?.type || 'unknown').toLowerCase();
+          const rawType = (String(remoteMessage.data?.type ?? 'unknown')).toLowerCase();
           const kind: PushKind =
             rawType === 'trade' || rawType === 'system' || rawType === 'alert'
               ? (rawType as PushKind)
@@ -100,9 +100,9 @@ function PushNotificationSetup() {
           if (now - lastShown < FOREGROUND_DEDUP_WINDOW_MS) return;
           seenRef.current[dedupKey] = now;
 
-          const toastType = mapPushToToast(kind, title);
+          const toastType = mapPushToToast(kind, String(title));
           const duration = kind === 'alert' ? 6000 : 4200;
-          showAlert(title, body, toastType, duration);
+          showAlert(String(title), String(body), toastType, duration);
         });
 
         // Token refresh (modular API)

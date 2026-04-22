@@ -1,8 +1,8 @@
 /**
- * PortfolioTVChart — TradingView Lightweight Charts v4 area chart for portfolio equity.
+ * PortfolioTVChart — TradingView Lightweight Charts v4 line chart for portfolio equity.
  * - Live exchange portfolio only (no shadow/paper PnL mixed in)
- * - Area series with gradient fill
- * - Timeframe tabs: 1W / 1M / 3M / 6M / 1Y / ALL
+ * - Line series (cleaner than area for sparse snapshot data)
+ * - Timeframe tabs: 1D / 1W / 1M / 3M / 1Y / ALL
  * - Crosshair with price tooltip
  * - Fullscreen modal
  * - Real-time price tick via postMessage
@@ -41,20 +41,21 @@ type Granularity = 'hourly' | 'daily';
 
 interface Timeframe {
   label: string;
-  days: number;
+  days: number;        // how far back to fetch from backend
   granularity: Granularity;
+  windowHours?: number; // if set, trim chart to only show last N hours of returned data
 }
 
+// Timeframes aligned to snapshot granularity:
+// - "1D" uses 2 days of hourly data so you see today's 5-min ticks + yesterday context
+// - "1W" and longer use daily snapshots (one point per day, very clean)
 const TIMEFRAMES: Timeframe[] = [
-  {label: '1H',  days: 0.042, granularity: 'hourly'},   // 1 hour = 1/24 day
-  {label: '4H',  days: 0.167, granularity: 'hourly'},   // 4 hours
-  {label: '12H', days: 0.5,   granularity: 'hourly'},   // 12 hours
-  {label: '1D',  days: 1,     granularity: 'hourly'},   // 1 day, hourly points
-  {label: '1W',  days: 7,     granularity: 'daily'},
-  {label: '1M',  days: 30,    granularity: 'daily'},
-  {label: '3M',  days: 90,    granularity: 'daily'},
-  {label: '1Y',  days: 365,   granularity: 'daily'},
-  {label: 'ALL', days: 9999,  granularity: 'daily'},
+  {label: '1D',  days: 2,    granularity: 'hourly'},
+  {label: '1W',  days: 7,    granularity: 'daily'},
+  {label: '1M',  days: 30,   granularity: 'daily'},
+  {label: '3M',  days: 90,   granularity: 'daily'},
+  {label: '1Y',  days: 365,  granularity: 'daily'},
+  {label: 'ALL', days: 9999, granularity: 'daily'},
 ];
 
 // ─── HTML (built once, data injected via postMessage) ──────────────────────────
@@ -68,7 +69,6 @@ const CHART_HTML = `<!DOCTYPE html>
   html,body { width:100%; height:100%; background:#0F1117; overflow:hidden; touch-action:pan-x; }
   #chart { width:100%; height:100%; }
 
-  /* Tooltip overlay */
   #tooltip {
     position:absolute;
     top:8px; left:8px;
@@ -105,7 +105,7 @@ const CHART_HTML = `<!DOCTYPE html>
 <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 (function() {
-  var chart, areaSeries;
+  var chart, lineSeries;
   var currentData = [];
   var firstValue = 0;
 
@@ -116,7 +116,7 @@ const CHART_HTML = `<!DOCTYPE html>
     return '$' + v.toFixed(2);
   }
 
-  var isIntraday = false; // set true when data spans < 2 days
+  var isIntraday = false;
 
   function fmtDate(sec) {
     var d = new Date(sec * 1000);
@@ -160,16 +160,16 @@ const CHART_HTML = `<!DOCTYPE html>
     rightPriceScale: {
       borderColor: 'rgba(255,255,255,0.06)',
       textColor: 'rgba(255,255,255,0.4)',
-      scaleMargins: { top: 0.08, bottom: 0.06 },
+      scaleMargins: { top: 0.15, bottom: 0.12 },
       autoScale: true,
     },
     timeScale: {
       borderColor: 'rgba(255,255,255,0.06)',
       timeVisible: true,
       secondsVisible: false,
-      rightOffset: 3,
-      barSpacing: 8,
-      minBarSpacing: 1,
+      rightOffset: 5,
+      barSpacing: 10,
+      minBarSpacing: 2,
       tickMarkFormatter: function(sec, markType) {
         var d = new Date(sec * 1000);
         var mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -187,10 +187,8 @@ const CHART_HTML = `<!DOCTYPE html>
     handleScale:  { pinch: true, mouseWheel: true, axisPressedMouseMove: { time: true, price: false } },
   });
 
-  areaSeries = chart.addAreaSeries({
-    lineColor: '#10B981',
-    topColor: 'rgba(16,185,129,0.28)',
-    bottomColor: 'rgba(16,185,129,0.02)',
+  lineSeries = chart.addLineSeries({
+    color: '#10B981',
     lineWidth: 2,
     lineStyle: LightweightCharts.LineStyle.Solid,
     crosshairMarkerVisible: true,
@@ -199,20 +197,20 @@ const CHART_HTML = `<!DOCTYPE html>
     crosshairMarkerBackgroundColor: '#0F1117',
     lastValueVisible: true,
     priceLineVisible: false,
+    pointMarkersVisible: false,
   });
 
   window.addEventListener('resize', function() {
     chart.applyOptions({ width: window.innerWidth, height: window.innerHeight });
   });
 
-  // Crosshair tooltip
   chart.subscribeCrosshairMove(function(param) {
     var tt = document.getElementById('tooltip');
     if (!param.point || !param.time || param.point.x < 0 || param.point.y < 0) {
       tt.style.display = 'none';
       return;
     }
-    var val = param.seriesData.get(areaSeries);
+    var val = param.seriesData.get(lineSeries);
     if (!val) { tt.style.display = 'none'; return; }
     var v = val.value;
     var chg = firstValue > 0 ? ((v - firstValue) / firstValue * 100) : 0;
@@ -223,8 +221,7 @@ const CHART_HTML = `<!DOCTYPE html>
     chgEl.textContent = (isPos ? '+' : '') + chg.toFixed(2) + '%';
     chgEl.style.color = isPos ? '#10B981' : '#EF4444';
 
-    // Position tooltip — keep within chart bounds
-    var ttW = 140, ttH = 62;
+    var ttW = 140;
     var x = param.point.x + 14;
     var y = 8;
     if (x + ttW > window.innerWidth - 60) x = param.point.x - ttW - 10;
@@ -233,59 +230,69 @@ const CHART_HTML = `<!DOCTYPE html>
     tt.style.display = 'block';
   });
 
+  function applyColor(isPos) {
+    var clr = isPos ? '#10B981' : '#EF4444';
+    lineSeries.applyOptions({ color: clr, crosshairMarkerBorderColor: clr });
+  }
+
   function loadData(points) {
     if (!points || !points.length) return;
-    currentData = points;
-    firstValue = points[0].value;
 
-    // Detect intraday: span < 2 days → show HH:MM on time axis
-    var span = points[points.length-1].time - points[0].time;
+    // Sort ascending by time to guarantee no LightweightCharts ordering errors
+    points = points.slice().sort(function(a, b) { return a.time - b.time; });
+
+    // Deduplicate by timestamp (keep last value if same second)
+    var seen = {};
+    var deduped = [];
+    for (var i = 0; i < points.length; i++) {
+      seen[points[i].time] = points[i];
+    }
+    var keys = Object.keys(seen).map(Number).sort(function(a,b){return a-b;});
+    for (var j = 0; j < keys.length; j++) deduped.push(seen[keys[j]]);
+
+    if (!deduped.length) return;
+
+    currentData = deduped;
+    firstValue = deduped[0].value;
+
+    var span = deduped[deduped.length-1].time - deduped[0].time;
     isIntraday = span < 2 * 86400;
-    chart.applyOptions({
-      timeScale: { timeVisible: isIntraday, secondsVisible: false }
-    });
+    chart.applyOptions({ timeScale: { timeVisible: isIntraday, secondsVisible: false } });
 
-    var lastVal = points[points.length - 1].value;
-    var isPos = lastVal >= firstValue;
-    var lineClr = isPos ? '#10B981' : '#EF4444';
-    var topClr  = isPos ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.22)';
-    var botClr  = isPos ? 'rgba(16,185,129,0.02)' : 'rgba(239,68,68,0.02)';
+    var lastVal = deduped[deduped.length - 1].value;
+    applyColor(lastVal >= firstValue);
 
-    areaSeries.applyOptions({ lineColor: lineClr, topColor: topClr, bottomColor: botClr });
-    areaSeries.setData(points);
-    chart.timeScale().fitContent();
+    lineSeries.setData(deduped);
 
-    // When all values are identical (flat line), LightweightCharts collapses
-    // the Y axis to zero range and shows nothing. Force a visible ±5% range.
-    var minVal = points.reduce(function(m, p) { return Math.min(m, p.value); }, Infinity);
-    var maxVal = points.reduce(function(m, p) { return Math.max(m, p.value); }, -Infinity);
-    if (maxVal - minVal < 0.01 && minVal > 0) {
+    // Pad Y axis so the line is never touching the top/bottom edge
+    var minVal = Infinity, maxVal = -Infinity;
+    for (var k = 0; k < deduped.length; k++) {
+      if (deduped[k].value < minVal) minVal = deduped[k].value;
+      if (deduped[k].value > maxVal) maxVal = deduped[k].value;
+    }
+    var range = maxVal - minVal;
+    // Flat line guard: force a ±5% visible range so the line is centred
+    if (range < 0.01 && minVal > 0) {
       var pad = Math.max(minVal * 0.05, 1);
-      areaSeries.applyOptions({
+      lineSeries.applyOptions({
         autoscaleInfoProvider: function() {
           return { priceRange: { minValue: minVal - pad, maxValue: minVal + pad } };
         },
       });
     } else {
-      // Reset to auto-scale
-      areaSeries.applyOptions({ autoscaleInfoProvider: function() { return null; } });
+      lineSeries.applyOptions({ autoscaleInfoProvider: function() { return null; } });
     }
+
+    chart.timeScale().fitContent();
   }
 
   function updateLastPoint(value) {
     if (!currentData.length) return;
     var last = currentData[currentData.length - 1];
     var updated = { time: last.time, value: value };
-    areaSeries.update(updated);
+    lineSeries.update(updated);
     currentData[currentData.length - 1] = updated;
-
-    // Recolour if crossing breakeven
-    var isPos = value >= firstValue;
-    areaSeries.applyOptions({
-      lineColor: isPos ? '#10B981' : '#EF4444',
-      topColor:  isPos ? 'rgba(16,185,129,0.25)' : 'rgba(239,68,68,0.22)',
-      bottomColor: isPos ? 'rgba(16,185,129,0.02)' : 'rgba(239,68,68,0.02)',
-    });
+    applyColor(value >= firstValue);
   }
 
   document.addEventListener('message', onMsg);
@@ -294,7 +301,7 @@ const CHART_HTML = `<!DOCTYPE html>
   function onMsg(e) {
     try {
       var msg = JSON.parse(e.data);
-      if (msg.type === 'setData')      loadData(msg.points);
+      if (msg.type === 'setData')         loadData(msg.points);
       else if (msg.type === 'updateLast') updateLastPoint(msg.value);
       else if (msg.type === 'fitContent') chart.timeScale().fitContent();
     } catch(err) {}
@@ -395,8 +402,8 @@ export default function PortfolioTVChart({
   onTimeframeChange,
   loading = false,
 }: PortfolioTVChartProps) {
-  const [selectedTF, setSelectedTF] = useState('1M');
-  const [fullscreen, setFullscreen]  = useState(false);
+  const [selectedTF, setSelectedTF]       = useState('1M');
+  const [fullscreen, setFullscreen]       = useState(false);
   const {width: screenW, height: screenH} = Dimensions.get('screen');
 
   const handleTF = useCallback((tf: Timeframe) => {
@@ -404,15 +411,18 @@ export default function PortfolioTVChart({
     onTimeframeChange?.(tf.days, tf.granularity);
   }, [onTimeframeChange]);
 
-  // Compute change % from first → last point
+  // All data is already scoped to the requested timeframe by the backend
+  const visibleData = useMemo(() => data, [data]);
+
+  // Compute change % from first → last visible point
   const {changeAmt, changePct, isPositive} = useMemo(() => {
-    if (data.length < 2) return {changeAmt: 0, changePct: 0, isPositive: true};
-    const first = data[0].value;
-    const last  = data[data.length - 1].value;
+    if (visibleData.length < 2) return {changeAmt: 0, changePct: 0, isPositive: true};
+    const first = visibleData[0].value;
+    const last  = visibleData[visibleData.length - 1].value;
     const amt   = last - first;
     const pct   = first > 0 ? (amt / first) * 100 : 0;
     return {changeAmt: amt, changePct: pct, isPositive: amt >= 0};
-  }, [data]);
+  }, [visibleData]);
 
   const accentColor = isPositive ? '#10B981' : '#EF4444';
   const changeSign  = isPositive ? '+' : '';
@@ -465,14 +475,14 @@ export default function PortfolioTVChart({
           <View style={styles.loadingBox}>
             <ActivityIndicator color="#10B981" size="small" />
           </View>
-        ) : data.length < 1 ? (
+        ) : visibleData.length < 1 ? (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyTxt}>
               Connecting to your exchange{'\n'}Equity curve updates every 5 minutes
             </Text>
           </View>
         ) : (
-          <TVWebView points={data} currentValue={currentValue} />
+          <TVWebView points={visibleData} currentValue={currentValue} />
         )}
       </View>
 
@@ -490,7 +500,7 @@ export default function PortfolioTVChart({
             activeOpacity={0.8}>
             <Text style={styles.fsCloseTxt}>✕</Text>
           </TouchableOpacity>
-          <TVWebView points={data} currentValue={currentValue} />
+          <TVWebView points={visibleData} currentValue={currentValue} />
         </View>
       </Modal>
     </View>

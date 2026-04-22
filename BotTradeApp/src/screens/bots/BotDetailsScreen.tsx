@@ -20,7 +20,7 @@ import ShareIcon from '../../components/icons/ShareIcon';
 import StarIcon from '../../components/icons/StarIcon';
 import XIcon from '../../components/icons/XIcon';
 import {useToast} from '../../context/ToastContext';
-import {useMarketKline, type ExchangeId} from '../../hooks/useMarketKline';
+import {useMarketKline, type ExchangeId, CRYPTO_INTERVALS, STOCK_INTERVALS, DEFAULT_CRYPTO_TF, DEFAULT_STOCK_TF} from '../../hooks/useMarketKline';
 
 const {width} = Dimensions.get('window');
 const CHART_W = width - 40;
@@ -88,21 +88,25 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
   // Candlestick per trading pair
   const [selectedPair, setSelectedPair] = useState<string | null>(null);
-  const [candleTF, setCandleTF]         = useState('4h'); // API timeframe sent to backend
-  const [displayTF, setDisplayTF]       = useState('');   // '' = no filter (show all), else '1m'/'5m'/etc
+  // Default to 4h — most common exchange default, chip is visually selected on load.
+  const [chartTF, setChartTF] = useState('4h');
   const [chartTouching, setChartTouching] = useState(false);
   const [tradeMarkers, setTradeMarkers] = useState<{action: string; price: number; timestamp: number}[]>([]);
-  // Active exchange tab for the chart (crypto bots show 3 tabs)
-  const [chartExchange, setChartExchange] = useState<ExchangeId>('kraken');
+  // Binance-only — no exchange tabs shown
+  const chartExchange: ExchangeId = 'binance';
 
   // ── Live hooks ──────────────────────────────────────────────────────────
   const {
-    candles:    liveCandles,
-    livePrice:  binanceLivePrice,
-    loading:    candleLoading,
-    connected:  candleConnected,
-    source:     candleSource,
-  } = useMarketKline(selectedPair ?? undefined, candleTF, chartExchange);
+    candles:      liveCandles,
+    livePrice:    binanceLivePrice,
+    loading:      candleLoading,
+    loadingMore:  candleLoadingMore,
+    connected:    candleConnected,
+    source:       candleSource,
+    totalCandles: candleTotalCount,
+    hasMore:      candleHasMore,
+    loadMore:     candleLoadMore,
+  } = useMarketKline(selectedPair ?? undefined, chartTF, chartExchange);
 
   const DURATION_OPTIONS: {label: string; minutes?: number; days?: number}[] = [
     {label: '1 Min', minutes: 1},
@@ -116,8 +120,20 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
   const fetchData = useCallback(async () => {
     try {
-      const [botData, activeBots, shadowSessions, decisionsData] = await Promise.all([
-        marketplaceApi.getBotDetails(route.params.botId).catch(() => null),
+      // Fetch bot details first — sets chart pair immediately without waiting for other calls
+      const botData = await marketplaceApi.getBotDetails(route.params.botId).catch(() => null);
+      if (botData) {
+        setBot(botData);
+        const pairs = botData.config?.pairs ?? ['BTC/USDT'];
+        if (pairs.length > 0 && !selectedPair) {
+          setSelectedPair(pairs[0]);
+          setChartTF(botData.category === 'Stocks' ? DEFAULT_STOCK_TF : DEFAULT_CRYPTO_TF);
+          fetchTradeMarkers(pairs[0]);
+        }
+      }
+
+      // Now fetch the rest in parallel (non-blocking for chart)
+      const [activeBots, shadowSessions, decisionsData] = await Promise.all([
         botsService.getActive().then((res: any) => {
           const items = Array.isArray(res?.data) ? res.data : Array.isArray(res?.subscriptions) ? res.subscriptions : [];
           return items;
@@ -135,7 +151,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         const equityPoints = decisionsData
           .filter((d: any) => d.price)
           .reverse()
-          .map((d: any, i: number) => ({
+          .map((d: any) => ({
             time: new Date(d.createdAt).getTime(),
             open: parseFloat(d.price),
             high: parseFloat(d.price) * 1.002,
@@ -145,19 +161,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
           }));
         if (equityPoints.length > 2) {
           botData.equityData = equityPoints;
-        }
-      }
-
-      if (botData) {
-        setBot(botData);
-        // Auto-select first trading pair for candlestick chart
-        const pairs = botData.config?.pairs ?? ['BTC/USDT'];
-        if (pairs.length > 0 && !selectedPair) {
-          const isStockBot = botData.category === 'Stocks';
-          setSelectedPair(pairs[0]);
-          setCandleTF(isStockBot ? '1d' : '4h'); // API TF for data fetching
-          setDisplayTF('1M'); // default view = last 1 month
-          fetchTradeMarkers(pairs[0]); // candles come from useBinanceKline
+          setBot({...botData}); // re-set with equity data added
         }
       }
 
@@ -257,17 +261,13 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   }, [route.params.botId]);
 
   const handlePairSelect = useCallback((pair: string) => {
-    const isStockPair = !pair.includes('/');
     setSelectedPair(pair);
-    setCandleTF(isStockPair ? '1d' : '4h'); // API TF: 4h gives good history coverage
-    setDisplayTF('1M'); // always show 1 month view when switching to a new pair
+    setChartTF(bot?.category === 'Stocks' ? DEFAULT_STOCK_TF : DEFAULT_CRYPTO_TF);
     fetchTradeMarkers(pair);
-  }, [fetchTradeMarkers]);
+  }, [bot, fetchTradeMarkers]);
 
   const handleCandleTFChange = useCallback((tf: string) => {
-    setDisplayTF(tf);
-    // '1M' = 1 month view using daily candles
-    setCandleTF(tf === '1M' ? '1d' : tf);
+    setChartTF(tf);
   }, []);
 
   useFocusEffect(useCallback(() => {
@@ -725,39 +725,11 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             {(() => {
               const pairs = bot.config?.pairs ?? ['BTC/USDT'];
               const isStockBot = bot.category === 'Stocks';
-              const cryptoExchanges: {id: ExchangeId; label: string; color: string}[] = [
-                {id: 'kraken',   label: 'Kraken',   color: '#5741D9'},
-                {id: 'binance',  label: 'Binance',  color: '#F3BA2F'},
-                {id: 'coinbase', label: 'Coinbase', color: '#0052FF'},
-              ];
-              const tfOptions = ['1m','5m','15m','1h','4h','1d','1M'];
+              // Use real exchange intervals only
+              const tfOptions = isStockBot ? STOCK_INTERVALS : CRYPTO_INTERVALS;
               return (
                 <View style={styles.chartSection}>
                   <Text style={styles.chartSectionLabel}>PRICE ACTION</Text>
-
-                  {/* Exchange tabs — crypto only */}
-                  {!isStockBot && (
-                    <View style={{flexDirection: 'row', gap: 8, marginBottom: 14}}>
-                      {cryptoExchanges.map(ex => (
-                        <TouchableOpacity
-                          key={ex.id}
-                          activeOpacity={0.7}
-                          onPress={() => setChartExchange(ex.id)}
-                          style={{
-                            flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center',
-                            backgroundColor: chartExchange === ex.id ? `${ex.color}20` : 'rgba(255,255,255,0.04)',
-                            borderWidth: 1,
-                            borderColor: chartExchange === ex.id ? `${ex.color}60` : 'rgba(255,255,255,0.08)',
-                          }}>
-                          <Text style={{
-                            fontFamily: chartExchange === ex.id ? 'Inter-SemiBold' : 'Inter-Regular',
-                            fontSize: 12,
-                            color: chartExchange === ex.id ? ex.color : 'rgba(255,255,255,0.45)',
-                          }}>{ex.label}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  )}
 
                   {/* Pair selector */}
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 8, marginBottom: 14}}>
@@ -771,40 +743,86 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                   </ScrollView>
 
                   {selectedPair ? (
-                    candleLoading && liveCandles.length === 0 ? (
+                    liveCandles.length === 0 && (candleLoading || candleLoadingMore || !candleSource || candleSource === 'Loading...' || candleSource === 'Retrying...' || candleSource.startsWith('Connecting')) ? (
                       <View style={{alignItems: 'center', paddingVertical: 40}}>
                         <ActivityIndicator size="small" color="#10B981" />
-                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 8}}>Loading {selectedPair}...</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)', marginTop: 8}}>
+                          {candleSource && candleSource !== 'Loading...' ? candleSource.replace('Connecting · ', 'Trying ').replace('...', '…') : `Loading ${selectedPair}…`}
+                        </Text>
                       </View>
-                    ) : liveCandles.length > 0 ? (
+                    ) : liveCandles.length === 0 ? (
+                      <View style={{alignItems: 'center', paddingVertical: 40}}>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)'}}>
+                          {candleSource || 'No chart data available'}
+                        </Text>
+                      </View>
+                    ) : (
                       <View>
-                        {/* TF row + source badge */}
-                        <View style={{flexDirection: 'row', alignItems: 'center', marginBottom: 10}}>
-                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 6}} style={{flex: 1}}>
-                            {tfOptions.map(tf => (
-                              <TouchableOpacity key={tf} activeOpacity={0.7}
-                                style={[styles.tfChip, displayTF === tf && styles.tfChipActive]}
-                                onPress={() => handleCandleTFChange(tf)}>
-                                <Text style={[styles.tfChipText, displayTF === tf && styles.tfChipTextActive]}>{tf.toUpperCase()}</Text>
-                              </TouchableOpacity>
-                            ))}
-                          </ScrollView>
-                          {/* Source badge — green=WS live, amber=REST polling, gray=loading */}
+                        {/* TF row */}
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{gap: 6, marginBottom: 8}}>
+                          {tfOptions.map(tf => (
+                            <TouchableOpacity key={tf} activeOpacity={0.7}
+                              style={[styles.tfChip, chartTF === tf && styles.tfChipActive]}
+                              onPress={() => handleCandleTFChange(tf)}>
+                              <Text style={[styles.tfChipText, chartTF === tf && styles.tfChipTextActive]}>{tf.toUpperCase()}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+
+                        {/* Source badge + candle count + pagination indicator */}
+                        <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8}}>
+                          {/* Left: source dot */}
                           {(() => {
-                            const isLiveWS = candleSource?.startsWith('Live');
-                            const isRest = candleSource?.startsWith('REST') || candleSource?.startsWith('REST');
-                            const isLoading = !candleSource || candleSource === 'Loading...';
-                            const dotColor = isLiveWS ? '#10B981' : isRest ? '#F59E0B' : isLoading ? 'rgba(255,255,255,0.25)' : '#10B981';
-                            const textColor = dotColor;
+                            const isLiveWS  = candleSource?.startsWith('Live');
+                            const isLoading = !candleSource || candleSource === 'Loading...' || candleSource.startsWith('Connecting');
+                            const dotColor  = isLiveWS ? '#10B981' : isLoading ? 'rgba(255,255,255,0.25)' : '#F59E0B';
                             return (
-                              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 8}}>
+                              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
                                 <View style={{width: 6, height: 6, borderRadius: 3, backgroundColor: dotColor}} />
-                                <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: textColor}}>
-                                  {isLoading ? 'Loading' : candleSource}
+                                <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: dotColor}}>
+                                  {isLoading ? candleSource : candleSource}
                                 </Text>
                               </View>
                             );
                           })()}
+                          {/* Right: candle count + Load More button */}
+                          <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+                            {candleTotalCount > 0 && (
+                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.3)'}}>
+                                {candleTotalCount.toLocaleString()} candles
+                              </Text>
+                            )}
+                            {/* Load More button — only for Binance crypto pairs, not stocks */}
+                            {candleTotalCount > 0 && !isStockBot && (
+                              <TouchableOpacity
+                                activeOpacity={candleHasMore && !candleLoadingMore ? 0.7 : 1}
+                                onPress={candleHasMore && !candleLoadingMore ? candleLoadMore : undefined}
+                                style={{
+                                  flexDirection: 'row', alignItems: 'center', gap: 4,
+                                  paddingHorizontal: 7, paddingVertical: 3,
+                                  borderRadius: 5,
+                                  backgroundColor: candleHasMore && !candleLoadingMore
+                                    ? 'rgba(13,127,242,0.12)'
+                                    : 'rgba(255,255,255,0.04)',
+                                  borderWidth: 1,
+                                  borderColor: candleHasMore && !candleLoadingMore
+                                    ? 'rgba(13,127,242,0.3)'
+                                    : 'rgba(255,255,255,0.08)',
+                                }}>
+                                {candleLoadingMore
+                                  ? <ActivityIndicator size="small" color="rgba(255,255,255,0.3)" style={{transform: [{scale: 0.55}], width: 10, height: 10}} />
+                                  : null}
+                                <Text style={{
+                                  fontFamily: 'Inter-Medium', fontSize: 9,
+                                  color: candleHasMore && !candleLoadingMore
+                                    ? '#0D7FF2'
+                                    : 'rgba(255,255,255,0.2)',
+                                }}>
+                                  {candleLoadingMore ? 'Loading…' : candleHasMore ? '+ Load 1,000 more' : 'All loaded'}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
                         </View>
 
                         {/* Live price display */}
@@ -829,7 +847,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                             width={CHART_W}
                             height={320}
                             showVolume
-                            timeframe={displayTF}
+                            timeframe={chartTF}
                             markers={tradeMarkers.map(m => ({time: m.timestamp, action: m.action as 'BUY'|'SELL', price: m.price}))}
                           />
                         </View>
@@ -847,10 +865,6 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                             ))}
                           </View>
                         )}
-                      </View>
-                    ) : (
-                      <View style={{alignItems: 'center', paddingVertical: 30}}>
-                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)'}}>No candle data for {selectedPair}</Text>
                       </View>
                     )
                   ) : (

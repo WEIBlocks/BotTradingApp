@@ -32,7 +32,31 @@ class WebSocketService {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private reconnectDelay = 1000;
   private shouldReconnect = false;
-  private connectionCount = 0; // ref-counting: connect when first subscriber, disconnect when last leaves
+  private connectionCount = 0;
+  private sendQueue: string[] = [];
+  // Track active subscriptions so they re-send after reconnect
+  activeMarketSub: {pairs: string[]; exchange: string} | null = null;
+  activeStockSub: {symbols: string[]} | null = null;
+
+  // ── Send message to backend ───────────────────────────────────────────────
+  send(msg: {topic: string; payload: unknown}): void {
+    // Track active market sub so it auto-resubscribes after reconnect
+    if (msg.topic === 'subscribe_market') {
+      this.activeMarketSub = msg.payload as {pairs: string[]; exchange: string};
+    } else if (msg.topic === 'unsubscribe_market') {
+      this.activeMarketSub = null;
+    } else if (msg.topic === 'subscribe_stock') {
+      this.activeStockSub = msg.payload as {symbols: string[]};
+    } else if (msg.topic === 'unsubscribe_stock') {
+      this.activeStockSub = null;
+    }
+    const str = JSON.stringify(msg);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(str);
+    } else {
+      this.sendQueue.push(str);
+    }
+  }
 
   // ── Subscribe ─────────────────────────────────────────────────────────────
 
@@ -66,7 +90,12 @@ class WebSocketService {
       this.ws  = ws;
 
       ws.onopen = () => {
-        this.reconnectDelay = 1000; // reset backoff on success
+        this.reconnectDelay = 1000;
+        // Flush any messages queued before socket was ready
+        while (this.sendQueue.length > 0) {
+          const msg = this.sendQueue.shift()!;
+          if (ws.readyState === WebSocket.OPEN) ws.send(msg);
+        }
       };
 
       ws.onmessage = (evt) => {
@@ -79,6 +108,13 @@ class WebSocketService {
 
       ws.onclose = () => {
         this.ws = null;
+        // Re-queue active subscriptions so they resume after reconnect
+        if (this.activeMarketSub) {
+          this.sendQueue.push(JSON.stringify({ topic: 'subscribe_market', payload: this.activeMarketSub }));
+        }
+        if (this.activeStockSub) {
+          this.sendQueue.push(JSON.stringify({ topic: 'subscribe_stock', payload: this.activeStockSub }));
+        }
         if (this.shouldReconnect && this.connectionCount > 0) {
           this.scheduleReconnect();
         }
@@ -94,6 +130,9 @@ class WebSocketService {
 
   private disconnect() {
     this.shouldReconnect = false;
+    this.sendQueue = [];
+    this.activeMarketSub = null;
+    this.activeStockSub = null;
     if (this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = null; }
     this.ws?.close();
     this.ws = null;

@@ -7,6 +7,7 @@ import { notifications } from '../../db/schema/notifications.js';
 import { bots, botSubscriptions } from '../../db/schema/bots.js';
 import { eq, desc, and } from 'drizzle-orm';
 import { alpacaStream } from '../../lib/alpaca-stream.js';
+import { cryptoStream } from '../../lib/crypto-stream.js';
 /**
  * Authenticate a WebSocket connection via query param ?token=JWT_TOKEN
  */
@@ -251,6 +252,12 @@ export async function handleBotDecisionsWs(socket, request) {
  *   "notification"         → new notification
  *   "stock_price"          → real-time stock tick           { symbol, price, change, changePercent, timestamp }
  *   "stock_bar"            → 1-min OHLCV bar               { symbol, open, high, low, close, volume, timestamp }
+ *   "crypto_price"         → real-time crypto tick         { symbol, price, exchange, timestamp }
+ *
+ * Client can send: { topic:'subscribe_market', payload:{ pairs:string[], exchange:string } }
+ *                  { topic:'unsubscribe_market', payload:{ pairs:string[], exchange:string } }
+ *                  { topic:'subscribe_stock', payload:{ symbols:string[] } }
+ *                  { topic:'unsubscribe_stock', payload:{ symbols:string[] } }
  */
 export async function handleAppWs(socket, request) {
     const user = authenticateWs(request);
@@ -285,7 +292,6 @@ export async function handleAppWs(socket, request) {
     catch { /* non-critical */ }
     // ── Subscribe Alpaca stream for this user's stock symbols ─────────────
     if (userStockSymbols.length > 0) {
-        await alpacaStream.seedPrevPrices(userStockSymbols).catch(() => { });
         alpacaStream.addSymbols(userStockSymbols);
         // Relay Redis stock price/bar events to this client
         const stockPriceListeners = [];
@@ -368,7 +374,113 @@ export async function handleAppWs(socket, request) {
     };
     await subscribeChannel(shadowEquityChannel, shadowEquityListener);
     sendJson(socket, { topic: 'connected', payload: { userId: user.userId } });
+    // ── Dynamic market subscription (crypto price streaming) ─────────────────
+    // Client sends { topic:'subscribe_market', payload:{ pairs:['BTC/USDT'], exchange:'kraken' } }
+    // Server subscribes cryptoStream, relays Redis ticks back as 'crypto_price' topic
+    const marketUnsubs = [];
+    let activeCryptoPairs = [];
+    let activeCryptoExchange = '';
+    // ── Dynamic stock symbol subscription (for chart viewers) ───────────────
+    const stockUnsubs = [];
+    let activeStockSymbols = [];
+    socket.on('message', async (raw) => {
+        try {
+            const msg = JSON.parse(raw.toString());
+            if (msg.topic === 'subscribe_market') {
+                const { pairs, exchange } = msg.payload ?? {};
+                if (!Array.isArray(pairs) || !exchange)
+                    return;
+                // Clean up previous subscriptions
+                for (const u of marketUnsubs)
+                    u();
+                marketUnsubs.length = 0;
+                if (activeCryptoPairs.length > 0) {
+                    cryptoStream.removePairs(activeCryptoExchange, activeCryptoPairs);
+                }
+                activeCryptoPairs = pairs;
+                activeCryptoExchange = exchange;
+                cryptoStream.addPairs(exchange, pairs);
+                // Subscribe Redis channels for each pair — also listen kucoin fallback
+                for (const pair of pairs) {
+                    const primaryChannel = `crypto:price:${exchange}:${pair}`;
+                    const kucoinChannel = `crypto:price:kucoin:${pair}`;
+                    const listener = (message) => {
+                        try {
+                            emit('crypto_price', JSON.parse(message));
+                        }
+                        catch { }
+                    };
+                    await subscribeChannel(primaryChannel, listener);
+                    marketUnsubs.push(() => unsubscribeChannel(primaryChannel, listener));
+                    if (exchange === 'kraken') {
+                        await subscribeChannel(kucoinChannel, listener);
+                        marketUnsubs.push(() => unsubscribeChannel(kucoinChannel, listener));
+                    }
+                }
+            }
+            else if (msg.topic === 'unsubscribe_market') {
+                for (const u of marketUnsubs)
+                    u();
+                marketUnsubs.length = 0;
+                if (activeCryptoPairs.length > 0) {
+                    cryptoStream.removePairs(activeCryptoExchange, activeCryptoPairs);
+                    activeCryptoPairs = [];
+                    activeCryptoExchange = '';
+                }
+            }
+            else if (msg.topic === 'subscribe_stock') {
+                // Allow any client to subscribe stock symbols for chart viewing
+                const { symbols } = msg.payload ?? {};
+                if (!Array.isArray(symbols) || symbols.length === 0)
+                    return;
+                // Clean up previous stock subs
+                for (const u of stockUnsubs)
+                    u();
+                stockUnsubs.length = 0;
+                if (activeStockSymbols.length > 0)
+                    alpacaStream.removeSymbols(activeStockSymbols);
+                const syms = symbols.map(s => s.toUpperCase().replace('/USD', ''));
+                activeStockSymbols = syms;
+                alpacaStream.addSymbols(syms);
+                for (const sym of syms) {
+                    const priceListener = (message) => {
+                        try {
+                            emit('stock_price', JSON.parse(message));
+                        }
+                        catch { }
+                    };
+                    const barListener = (message) => {
+                        try {
+                            emit('stock_bar', JSON.parse(message));
+                        }
+                        catch { }
+                    };
+                    await subscribeChannel(`stock:price:${sym}`, priceListener);
+                    await subscribeChannel(`stock:bar:${sym}`, barListener);
+                    stockUnsubs.push(() => unsubscribeChannel(`stock:price:${sym}`, priceListener), () => unsubscribeChannel(`stock:bar:${sym}`, barListener));
+                }
+            }
+            else if (msg.topic === 'unsubscribe_stock') {
+                for (const u of stockUnsubs)
+                    u();
+                stockUnsubs.length = 0;
+                if (activeStockSymbols.length > 0) {
+                    alpacaStream.removeSymbols(activeStockSymbols);
+                    activeStockSymbols = [];
+                }
+            }
+        }
+        catch { }
+    });
     const cleanup = async () => {
+        for (const u of marketUnsubs)
+            u();
+        if (activeCryptoPairs.length > 0)
+            cryptoStream.removePairs(activeCryptoExchange, activeCryptoPairs);
+        for (const u of stockUnsubs)
+            u();
+        if (activeStockSymbols.length > 0)
+            alpacaStream.removeSymbols(activeStockSymbols);
         await unsubscribeChannel(tradeChannel, tradeListener);
         await unsubscribeChannel(notifChannel, notifListener);
         await unsubscribeChannel(portfolioChannel, portfolioListener);

@@ -456,7 +456,7 @@ export default function AIChatScreen() {
     // Image uploads use the non-streaming path (multipart)
     if (imgUri) {
       try {
-        let response;
+        let response: Awaited<ReturnType<typeof aiApi.chat>>;
         if (preUploadedUrl) {
           response = await aiApi.chat(text, conversationId, preUploadedUrl, botId);
         } else {

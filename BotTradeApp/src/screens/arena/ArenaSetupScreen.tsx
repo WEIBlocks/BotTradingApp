@@ -183,9 +183,6 @@ export default function ArenaSetupScreen() {
     }, []),
   );
 
-  // Adjust min order default when mode changes (stocks=$1, crypto=$10)
-  const resolvedMinOrder = parseFloat(minOrderInput) || (hasStocks && !hasCrypto ? 1 : 10);
-
   // When switching to live mode, fetch real exchange connections
   const handleModeChange = useCallback(async (mode: 'shadow' | 'live') => {
     setArenaMode(mode);

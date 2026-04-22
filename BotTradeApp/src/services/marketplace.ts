@@ -33,6 +33,12 @@ interface BackendBot {
   // Optional detailed fields (present in single-bot response)
   recentTrades?: Trade[];
   reviews?: Review[];
+  aggregateStats?: {
+    totalUsers: number; totalPositions: number; openPositions: number;
+    closedPositions: number; winningPositions: number; totalPnl: number;
+    avgPnlPercent: number; totalTrades: number; totalSubscribers: number;
+    activeSubscribers: number; liveSubscribers: number;
+  } | null;
 }
 
 // ─── Query Parameters ───────────────────────────────────────────────────────

@@ -185,7 +185,7 @@ class AlpacaStreamService {
             return;
         this.reconnectTimer = setTimeout(() => {
             this.reconnectTimer = null;
-            this.reconnectDelay = Math.min(this.reconnectDelay * 2, 30000);
+            this.reconnectDelay = Math.min(this.reconnectDelay * 2, 120_000); // max 2 min backoff
             this.connect();
         }, this.reconnectDelay);
     }

@@ -173,10 +173,10 @@ export const shadowSessions = pgTable(
       .references(() => users.id),
     botId: uuid("bot_id").references(() => bots.id),
     virtualBalance: numeric("virtual_balance", {
-      precision: 12,
+      precision: 18,
       scale: 2,
     }).notNull(),
-    currentBalance: numeric("current_balance", { precision: 12, scale: 2 }),
+    currentBalance: numeric("current_balance", { precision: 18, scale: 2 }),
     durationDays: integer("duration_days").notNull(),
     startedAt: timestamp("started_at", { withTimezone: true }).defaultNow(),
     endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),

@@ -1,196 +1,671 @@
 /**
- * useMarketKline — real-time candlestick data for any exchange.
+ * useMarketKline — real-time candlestick data, exchange-accurate.
  *
- * Exchange priority per tab:
- *   Kraken   → wss://ws.kraken.com/v2  (public, V2 API, no key)
- *   Binance  → wss://stream.binance.com:9443  (public, mobile not geo-blocked)
- *   Coinbase → REST polling 3s  (public REST, no auth needed)
- *   Fallback → KuCoin REST → CoinGecko REST (exotic tokens: bSOL, mSOL, etc.)
- *   Stocks   → Backend WS relay (Alpaca)
+ * Crypto flow:
+ *   Seed  → Binance REST public API, paginated backwards to token launch
+ *           (max 1000 per request; loops until Binance returns < 1000 candles)
+ *   Live  → Binance WS kline stream (direct from device)
+ *   Fallback 1 (if Binance REST/WS unavailable):
+ *           → Backend KuCoin relay (REST seed + price-tick WS)
+ *   Fallback 2 (if KuCoin relay also unavailable):
+ *           → CoinGecko public REST (historical OHLC, no auth, free tier)
+ *             + price polling every 15s for live updates
  *
- * Kraken notes:
- *   - Uses Kraken WS V2 API (wss://ws.kraken.com/v2) — more stable than V1
- *   - V2 sends a snapshot immediately on subscribe + ticks on every price update
- *   - Data timeout raised to 30s (prices only tick when market moves)
- *   - MATIC renamed to POL on Kraken (handled in symbol map)
- *   - Unknown pairs fall through to KuCoin REST immediately
+ * Stocks flow:
+ *   Seed  → Backend Alpaca REST
+ *   Live  → Backend Alpaca IEX WS relay
  *
- * bSOL / MATIC / exotic tokens:
- *   - KuCoin REST covers most tokens (BSOL-USDT, MATIC-USDT alias POL)
- *   - CoinGecko as final fallback with 60s rate-limit guard
+ * Timeframes match Binance exactly:
+ *   1m 3m 5m 15m 30m  (minutes)
+ *   1h 2h 4h 6h 12h   (hours)
+ *   1d 3d 1w 1M        (day / week / month)
+ *
+ * Generation guard: every pair/TF change bumps generation.current.
+ * All async callbacks capture their gen at creation and discard if stale.
  */
 
 import {useEffect, useRef, useState, useCallback} from 'react';
-import {api} from '../services/api';
+import {storage} from '../services/storage';
+import {API_BASE_URL} from '../config/api';
 import {wsService} from '../services/websocket';
 import type {OHLC} from '../components/charts/CandlestickChart';
 
-export type ExchangeId = 'kraken' | 'binance' | 'coinbase' | 'alpaca';
+export type ExchangeId = 'binance' | 'kraken' | 'coinbase' | 'alpaca';
 
 export interface MarketKlineState {
-  candles:   OHLC[];
-  livePrice: number | undefined;
-  loading:   boolean;
-  connected: boolean;
-  source:    string;
+  candles:       OHLC[];
+  livePrice:     number | undefined;
+  loading:       boolean;
+  loadingMore:   boolean;   // true while a manual "load more" fetch is running
+  connected:     boolean;
+  source:        string;
+  totalCandles:  number;    // how many candles are currently loaded
+  hasMore:       boolean;   // false when we've reached the token's genesis candle
+  loadMore:      () => void; // call to fetch 1,000 older candles manually
 }
 
-const BINANCE_TF: Record<string, string> = {
-  '1m':'1m','5m':'5m','15m':'15m','1h':'1h','4h':'4h','1d':'1d','1w':'1w',
+// ─── Binance interval strings (exact API values) ─────────────────────────────
+// Displayed label → Binance interval param
+export const BINANCE_INTERVALS: Record<string, string> = {
+  '1m':  '1m',
+  '3m':  '3m',
+  '5m':  '5m',
+  '15m': '15m',
+  '30m': '30m',
+  '1h':  '1h',
+  '2h':  '2h',
+  '4h':  '4h',
+  '6h':  '6h',
+  '12h': '12h',
+  '1d':  '1d',
+  '3d':  '3d',
+  '1w':  '1w',
+  '1M':  '1M',
+  // 'all' is not a Binance interval — it's the app's "default view" which uses 4h
+  'all': '4h',
 };
 
-const KRAKEN_TF: Record<string, number> = {
-  '1m':1,'5m':5,'15m':15,'1h':60,'4h':240,'1d':1440,'1w':10080,
+// Stock timeframes — exactly what Alpaca supports (no 1M, no 3d)
+export const STOCK_INTERVALS: string[] = ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '1d', '1w'];
+
+// Default timeframe per asset class
+export const DEFAULT_CRYPTO_TF = '4h';
+export const DEFAULT_STOCK_TF  = '1d';
+
+// Crypto timeframes shown in the UI (all real Binance intervals)
+export const CRYPTO_INTERVALS: string[] = [
+  '1m', '3m', '5m', '15m', '30m',
+  '1h', '2h', '4h', '6h', '12h',
+  '1d', '3d', '1w', '1M',
+];
+
+// How many candles to load in the INITIAL seed request (before paginating)
+// Binance max = 1000 per request
+const INITIAL_LIMIT = 1000;
+
+// ─── CoinGecko ID map (static — covers common + LST tokens) ─────────────────
+// Keys = uppercase ticker symbol. Add new tokens here as needed.
+const CG_ID_MAP: Record<string, string> = {
+  // Major
+  BTC: 'bitcoin', ETH: 'ethereum', BNB: 'binancecoin', SOL: 'solana',
+  ADA: 'cardano', XRP: 'ripple',   DOT: 'polkadot',   DOGE: 'dogecoin',
+  AVAX: 'avalanche-2', MATIC: 'matic-network', LINK: 'chainlink',
+  UNI: 'uniswap', ATOM: 'cosmos', LTC: 'litecoin', BCH: 'bitcoin-cash',
+  NEAR: 'near', FTM: 'fantom', ALGO: 'algorand', SAND: 'the-sandbox',
+  MANA: 'decentraland', APE: 'apecoin', OP: 'optimism', ARB: 'arbitrum',
+  SUI: 'sui', INJ: 'injective-protocol', SEI: 'sei-network',
+  TRX: 'tron', TON: 'the-open-network', SHIB: 'shiba-inu',
+  LDO: 'lido-dao', RUNE: 'thorchain', FIL: 'filecoin', HBAR: 'hedera',
+  VET: 'vechain', EOS: 'eos', ZEC: 'zcash', XMR: 'monero', DASH: 'dash',
+  AAVE: 'aave', SNX: 'synthetix-network-token', MKR: 'maker',
+  CRV: 'curve-dao-token', COMP: 'compound-governance-token',
+  // Solana LST / liquid staking tokens
+  MSOL: 'msol',           // Marinade staked SOL
+  JITOSOL: 'jito-staked-sol',  // JitoSOL (also seen as JITOSOL)
+  BSOL: 'blazestake-staked-sol',  // BlazeStake bSOL
+  STSOL: 'lido-staked-sol',  // Lido stSOL
+  JSOL: 'jpool-staked-sol',   // JPool jSOL
+  HSOL: 'helius-staked-sol',  // Helius hSOL
+  SCNSOL: 'socean-staked-sol', // Socean scnSOL
+  LAINESOL: 'laine-staked-sol',
+  COMPASSSOL: 'compass-staked-sol',
+  DSOL: 'daopool-staked-sol',
+  // Common DeFi / other
+  RAY: 'raydium', ORCA: 'orca', MNGO: 'mango-markets',
+  JTO: 'jito-governance', BONK: 'bonk', WIF: 'dogwifcoin',
+  JUP: 'jupiter-exchange-solana', PYTH: 'pyth-network',
+  KMNO: 'kamino', DRIFT: 'drift-protocol',
+  W: 'wormhole', ZETA: 'zeta-markets',
 };
 
-// Kraken V2 WS symbol map — uses format "BTC/USD" (no USDT)
-// MATIC was renamed to POL on Kraken in Sep 2024
-const KRAKEN_WS_MAP: Record<string, string> = {
-  'BTC/USDT':  'BTC/USD',
-  'ETH/USDT':  'ETH/USD',
-  'SOL/USDT':  'SOL/USD',
-  'BNB/USDT':  'BNB/USD',
-  'XRP/USDT':  'XRP/USD',
-  'ADA/USDT':  'ADA/USD',
-  'DOGE/USDT': 'DOGE/USD',
-  'LTC/USDT':  'LTC/USD',
-  'LINK/USDT': 'LINK/USD',
-  'DOT/USDT':  'DOT/USD',
-  'AVAX/USDT': 'AVAX/USD',
-  'ATOM/USDT': 'ATOM/USD',
-  'UNI/USDT':  'UNI/USD',
-  'NEAR/USDT': 'NEAR/USD',
-  'ARB/USDT':  'ARB/USD',
-  'OP/USDT':   'OP/USD',
-  'INJ/USDT':  'INJ/USD',
-  'TIA/USDT':  'TIA/USD',
-  'SEI/USDT':  'SEI/USD',
-  'SUI/USDT':  'SUI/USD',
-  'APT/USDT':  'APT/USD',
-  'FET/USDT':  'FET/USD',
-  'RNDR/USDT': 'RENDER/USD',
-  'AAVE/USDT': 'AAVE/USD',
-  'MKR/USDT':  'MKR/USD',
-  'PEPE/USDT': 'PEPE/USD',
-  // MATIC → POL on Kraken (rebranded Sep 2024)
-  'MATIC/USDT':'POL/USD',
-  'POL/USDT':  'POL/USD',
-};
+// Dynamic CoinGecko lookup: search by symbol when not in static map.
+// Cached per session to avoid repeated API calls.
+const cgIdCache = new Map<string, string | null>();
 
-// Pairs that Kraken V2 WS actually supports — anything outside this goes straight to KuCoin
-const KRAKEN_WS_SUPPORTED = new Set(Object.keys(KRAKEN_WS_MAP));
+async function resolveCoinGeckoId(base: string, signal?: AbortSignal): Promise<string | null> {
+  const key = base.toUpperCase();
+  if (CG_ID_MAP[key]) return CG_ID_MAP[key];
+  if (cgIdCache.has(key)) return cgIdCache.get(key) ?? null;
 
-// CoinGecko ID map — covers exotic/LST tokens not on major CEXs
-const COINGECKO_ID_MAP: Record<string, string> = {
-  'BSOL':'blazestake-staked-sol', 'MSOL':'msol', 'JITOSOL':'jito-staked-sol',
-  'STSOL':'lido-staked-sol', 'WSOL':'wrapped-solana', 'RAY':'raydium',
-  'SRM':'serum', 'BONK':'bonk', 'WIF':'dogwifcoin', 'JUP':'jupiter',
-  'PYTH':'pyth-network', 'TIA':'celestia', 'SEI':'sei-network',
-  'SUI':'sui', 'APT':'aptos', 'INJ':'injective-protocol',
-  'RNDR':'render-token', 'RENDER':'render-token', 'FET':'fetch-ai',
-  'IMX':'immutable-x', 'NEAR':'near', 'FIL':'filecoin',
-  'AAVE':'aave', 'MKR':'maker', 'SNX':'havven', 'CRV':'curve-dao-token',
-  'COMP':'compound-governance-token', 'YFI':'yearn-finance', 'SUSHI':'sushi',
-  '1INCH':'1inch', 'SAND':'the-sandbox', 'MANA':'decentraland',
-  'AXS':'axie-infinity', 'GALA':'gala', 'CHZ':'chiliz', 'ENJ':'enjincoin',
-  'BAT':'basic-attention-token', 'ZRX':'0x', 'KNC':'kyber-network-crystal',
-  'LRC':'loopring', 'OP':'optimism', 'ARB':'arbitrum', 'WLD':'worldcoin-wld',
-  'BLUR':'blur', 'PEPE':'pepe', 'FLOKI':'floki', 'ORDI':'ordinals',
-  'MATIC':'matic-network', 'POL':'matic-network',
-  'GRT':'the-graph', 'OCEAN':'ocean-protocol',
-};
-
-// In-memory rate limit guard for CoinGecko (max 1 req/pair per 60s)
-const cgLastFetch: Map<string, number> = new Map();
-const CG_MIN_INTERVAL_MS = 60_000;
-
-// AbortSignal.timeout() not available in all RN JS engines — use manual controller
-function fetchWithTimeout(url: string, ms: number): Promise<Response> {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), ms);
-  return fetch(url, {signal: ctrl.signal}).finally(() => clearTimeout(t));
+  try {
+    const res = await fetch(
+      `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(base)}`,
+      {signal},
+    );
+    if (!res.ok) { cgIdCache.set(key, null); return null; }
+    const json = await res.json();
+    const coins: any[] = json?.coins ?? [];
+    // Find exact symbol match (case-insensitive), prefer coins with high market_cap_rank
+    const match = coins.find(c => c.symbol?.toUpperCase() === key);
+    const coinId = match?.id ?? null;
+    cgIdCache.set(key, coinId);
+    return coinId;
+  } catch {
+    cgIdCache.set(key, null);
+    return null;
+  }
 }
 
-function toKrakenV2Symbol(pair: string): string {
-  return KRAKEN_WS_MAP[pair] ?? pair.replace('/USDT', '/USD');
-}
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function toBinanceSymbol(pair: string): string {
-  return pair.replace('/', '').toLowerCase();
+  return pair.replace('/', '').toUpperCase();
 }
 
-function getCoinGeckoId(pair: string): string | null {
-  const base = pair.split('/')[0]?.toUpperCase() ?? '';
-  return COINGECKO_ID_MAP[base] ?? null;
+// Crypto quote currencies — any pair ending with these is crypto, not a stock
+const CRYPTO_QUOTES = ['/USDT', '/USDC', '/BTC', '/ETH', '/BNB', '/SOL', '/USD'];
+// Known crypto base tickers — pairs like BTC/USD are crypto even though they end in /USD
+const KNOWN_CRYPTO_BASES = new Set([
+  'BTC','ETH','SOL','BNB','XRP','ADA','DOGE','AVAX','MATIC','POL','DOT','LINK',
+  'UNI','ATOM','LTC','BCH','NEAR','FTM','ALGO','SAND','MANA','APE','OP','ARB',
+  'SUI','INJ','SEI','TRX','TON','SHIB','LDO','RUNE','FIL','HBAR','VET','EOS',
+  'ZEC','XMR','DASH','AAVE','SNX','MKR','CRV','COMP','PEPE','WIF','BONK',
+  'JUP','JTO','PYTH','RAY','ORCA','MSOL','JITOSOL','BSOL','STSOL','W','ZETA',
+]);
+
+function isStockPair(pair: string): boolean {
+  if (!pair.includes('/')) {
+    // No slash — could be bare stock ticker like "AAPL" or bare crypto like "BTCUSDT"
+    // Bare crypto symbols from Binance won't reach here; assume stock
+    return true;
+  }
+  const base = pair.split('/')[0].toUpperCase();
+  // If the base is a known crypto ticker, it's always crypto regardless of quote
+  if (KNOWN_CRYPTO_BASES.has(base)) return false;
+  // If quote is a crypto quote currency, it's crypto
+  for (const q of CRYPTO_QUOTES) {
+    if (pair.toUpperCase().endsWith(q)) return false;
+  }
+  // Everything else with a slash (AAPL/USD, TSLA/USD) is a stock
+  return true;
 }
+
+/** Parse a Binance kline array row into OHLC (time in ms) */
+function parseBinanceRow(c: any[]): OHLC {
+  return {
+    time:   Number(c[0]),
+    open:   parseFloat(c[1]),
+    high:   parseFloat(c[2]),
+    low:    parseFloat(c[3]),
+    close:  parseFloat(c[4]),
+    volume: parseFloat(c[5]),
+  };
+}
+
+/** Fetch one page of Binance klines. Returns [] on error. */
+async function fetchBinancePage(
+  symbol: string,
+  interval: string,
+  limit: number,
+  endTime?: number,
+  signal?: AbortSignal,
+): Promise<OHLC[]> {
+  let url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+  if (endTime) url += `&endTime=${endTime}`;
+  const res = await fetch(url, {signal});
+  if (!res.ok) throw new Error(`Binance ${res.status}`);
+  const raw: any[][] = await res.json();
+  return raw
+    .map(parseBinanceRow)
+    .filter(c => Number(c.time) > 0 && c.open > 0);
+}
+
+function toMs(t: string | number): number {
+  return typeof t === 'number' ? t : new Date(t).getTime();
+}
+
+/** Merge two sorted OHLC arrays, dedup by time (ms), keep sorted ascending. */
+function mergeSorted(older: OHLC[], newer: OHLC[]): OHLC[] {
+  const map = new Map<number, OHLC>();
+  for (const c of older) map.set(toMs(c.time), c);
+  for (const c of newer) map.set(toMs(c.time), c);
+  return Array.from(map.values()).sort((a, b) => toMs(a.time) - toMs(b.time));
+}
+
+// ─── Hook ─────────────────────────────────────────────────────────────────────
 
 export function useMarketKline(
   pair: string | undefined,
   timeframe: string,
-  exchange: ExchangeId = 'kraken',
+  _exchange: ExchangeId = 'binance',
 ): MarketKlineState {
-  const [candles,   setCandles]   = useState<OHLC[]>([]);
-  const [livePrice, setLivePrice] = useState<number | undefined>();
-  const [loading,   setLoading]   = useState(false);
-  const [connected, setConnected] = useState(false);
-  const [source,    setSource]    = useState('');
+  const [candles,      setCandles]      = useState<OHLC[]>([]);
+  const [livePrice,    setLivePrice]    = useState<number | undefined>();
+  const [loading,      setLoading]      = useState(false);
+  const [loadingMore,  setLoadingMore]  = useState(false);
+  const [connected,    setConnected]    = useState(false);
+  const [source,       setSource]       = useState('');
+  const [totalCandles, setTotalCandles] = useState(0);
 
-  const candlesRef     = useRef<OHLC[]>([]);
-  const wsRef          = useRef<WebSocket | null>(null);
-  const pollTimer      = useRef<ReturnType<typeof setInterval> | null>(null);
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dataTimeout    = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const shouldConnect  = useRef(false);
-  const reconnectDelay = useRef(1000);
+  const candlesRef       = useRef<OHLC[]>([]);
+  const wsRef            = useRef<WebSocket | null>(null);
+  const reconnectTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollTimer        = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shouldConnect    = useRef(false);
+  const reconnectDelay   = useRef(1000);
+  const usingFallback1   = useRef(false);  // KuCoin relay
+  const usingFallback2   = useRef(false);  // CoinGecko
+  const hasMoreRef       = useRef(true);   // false once Binance returns < 1000 (genesis reached)
+  const binanceSymRef    = useRef('');     // current symbol for loadMore
+  const binanceIntRef    = useRef('');     // current interval for loadMore
+  const abortController  = useRef<AbortController | null>(null);
+  // Generation counter — increment on every pair/TF change
+  const generation       = useRef(0);
 
-  // ── Candle update helper ──────────────────────────────────────────────────
-  const updateLastCandle = useCallback((candle: OHLC, isClosed = false) => {
+  // ── State helpers ───────────────────────────────────────────────────────────
+  const setAll = useCallback((ohlc: OHLC[]) => {
+    candlesRef.current = ohlc;
+    setCandles([...ohlc]);
+    setTotalCandles(ohlc.length);
+    if (ohlc.length > 0) setLivePrice(ohlc[ohlc.length - 1].close);
+  }, []);
+
+  // ── updateLastCandle: called from any live WS tick ──────────────────────────
+  const updateLastCandle = useCallback((candle: OHLC, _isClosed: boolean, gen: number) => {
+    if (gen !== generation.current) return;
     setLivePrice(candle.close);
     const current = candlesRef.current;
     if (current.length === 0) {
       candlesRef.current = [candle];
       setCandles([candle]);
+      setTotalCandles(1);
       return;
     }
-    const last = current[current.length - 1];
-    const lastTime   = typeof last.time   === 'number' ? last.time   : new Date(last.time   as string).getTime();
-    const candleTime = typeof candle.time === 'number' ? candle.time : new Date(candle.time as string).getTime();
+    const last    = current[current.length - 1];
+    const lastMs  = typeof last.time   === 'number' ? last.time   : new Date(last.time   as string).getTime();
+    const newMs   = typeof candle.time === 'number' ? candle.time : new Date(candle.time as string).getTime();
+    const lastSec = lastMs > 1e10 ? Math.floor(lastMs / 1000) : lastMs;
+    const newSec  = newMs  > 1e10 ? Math.floor(newMs  / 1000) : newMs;
 
-    if (isClosed && candleTime > lastTime) {
+    if (newSec > lastSec) {
       const updated = [...current, candle];
       candlesRef.current = updated;
       setCandles([...updated]);
-    } else if (candleTime >= lastTime) {
+      setTotalCandles(updated.length);
+    } else if (newSec === lastSec) {
       const updated = [...current];
       updated[updated.length - 1] = candle;
       candlesRef.current = updated;
       setCandles([...updated]);
-    } else {
-      // older candle — append (shouldn't happen in normal operation)
-      const updated = [...current, candle];
-      candlesRef.current = updated;
-      setCandles([...updated]);
     }
+    // newSec < lastSec → stale, ignore
   }, []);
 
-  // ── Seed from backend REST ────────────────────────────────────────────────
-  // Always request max — backend caps at 721 candles regardless (that's all the history it has)
-  function seedLimit(_tf: string): number {
-    return 2000; // backend will give up to 721 — maximum history available
-  }
+  const ensureSeedCandle = useCallback((price: number, gen: number) => {
+    if (gen !== generation.current) return;
+    if (candlesRef.current.length > 0) return;
+    const now: OHLC = {time: Date.now(), open: price, high: price, low: price, close: price};
+    candlesRef.current = [now];
+    setCandles([now]);
+    setTotalCandles(1);
+    setLivePrice(price);
+  }, []);
 
-  const loadSeed = useCallback(async (p: string, tf: string, ex: string) => {
-    setLoading(true);
+  // ── loadMore: fetch exactly 1,000 older candles on demand (manual) ───────────
+  // Called by the UI "Load More" button. Fetches one page backwards from the
+  // oldest candle currently loaded. Sets hasMoreRef=false when Binance returns
+  // < 1000 rows (genesis reached). No-ops if loadingMore or no Binance sym set.
+  const [hasMore, setHasMore] = useState(true);
+
+  const loadMore = useCallback(async () => {
+    const sym      = binanceSymRef.current;
+    const interval = binanceIntRef.current;
+    if (!sym || !interval) return;           // not a Binance-sourced pair
+    if (loadingMore) return;                 // already fetching
+    const gen = generation.current;
+
+    setLoadingMore(true);
     try {
-      const limit = seedLimit(tf);
-      const res = await api.get<{data: any}>(
-        `/market/candles?symbol=${encodeURIComponent(p)}&timeframe=${tf}&limit=${limit}&exchange=${ex}`,
-      );
-      const payload = res?.data ?? res;
+      const oldest  = candlesRef.current.length > 0 ? toMs(candlesRef.current[0].time) : Date.now();
+      const endTime = oldest - 1;
+      const rows    = await fetchBinancePage(sym, interval, 1000, endTime);
+      if (gen !== generation.current) return; // pair/TF changed mid-flight
+
+      if (rows.length === 0) {
+        setHasMore(false);
+        hasMoreRef.current = false;
+        return;
+      }
+
+      const merged = mergeSorted(rows, candlesRef.current);
+      candlesRef.current = merged;
+      setCandles([...merged]);
+      setTotalCandles(merged.length);
+
+      if (rows.length < 1000) {
+        // Binance gave us less than a full page — we've reached genesis
+        setHasMore(false);
+        hasMoreRef.current = false;
+      }
+    } catch {
+      // Network error — leave hasMore true so user can retry
+    } finally {
+      if (gen === generation.current) setLoadingMore(false);
+    }
+  }, [loadingMore]);
+
+  // ── Binance REST seed (initial 1000 only — further pages are manual) ─────────
+  const loadBinanceSeed = useCallback(async (p: string, tf: string, gen: number, signal: AbortSignal) => {
+    if (gen !== generation.current) return;
+    setLoading(true);
+    const sym      = toBinanceSymbol(p);
+    const interval = BINANCE_INTERVALS[tf] ?? '4h';
+
+    // Store for loadMore to use later
+    binanceSymRef.current = sym;
+    binanceIntRef.current = interval;
+
+    try {
+      const rows = await fetchBinancePage(sym, interval, INITIAL_LIMIT, undefined, signal);
+      if (signal.aborted || gen !== generation.current) return;
+      setAll(rows);
+      setLoading(false);
+      // If first page already < 1000, this is the entire history
+      if (rows.length < INITIAL_LIMIT) {
+        setHasMore(false);
+        hasMoreRef.current = false;
+      } else {
+        setHasMore(true);
+        hasMoreRef.current = true;
+      }
+    } catch (err: any) {
+      if (signal.aborted || gen !== generation.current) return;
+      setLoading(false);
+      throw err; // caller handles fallback
+    }
+  }, [setAll]);
+
+  // ── Fallback 1: KuCoin relay via backend ─────────────────────────────────────
+  const loadKuCoinSeed = useCallback(async (p: string, tf: string, gen: number, signal: AbortSignal) => {
+    if (gen !== generation.current) return;
+    const interval = BINANCE_INTERVALS[tf] ?? '4h';
+    const token = await storage.getAccessToken();
+    const url = `${API_BASE_URL}/market/candles?symbol=${encodeURIComponent(p)}&timeframe=${interval}&limit=1000&exchange=kucoin`;
+    const fetchRes = await fetch(url, {signal, headers: token ? {Authorization: `Bearer ${token}`} : {}});
+    if (signal.aborted || gen !== generation.current) return;
+    if (!fetchRes.ok) throw new Error(`KuCoin seed HTTP ${fetchRes.status}`);
+    const res = await fetchRes.json();
+    if (signal.aborted || gen !== generation.current) return;
+    const payload = res?.data ?? res;
+    const raw: any[] = Array.isArray(payload?.candles) ? payload.candles
+                     : Array.isArray(payload?.data)    ? payload.data
+                     : Array.isArray(payload)           ? payload
+                     : [];
+    const ohlc: OHLC[] = raw.map((c: any) => ({
+      time:   c.timestamp ?? c.time ?? 0,
+      open:   Number(c.open),
+      high:   Number(c.high),
+      low:    Number(c.low),
+      close:  Number(c.close),
+      volume: c.volume != null ? Number(c.volume) : undefined,
+    })).filter(c => toMs(c.time) > 0 && c.open > 0)
+      .sort((a, b) => toMs(a.time) - toMs(b.time));
+    if (gen === generation.current) setAll(ohlc);
+  }, [setAll]);
+
+  // ── Fallback 2: CoinGecko public REST (OHLC, no auth) ───────────────────────
+  // CoinGecko /coins/{id}/ohlc returns up to 365 days of OHLC candles.
+  // days param: 1, 7, 14, 30, 90, 180, 365, max
+  const loadCoinGeckoSeed = useCallback(async (p: string, tf: string, gen: number, signal: AbortSignal) => {
+    if (gen !== generation.current) return;
+
+    const base = p.split('/')[0].toUpperCase();
+    const coinId = await resolveCoinGeckoId(base, signal);
+    if (!coinId) throw new Error(`No CoinGecko id for ${base}`);
+
+    // Pick days param based on TF
+    const daysMap: Record<string, string> = {
+      '1m': '1', '3m': '1', '5m': '1', '15m': '1', '30m': '1',
+      '1h': '7', '2h': '14', '4h': '30', '6h': '90', '12h': '90',
+      '1d': '365', '3d': 'max', '1w': 'max', '1M': 'max', 'all': '90',
+    };
+    const days = daysMap[tf] ?? '90';
+    const url = `https://api.coingecko.com/api/v3/coins/${coinId}/ohlc?vs_currency=usd&days=${days}`;
+    const res = await fetch(url, {signal});
+    if (!res.ok) throw new Error(`CoinGecko ${res.status}`);
+    const raw: number[][] = await res.json();
+    if (signal.aborted || gen !== generation.current) return;
+    const ohlc: OHLC[] = raw
+      .map(c => ({time: c[0], open: c[1], high: c[2], low: c[3], close: c[4], volume: 0}))
+      .filter(c => c.time > 0 && c.open > 0)
+      .sort((a, b) => a.time - b.time);
+    if (gen === generation.current) setAll(ohlc);
+  }, [setAll]);
+
+  // ── CoinGecko price polling (fallback 2 live updates, every 15s) ─────────────
+  // coinId must already be resolved before calling this (use resolveCoinGeckoId first)
+  const startCoinGeckoPoll = useCallback((coinId: string, gen: number) => {
+    const tick = async () => {
+      if (gen !== generation.current || !shouldConnect.current) return;
+      try {
+        const res = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd`,
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        const price = json?.[coinId]?.usd;
+        if (price && gen === generation.current) {
+          setConnected(true);
+          setSource('Live · CoinGecko');
+          ensureSeedCandle(price, gen);
+          const current = candlesRef.current;
+          if (current.length > 0) {
+            const last = current[current.length - 1];
+            updateLastCandle({
+              ...last, close: price,
+              high: Math.max(last.high, price),
+              low:  Math.min(last.low,  price),
+            }, false, gen);
+          }
+        }
+      } catch {}
+      if (gen === generation.current && shouldConnect.current) {
+        pollTimer.current = setTimeout(tick, 15_000);
+      }
+    };
+    tick();
+  }, [ensureSeedCandle, updateLastCandle]);
+
+  // ── KuCoin relay WS ──────────────────────────────────────────────────────────
+  const connectKuCoinRelay = useCallback((p: string, gen: number): (() => void) => {
+    wsService.send({topic: 'subscribe_market', payload: {pairs: [p], exchange: 'kucoin'}});
+    const unsub = wsService.subscribe('crypto_price', (payload: unknown) => {
+      if (gen !== generation.current) return;
+      const msg = payload as any;
+      if (msg.symbol !== p) return;
+      setConnected(true);
+      setSource('Live · KuCoin');
+      ensureSeedCandle(msg.price, gen);
+      const current = candlesRef.current;
+      if (current.length === 0) return;
+      const last = current[current.length - 1];
+      updateLastCandle({
+        ...last, close: msg.price,
+        high: Math.max(last.high, msg.price),
+        low:  Math.min(last.low,  msg.price),
+      }, false, gen);
+    });
+    return () => {
+      unsub();
+      wsService.send({topic: 'unsubscribe_market', payload: {pairs: [p], exchange: 'kucoin'}});
+    };
+  }, [updateLastCandle, ensureSeedCandle]);
+
+  // ── Binance WS kline stream ───────────────────────────────────────────────────
+  const connectBinanceWS = useCallback((
+    p: string,
+    tf: string,
+    gen: number,
+    onFail: () => void,
+  ) => {
+    if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
+    // Monthly has no meaningful WS update (closes once/month) — skip to relay
+    if (tf === '1M') {
+      onFail();
+      return;
+    }
+
+    const sym      = toBinanceSymbol(p);
+    const interval = BINANCE_INTERVALS[tf] ?? '4h';
+    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${sym.toLowerCase()}@kline_${interval}`);
+    wsRef.current = ws;
+
+    let gotData = false;
+    // Longer timeout for lower-frequency intervals (1d / 1w can wait minutes between ticks)
+    const timeoutMs = ['1d', '3d', '1w', '1M'].includes(tf) ? 20_000
+                    : ['4h', '6h', '12h'].includes(tf)       ? 12_000
+                    : 6_000;
+
+    const failTimer = setTimeout(() => {
+      if (!gotData && shouldConnect.current && gen === generation.current) {
+        wsRef.current?.close();
+        wsRef.current = null;
+        onFail();
+      }
+    }, timeoutMs);
+
+    ws.onopen = () => {
+      reconnectDelay.current = 1000;
+      if (gen === generation.current) setSource('Live · Binance');
+    };
+
+    ws.onmessage = (evt) => {
+      if (gen !== generation.current) return;
+      try {
+        const msg = JSON.parse(evt.data as string);
+        const k = msg.k;
+        if (!k) return;
+        if (!gotData) {
+          gotData = true;
+          clearTimeout(failTimer);
+          setConnected(true);
+          setSource('Live · Binance');
+        }
+        updateLastCandle({
+          time:   k.t,
+          open:   parseFloat(k.o),
+          high:   parseFloat(k.h),
+          low:    parseFloat(k.l),
+          close:  parseFloat(k.c),
+          volume: parseFloat(k.v),
+        }, k.x, gen);
+      } catch {}
+    };
+
+    ws.onclose = () => {
+      clearTimeout(failTimer);
+      if (gen !== generation.current) return;
+      setConnected(false);
+      wsRef.current = null;
+      if (!shouldConnect.current) return;
+      if (gotData) {
+        reconnectTimer.current = setTimeout(() => {
+          reconnectDelay.current = Math.min(reconnectDelay.current * 2, 30_000);
+          if (shouldConnect.current && gen === generation.current) {
+            connectBinanceWS(p, tf, gen, onFail);
+          }
+        }, reconnectDelay.current);
+      } else {
+        onFail();
+      }
+    };
+
+    ws.onerror = () => { clearTimeout(failTimer); ws.close(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateLastCandle]);
+
+  // ── Alpaca stock stream ───────────────────────────────────────────────────────
+  // tf ref so connectAlpaca closure always knows the current timeframe
+  const currentTFRef = useRef('1d');
+
+  const connectAlpaca = useCallback((p: string, gen: number): (() => void) => {
+    const sym = p.replace('/USD', '').toUpperCase();
+    wsService.send({topic: 'subscribe_stock', payload: {symbols: [sym]}});
+
+    // stock_price: individual trade tick — always safe to update current candle's OHLC
+    const unsubPrice = wsService.subscribe('stock_price', (payload: unknown) => {
+      if (gen !== generation.current) return;
+      const msg = payload as any;
+      if (msg.symbol !== sym) return;
+      setConnected(true);
+      setSource('Live · Alpaca');
+      ensureSeedCandle(msg.price, gen);
+      const current = candlesRef.current;
+      if (current.length === 0) return;
+      const last = current[current.length - 1];
+      // Always update the last candle's close/high/low — never append a new candle
+      // from a price tick regardless of TF (we don't know if this tick is a new period)
+      updateLastCandle({
+        ...last, close: msg.price,
+        high: Math.max(last.high, msg.price),
+        low:  Math.min(last.low,  msg.price),
+      }, false, gen);
+    });
+
+    // stock_bar: Alpaca IEX emits 1-MINUTE bars only.
+    // If the current TF is 1m → use the full bar (open/high/low/close from bar).
+    // If current TF > 1m   → only use bar.close to update the current candle's price.
+    //                         Do NOT use bar.time — it's a 1m boundary, not a 4h/1d boundary.
+    const unsubBar = wsService.subscribe('stock_bar', (payload: unknown) => {
+      if (gen !== generation.current) return;
+      const b = payload as any;
+      if (b.symbol !== sym) return;
+      setConnected(true);
+
+      const tf = currentTFRef.current;
+      if (tf === '1m') {
+        // TF matches bar interval — use full bar OHLCV (may create a new candle)
+        updateLastCandle({
+          time:   new Date(b.timestamp).getTime(),
+          open:   b.open, high: b.high, low: b.low, close: b.close, volume: b.volume,
+        }, true, gen);
+      } else {
+        // TF is larger — only update close/high/low of the current candle using bar.close
+        const current = candlesRef.current;
+        if (current.length === 0) return;
+        const last = current[current.length - 1];
+        updateLastCandle({
+          ...last, close: b.close,
+          high: Math.max(last.high, b.close),
+          low:  Math.min(last.low,  b.close),
+        }, false, gen);
+      }
+    });
+
+    return () => {
+      unsubPrice();
+      unsubBar();
+      wsService.send({topic: 'unsubscribe_stock', payload: {symbols: [sym]}});
+    };
+  }, [updateLastCandle, ensureSeedCandle]);
+
+  // ── Stock seed via backend (Alpaca) ───────────────────────────────────────────
+  const loadStockSeed = useCallback(async (p: string, tf: string, gen: number, signal: AbortSignal) => {
+    if (gen !== generation.current) return;
+    setLoading(true);
+    // 'all' not a real interval — use 1d. Only accepted STOCK_INTERVALS pass through.
+    const stockTf = (tf === 'all' || !STOCK_INTERVALS.includes(tf)) ? '1d' : tf;
+    try {
+      const token = await storage.getAccessToken();
+      const url = `${API_BASE_URL}/market/candles?symbol=${encodeURIComponent(p)}&timeframe=${stockTf}&limit=1000&exchange=alpaca`;
+      const res = await fetch(url, {
+        signal,
+        headers: token ? {Authorization: `Bearer ${token}`} : {},
+      });
+      if (signal.aborted || gen !== generation.current) return;
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (signal.aborted || gen !== generation.current) return;
+      const payload = json?.data ?? json;
       const raw: any[] = Array.isArray(payload?.candles) ? payload.candles
+                       : Array.isArray(payload?.data)    ? payload.data
                        : Array.isArray(payload)           ? payload
                        : [];
-      // Don't set source here — the live stream handler sets the definitive source badge
       const ohlc: OHLC[] = raw.map((c: any) => ({
         time:   c.timestamp ?? c.time ?? 0,
         open:   Number(c.open),
@@ -198,331 +673,169 @@ export function useMarketKline(
         low:    Number(c.low),
         close:  Number(c.close),
         volume: c.volume != null ? Number(c.volume) : undefined,
-      })).filter(c => c.time > 0 && c.open > 0);
-      candlesRef.current = ohlc;
-      setCandles([...ohlc]);
-      if (ohlc.length > 0) setLivePrice(ohlc[ohlc.length - 1].close);
-    } catch {
-      // keep what we have
+      })).filter(c => toMs(c.time) > 0 && c.open > 0)
+        .sort((a, b) => toMs(a.time) - toMs(b.time));
+      if (gen !== generation.current) return;
+      if (ohlc.length === 0) throw new Error('No stock data returned');
+      setAll(ohlc);
+    } catch (err: any) {
+      if (signal.aborted || gen !== generation.current) return;
+      throw new Error(`Stock seed failed: ${err?.message ?? err}`);
     } finally {
-      setLoading(false);
+      if (gen === generation.current) setLoading(false);
     }
-  }, []);
+  }, [setAll]);
 
-  // ── Seed candle synthesizer — creates a minimal OHLC when backend returns nothing ──
-  const ensureSeedCandle = useCallback((price: number) => {
-    if (candlesRef.current.length > 0) return;
-    const now = Date.now();
-    const seed: OHLC = {time: now, open: price, high: price, low: price, close: price};
-    candlesRef.current = [seed];
-    setCandles([seed]);
-    setLivePrice(price);
-  }, []);
+  // ── Stable refs so closures always call latest versions ───────────────────────
+  const connectBinanceWSRef   = useRef(connectBinanceWS);
+  const connectKuCoinRelayRef = useRef(connectKuCoinRelay);
+  const connectAlpacaRef      = useRef(connectAlpaca);
+  const loadBinanceSeedRef    = useRef(loadBinanceSeed);
+  const loadKuCoinSeedRef     = useRef(loadKuCoinSeed);
+  const loadCoinGeckoSeedRef  = useRef(loadCoinGeckoSeed);
+  const loadStockSeedRef      = useRef(loadStockSeed);
+  const startCoinGeckoPollRef = useRef(startCoinGeckoPoll);
+  useEffect(() => { connectBinanceWSRef.current   = connectBinanceWS;   }, [connectBinanceWS]);
+  useEffect(() => { connectKuCoinRelayRef.current  = connectKuCoinRelay; }, [connectKuCoinRelay]);
+  useEffect(() => { connectAlpacaRef.current       = connectAlpaca;      }, [connectAlpaca]);
+  useEffect(() => { loadBinanceSeedRef.current     = loadBinanceSeed;    }, [loadBinanceSeed]);
+  useEffect(() => { loadKuCoinSeedRef.current      = loadKuCoinSeed;     }, [loadKuCoinSeed]);
+  useEffect(() => { loadCoinGeckoSeedRef.current   = loadCoinGeckoSeed;  }, [loadCoinGeckoSeed]);
+  useEffect(() => { loadStockSeedRef.current       = loadStockSeed;      }, [loadStockSeed]);
+  useEffect(() => { startCoinGeckoPollRef.current  = startCoinGeckoPoll; }, [startCoinGeckoPoll]);
 
-  // ── CoinGecko REST poll (last resort, 60s rate-limit guard) ──────────────
-  function startCoinGeckoPollDirect(p: string) {
-    if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
-    const geckoId = getCoinGeckoId(p);
-    if (!geckoId) {
-      setConnected(false);
-      setSource('No price source');
-      return;
-    }
-    setConnected(true);
-    setSource('REST · CoinGecko');
-
-    const doFetch = async () => {
-      const now = Date.now();
-      const lastTs = cgLastFetch.get(geckoId) ?? 0;
-      if (now - lastTs < CG_MIN_INTERVAL_MS) return; // respect rate limit
-      cgLastFetch.set(geckoId, now);
-      try {
-        const res = await fetchWithTimeout(
-          `https://api.coingecko.com/api/v3/simple/price?ids=${geckoId}&vs_currencies=usd`, 6000,
-        );
-        if (!res.ok) return;
-        const json: any = await res.json();
-        const price = json[geckoId]?.usd;
-        if (!price || price <= 0) return;
-        // Ensure a seed candle exists before trying to update
-        ensureSeedCandle(price);
-        const current = candlesRef.current;
-        const last_ = current[current.length - 1];
-        updateLastCandle({...last_, close: price, high: Math.max(last_.high, price), low: Math.min(last_.low, price)});
-        setSource('REST · CoinGecko');
-      } catch {}
-    };
-
-    doFetch();
-    pollTimer.current = setInterval(doFetch, 10_000);
-  }
-
-  // ── KuCoin REST poll ──────────────────────────────────────────────────────
-  const startKuCoinPoll = useCallback((p: string) => {
-    if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
-    setConnected(true);
-    setSource('REST · KuCoin');
-
-    // KuCoin uses BSOL-USDT, MATIC-USDT (not POL), etc.
-    const base = p.split('/')[0] ?? p;
-    // Handle MATIC/POL alias — KuCoin still uses MATIC
-    const kcBase = base === 'POL' ? 'MATIC' : base;
-    const kcSym = `${kcBase}-USDT`;
-    let noDataCount = 0;
-
-    const doFetch = async () => {
-      try {
-        const res = await fetchWithTimeout(
-          `https://api.kucoin.com/api/v1/market/orderbook/level1?symbol=${kcSym}`, 5000,
-        );
-        if (!res.ok) { noDataCount++; if (noDataCount >= 3) startCoinGeckoPollDirect(p); return; }
-        const json: any = await res.json();
-        const price = parseFloat(json?.data?.price ?? '0');
-        if (!price || price <= 0) {
-          noDataCount++;
-          if (noDataCount >= 3) startCoinGeckoPollDirect(p);
-          return;
-        }
-        noDataCount = 0;
-        // If backend seed was empty, create a synthetic candle so price ticks render
-        ensureSeedCandle(price);
-        const current = candlesRef.current;
-        const last = current[current.length - 1];
-        updateLastCandle({...last, close: price, high: Math.max(last.high, price), low: Math.min(last.low, price)});
-        setSource('REST · KuCoin');
-      } catch { noDataCount++; if (noDataCount >= 3) startCoinGeckoPollDirect(p); }
-    };
-
-    doFetch();
-    pollTimer.current = setInterval(doFetch, 3000);
-  }, [updateLastCandle, ensureSeedCandle]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Coinbase REST poll — direct public API from mobile (no backend hop) ──
-  const startCoinbasePoll = useCallback((p: string) => {
-    if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
-    setConnected(true);
-    setSource('REST · Coinbase');
-    let noDataCount = 0;
-
-    // Coinbase still uses MATIC (not POL), and BASE-USD format
-    const productId = p
-      .replace('/USDT', '-USD').replace('/USD', '-USD').replace('/', '-')
-      .replace('POL-USD', 'MATIC-USD');
-
-    const doFetch = async () => {
-      try {
-        const res = await fetchWithTimeout(
-          `https://api.coinbase.com/api/v3/brokerage/market/products/${productId}`, 5000,
-        );
-        if (!res.ok) { noDataCount++; if (noDataCount >= 3) startKuCoinPoll(p); return; }
-        const json: any = await res.json();
-        const price = parseFloat(json.price ?? json.best_bid ?? '0');
-        if (price > 0) {
-          ensureSeedCandle(price);
-          const current = candlesRef.current;
-          const last = current[current.length - 1];
-          updateLastCandle({...last, close: price, high: Math.max(last.high, price), low: Math.min(last.low, price)});
-          setSource('REST · Coinbase');
-          noDataCount = 0;
-        } else {
-          noDataCount++;
-          if (noDataCount >= 3) startKuCoinPoll(p);
-        }
-      } catch { noDataCount++; if (noDataCount >= 3) startKuCoinPoll(p); }
-    };
-
-    doFetch();
-    pollTimer.current = setInterval(doFetch, 3000);
-  }, [updateLastCandle, startKuCoinPoll, ensureSeedCandle]);
-
-  // ── Kraken V2 WebSocket ───────────────────────────────────────────────────
-  const connectKraken = useCallback((p: string, tf: string) => {
-    if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
-
-    // Unknown pair → go straight to KuCoin (no WS attempt)
-    if (!KRAKEN_WS_SUPPORTED.has(p)) {
-      startKuCoinPoll(p);
-      return;
-    }
-
-    const krakenSym = toKrakenV2Symbol(p);
-    const interval  = KRAKEN_TF[tf] ?? 60;
-
-    // Kraken direct WSS is unreliable on Android (TLS issues on some devices/networks).
-    // Use backend REST price polling instead — backend reaches Kraken REST fine, and
-    // polling every 2s gives effectively real-time prices with "Live · Kraken" badge.
-    if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null; }
-    setConnected(true);
-    setSource('Live · Kraken');
-    let noDataCount = 0;
-
-    const doFetch = async () => {
-      try {
-        const res = await api.get<{data: any}>(
-          `/market/price?symbol=${encodeURIComponent(p)}&exchange=kraken`,
-        );
-        // Backend returns {data: {price, source}}
-        const inner = (res as any)?.data;
-        const price = inner?.price;
-        if (price && price > 0) {
-          noDataCount = 0;
-          ensureSeedCandle(price);
-          const current = candlesRef.current;
-          const last = current[current.length - 1];
-          updateLastCandle({...last, close: price, high: Math.max(last.high, price), low: Math.min(last.low, price)});
-          setSource('Live · Kraken');
-          setConnected(true);
-        } else {
-          noDataCount++;
-          if (noDataCount >= 4) startKuCoinPoll(p);
-        }
-      } catch {
-        noDataCount++;
-        if (noDataCount >= 4) startKuCoinPoll(p);
-      }
-    };
-
-    doFetch();
-    pollTimer.current = setInterval(doFetch, 2000);
-  }, [updateLastCandle, startKuCoinPoll, ensureSeedCandle]);
-
-  // ── Binance WebSocket ─────────────────────────────────────────────────────
-  const connectBinance = useCallback((p: string, tf: string) => {
-    if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
-    const sym      = toBinanceSymbol(p);
-    const interval = BINANCE_TF[tf] ?? '1h';
-    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${sym}@kline_${interval}`);
-    wsRef.current = ws;
-    let receivedData = false;
-
-    // Timeout scales with timeframe — longer TFs have fewer ticks per minute
-    const FIRST_DATA_MS = ['1d','1w'].includes(tf) ? 90_000 : ['4h'].includes(tf) ? 60_000 : 20_000;
-    let firstDataTimeout: ReturnType<typeof setTimeout> | null = setTimeout(() => {
-      if (receivedData || !shouldConnect.current) return;
-      // Never got a kline frame — pair not on Binance or geo-issue, fall to KuCoin
-      if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
-      startKuCoinPoll(p);
-    }, FIRST_DATA_MS);
-
-    ws.onopen = () => {
-      setConnected(true);
-      setSource('Live · Binance');
-      reconnectDelay.current = 1000;
-    };
-
-    ws.onmessage = (evt) => {
-      try {
-        const msg = JSON.parse(evt.data as string);
-        const k = msg.k;
-        if (!k) return;
-        if (!receivedData) {
-          receivedData = true;
-          if (firstDataTimeout) { clearTimeout(firstDataTimeout); firstDataTimeout = null; }
-        }
-        updateLastCandle({
-          time:   k.t,
-          open:   parseFloat(k.o), high:   parseFloat(k.h),
-          low:    parseFloat(k.l), close:  parseFloat(k.c),
-          volume: parseFloat(k.v),
-        }, k.x);
-      } catch {}
-    };
-
-    ws.onclose = () => {
-      if (firstDataTimeout) { clearTimeout(firstDataTimeout); firstDataTimeout = null; }
-      setConnected(false);
-      wsRef.current = null;
-      if (dataTimeout.current) { clearTimeout(dataTimeout.current); dataTimeout.current = null; }
-      if (!shouldConnect.current) return;
-      if (receivedData) {
-        // Normal transient close — reconnect
-        reconnectTimer.current = setTimeout(() => {
-          reconnectDelay.current = Math.min(reconnectDelay.current * 2, 30_000);
-          if (shouldConnect.current) connectBinance(p, tf);
-        }, reconnectDelay.current);
-      } else {
-        // Never had data — fall to KuCoin
-        startKuCoinPoll(p);
-      }
-    };
-    ws.onerror = () => { if (firstDataTimeout) { clearTimeout(firstDataTimeout); firstDataTimeout = null; } ws.close(); };
-  }, [updateLastCandle, startKuCoinPoll]);
-
-  // ── Alpaca (stocks via backend WS relay) ──────────────────────────────────
-  const connectAlpaca = useCallback((p: string): (() => void) => {
-    const sym = p.replace('/USD', '').toUpperCase();
-    setConnected(false);
-
-    const unsubPrice = wsService.subscribe('stock_price', (payload: unknown) => {
-      const msg = payload as any;
-      if (msg.symbol !== sym) return;
-      setConnected(true);
-      setSource('Live · Alpaca');
-      const current = candlesRef.current;
-      if (current.length === 0) return;
-      const last = current[current.length - 1];
-      updateLastCandle({...last, close: msg.price, high: Math.max(last.high, msg.price), low: Math.min(last.low, msg.price)});
-    });
-
-    const unsubBar = wsService.subscribe('stock_bar', (payload: unknown) => {
-      const b = payload as any;
-      if (b.symbol !== sym) return;
-      setConnected(true);
-      updateLastCandle({
-        time: new Date(b.timestamp).getTime(),
-        open: b.open, high: b.high, low: b.low, close: b.close, volume: b.volume,
-      }, true);
-    });
-
-    return () => { unsubPrice(); unsubBar(); };
-  }, [updateLastCandle]);
-
-  // Stable refs for callbacks — prevents useEffect from re-firing when callbacks recreate
-  const connectKrakenRef    = useRef(connectKraken);
-  const connectBinanceRef   = useRef(connectBinance);
-  const startCoinbasePollRef = useRef(startCoinbasePoll);
-  const connectAlpacaRef    = useRef(connectAlpaca);
-  const loadSeedRef         = useRef(loadSeed);
-  useEffect(() => { connectKrakenRef.current    = connectKraken;    }, [connectKraken]);
-  useEffect(() => { connectBinanceRef.current   = connectBinance;   }, [connectBinance]);
-  useEffect(() => { startCoinbasePollRef.current = startCoinbasePoll; }, [startCoinbasePoll]);
-  useEffect(() => { connectAlpacaRef.current    = connectAlpaca;    }, [connectAlpaca]);
-  useEffect(() => { loadSeedRef.current         = loadSeed;         }, [loadSeed]);
-
-  // ── Main effect — only re-runs when pair/timeframe/exchange actually change ─
+  // ── Main effect — fires on pair or timeframe change ───────────────────────────
   useEffect(() => {
     if (!pair) return;
 
-    shouldConnect.current = true;
+    // Bump generation — all prior async callbacks become stale immediately
+    generation.current += 1;
+    const gen = generation.current;
+
+    shouldConnect.current  = true;
     reconnectDelay.current = 1000;
+    usingFallback1.current = false;
+    usingFallback2.current = false;
+    hasMoreRef.current     = true;
+    binanceSymRef.current  = '';
+    binanceIntRef.current  = '';
+
+    // Abort any in-flight requests
+    abortController.current?.abort();
+    const ctl = new AbortController();
+    abortController.current = ctl;
+
+    // Track current TF so connectAlpaca bar handler knows how to interpret 1-min bars
+    currentTFRef.current = timeframe;
+
+    // Close any existing WS immediately (before any await)
+    if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    if (reconnectTimer.current) { clearTimeout(reconnectTimer.current); reconnectTimer.current = null; }
+    if (pollTimer.current)      { clearTimeout(pollTimer.current);      pollTimer.current = null; }
+
+    // Clear state
     candlesRef.current = [];
     setCandles([]);
     setLivePrice(undefined);
     setConnected(false);
+    setTotalCandles(0);
+    setLoadingMore(false);
+    setHasMore(true);
     setSource('Loading...');
 
-    let cleanupAlpaca: (() => void) | null = null;
-    const isStock = !pair.includes('/') || (pair.endsWith('/USD') && !pair.endsWith('/USDT'));
+    let cleanupRelay: (() => void) | null = null;
+    const stock = isStockPair(pair);
 
-    loadSeedRef.current(pair, timeframe, isStock ? 'alpaca' : exchange).then(() => {
-      if (!shouldConnect.current) return;
-      if (isStock) { cleanupAlpaca = connectAlpacaRef.current(pair); return; }
-      if      (exchange === 'kraken')   connectKrakenRef.current(pair, timeframe);
-      else if (exchange === 'binance')  connectBinanceRef.current(pair, timeframe);
-      else if (exchange === 'coinbase') startCoinbasePollRef.current(pair);
-      else                              connectKrakenRef.current(pair, timeframe);
-    });
+    if (stock) {
+      // ── Stock path — Alpaca seed + live stream, one retry on failure ────────
+      const tryStock = async (attempt: number) => {
+        try {
+          await loadStockSeedRef.current(pair, timeframe, gen, ctl.signal);
+          if (gen !== generation.current) return;
+          setSource('Live · Alpaca');
+          cleanupRelay = connectAlpacaRef.current(pair, gen);
+        } catch {
+          if (gen !== generation.current || ctl.signal.aborted) return;
+          if (attempt < 2) {
+            setSource('Retrying...');
+            await new Promise<void>(r => setTimeout(r, 3000));
+            if (gen === generation.current && !ctl.signal.aborted) tryStock(attempt + 1);
+          } else {
+            setSource('No data · Market may be closed');
+          }
+        }
+      };
+      tryStock(1);
+    } else {
+      // ── Crypto path — try Binance, fallback 1 KuCoin, fallback 2 CoinGecko ─
+      const tryFallback2 = async () => {
+        if (gen !== generation.current || usingFallback2.current) return;
+        usingFallback2.current = true;
+        setSource('Connecting · CoinGecko...');
+        // Resolve coinId first (static map → dynamic search)
+        const base = pair.split('/')[0].toUpperCase();
+        const coinId = await resolveCoinGeckoId(base, ctl.signal);
+        if (!coinId) {
+          if (gen === generation.current) setSource('No data available');
+          return;
+        }
+        try {
+          await loadCoinGeckoSeedRef.current(pair, timeframe, gen, ctl.signal);
+        } catch {
+          if (gen === generation.current) setSource('No data available');
+          return;
+        }
+        if (gen !== generation.current) return;
+        setSource('Live · CoinGecko');
+        startCoinGeckoPollRef.current(coinId, gen);
+      };
+
+      const tryFallback1 = async () => {
+        if (gen !== generation.current || usingFallback1.current) return;
+        usingFallback1.current = true;
+        setSource('Connecting · KuCoin...');
+        try {
+          await loadKuCoinSeedRef.current(pair, timeframe, gen, ctl.signal);
+          if (gen !== generation.current) return;
+          cleanupRelay = connectKuCoinRelayRef.current(pair, gen);
+        } catch {
+          await tryFallback2();
+        }
+      };
+
+      const onBinanceWSFail = () => {
+        if (gen !== generation.current) return;
+        // WS failed but seed may have loaded — try KuCoin relay for live updates
+        if (!usingFallback1.current) {
+          usingFallback1.current = true;
+          cleanupRelay = connectKuCoinRelayRef.current(pair, gen);
+        }
+      };
+
+      loadBinanceSeedRef.current(pair, timeframe, gen, ctl.signal)
+        .then(() => {
+          if (gen !== generation.current) return;
+          connectBinanceWSRef.current(pair, timeframe, gen, onBinanceWSFail);
+        })
+        .catch(async () => {
+          if (gen !== generation.current) return;
+          setLoading(false);
+          await tryFallback1();
+        });
+    }
 
     return () => {
       shouldConnect.current = false;
-      if (dataTimeout.current)    { clearTimeout(dataTimeout.current);    dataTimeout.current    = null; }
-      if (reconnectTimer.current) { clearTimeout(reconnectTimer.current); reconnectTimer.current = null; }
-      if (pollTimer.current)      { clearInterval(pollTimer.current);     pollTimer.current      = null; }
-      if (wsRef.current)          { wsRef.current.onclose = null; wsRef.current.close(); wsRef.current = null; }
-      cleanupAlpaca?.();
+      ctl.abort();
+      if (pollTimer.current) { clearTimeout(pollTimer.current); pollTimer.current = null; }
+      cleanupRelay?.();
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pair, timeframe, exchange]);
+  }, [pair, timeframe]);
 
-  return {candles, livePrice, loading, connected, source};
+  return {candles, livePrice, loading, loadingMore, connected, source, totalCandles, hasMore, loadMore};
 }

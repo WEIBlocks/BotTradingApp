@@ -3,6 +3,9 @@ export declare class AlpacaAdapter implements ExchangeAdapter {
     readonly name = "alpaca";
     readonly assetClass: "stocks";
     private client;
+    private apiKey;
+    private apiSecret;
+    private isPaper;
     connect(credentials: ExchangeCredentials): Promise<void>;
     disconnect(): Promise<void>;
     testConnection(): Promise<boolean>;

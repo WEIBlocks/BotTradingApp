@@ -27,6 +27,12 @@ export declare function handleBotDecisionsWs(socket: WebSocket, request: Fastify
  *   "notification"         → new notification
  *   "stock_price"          → real-time stock tick           { symbol, price, change, changePercent, timestamp }
  *   "stock_bar"            → 1-min OHLCV bar               { symbol, open, high, low, close, volume, timestamp }
+ *   "crypto_price"         → real-time crypto tick         { symbol, price, exchange, timestamp }
+ *
+ * Client can send: { topic:'subscribe_market', payload:{ pairs:string[], exchange:string } }
+ *                  { topic:'unsubscribe_market', payload:{ pairs:string[], exchange:string } }
+ *                  { topic:'subscribe_stock', payload:{ symbols:string[] } }
+ *                  { topic:'unsubscribe_stock', payload:{ symbols:string[] } }
  */
 export declare function handleAppWs(socket: WebSocket, request: FastifyRequest): Promise<void>;
 /**

@@ -8,6 +8,7 @@ import { notifications } from '../../db/schema/notifications.js';
 import { bots, botSubscriptions } from '../../db/schema/bots.js';
 import { eq, desc, and } from 'drizzle-orm';
 import { alpacaStream } from '../../lib/alpaca-stream.js';
+import { cryptoStream } from '../../lib/crypto-stream.js';
 
 /**
  * Authenticate a WebSocket connection via query param ?token=JWT_TOKEN
@@ -275,6 +276,12 @@ export async function handleBotDecisionsWs(socket: WebSocket, request: FastifyRe
  *   "notification"         → new notification
  *   "stock_price"          → real-time stock tick           { symbol, price, change, changePercent, timestamp }
  *   "stock_bar"            → 1-min OHLCV bar               { symbol, open, high, low, close, volume, timestamp }
+ *   "crypto_price"         → real-time crypto tick         { symbol, price, exchange, timestamp }
+ *
+ * Client can send: { topic:'subscribe_market', payload:{ pairs:string[], exchange:string } }
+ *                  { topic:'unsubscribe_market', payload:{ pairs:string[], exchange:string } }
+ *                  { topic:'subscribe_stock', payload:{ symbols:string[] } }
+ *                  { topic:'unsubscribe_stock', payload:{ symbols:string[] } }
  */
 export async function handleAppWs(socket: WebSocket, request: FastifyRequest): Promise<void> {
   const user = authenticateWs(request);
@@ -314,7 +321,6 @@ export async function handleAppWs(socket: WebSocket, request: FastifyRequest): P
 
   // ── Subscribe Alpaca stream for this user's stock symbols ─────────────
   if (userStockSymbols.length > 0) {
-    await alpacaStream.seedPrevPrices(userStockSymbols).catch(() => {});
     alpacaStream.addSymbols(userStockSymbols);
 
     // Relay Redis stock price/bar events to this client
@@ -389,7 +395,105 @@ export async function handleAppWs(socket: WebSocket, request: FastifyRequest): P
 
   sendJson(socket, { topic: 'connected', payload: { userId: user.userId } });
 
+  // ── Dynamic market subscription (crypto price streaming) ─────────────────
+  // Client sends { topic:'subscribe_market', payload:{ pairs:['BTC/USDT'], exchange:'kraken' } }
+  // Server subscribes cryptoStream, relays Redis ticks back as 'crypto_price' topic
+  const marketUnsubs: Array<() => void> = [];
+  let activeCryptoPairs: string[] = [];
+  let activeCryptoExchange = '';
+
+  // ── Dynamic stock symbol subscription (for chart viewers) ───────────────
+  const stockUnsubs: Array<() => void> = [];
+  let activeStockSymbols: string[] = [];
+
+  socket.on('message', async (raw: Buffer | string) => {
+    try {
+      const msg = JSON.parse(raw.toString());
+
+      if (msg.topic === 'subscribe_market') {
+        const { pairs, exchange } = msg.payload ?? {};
+        if (!Array.isArray(pairs) || !exchange) return;
+
+        // Clean up previous subscriptions
+        for (const u of marketUnsubs) u();
+        marketUnsubs.length = 0;
+        if (activeCryptoPairs.length > 0) {
+          cryptoStream.removePairs(activeCryptoExchange, activeCryptoPairs);
+        }
+
+        activeCryptoPairs = pairs as string[];
+        activeCryptoExchange = exchange as string;
+        cryptoStream.addPairs(exchange, pairs);
+
+        // Subscribe Redis channels for each pair — also listen kucoin fallback
+        for (const pair of pairs) {
+          const primaryChannel = `crypto:price:${exchange}:${pair}`;
+          const kucoinChannel  = `crypto:price:kucoin:${pair}`;
+          const listener = (message: string) => {
+            try { emit('crypto_price', JSON.parse(message)); } catch {}
+          };
+          await subscribeChannel(primaryChannel, listener);
+          marketUnsubs.push(() => unsubscribeChannel(primaryChannel, listener));
+          if (exchange === 'kraken') {
+            await subscribeChannel(kucoinChannel, listener);
+            marketUnsubs.push(() => unsubscribeChannel(kucoinChannel, listener));
+          }
+        }
+
+      } else if (msg.topic === 'unsubscribe_market') {
+        for (const u of marketUnsubs) u();
+        marketUnsubs.length = 0;
+        if (activeCryptoPairs.length > 0) {
+          cryptoStream.removePairs(activeCryptoExchange, activeCryptoPairs);
+          activeCryptoPairs = [];
+          activeCryptoExchange = '';
+        }
+
+      } else if (msg.topic === 'subscribe_stock') {
+        // Allow any client to subscribe stock symbols for chart viewing
+        const { symbols } = msg.payload ?? {};
+        if (!Array.isArray(symbols) || symbols.length === 0) return;
+
+        // Clean up previous stock subs
+        for (const u of stockUnsubs) u();
+        stockUnsubs.length = 0;
+        if (activeStockSymbols.length > 0) alpacaStream.removeSymbols(activeStockSymbols);
+
+        const syms = (symbols as string[]).map(s => s.toUpperCase().replace('/USD', ''));
+        activeStockSymbols = syms;
+        alpacaStream.addSymbols(syms);
+
+        for (const sym of syms) {
+          const priceListener = (message: string) => {
+            try { emit('stock_price', JSON.parse(message)); } catch {}
+          };
+          const barListener = (message: string) => {
+            try { emit('stock_bar', JSON.parse(message)); } catch {}
+          };
+          await subscribeChannel(`stock:price:${sym}`, priceListener);
+          await subscribeChannel(`stock:bar:${sym}`, barListener);
+          stockUnsubs.push(
+            () => unsubscribeChannel(`stock:price:${sym}`, priceListener),
+            () => unsubscribeChannel(`stock:bar:${sym}`, barListener),
+          );
+        }
+
+      } else if (msg.topic === 'unsubscribe_stock') {
+        for (const u of stockUnsubs) u();
+        stockUnsubs.length = 0;
+        if (activeStockSymbols.length > 0) {
+          alpacaStream.removeSymbols(activeStockSymbols);
+          activeStockSymbols = [];
+        }
+      }
+    } catch {}
+  });
+
   const cleanup = async () => {
+    for (const u of marketUnsubs) u();
+    if (activeCryptoPairs.length > 0) cryptoStream.removePairs(activeCryptoExchange, activeCryptoPairs);
+    for (const u of stockUnsubs) u();
+    if (activeStockSymbols.length > 0) alpacaStream.removeSymbols(activeStockSymbols);
     await unsubscribeChannel(tradeChannel, tradeListener);
     await unsubscribeChannel(notifChannel, notifListener);
     await unsubscribeChannel(portfolioChannel, portfolioListener);

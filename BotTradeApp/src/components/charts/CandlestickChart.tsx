@@ -358,7 +358,7 @@ export default function CandlestickChart({
   const vLine1       = useDerivedValue(() => ({x: crossX.value, y: PAD_T}),          [crossX]);
   const vLine2       = useDerivedValue(() => ({x: crossX.value, y: PAD_T + chartH}), [crossX]);
   // horizontal line tracks close price Y
-  const hLineY       = useDerivedValue(() => derivedPaths.value.crossCloseY >= 0 ? derivedPaths.value.crossCloseY : PAD_T, [derivedPaths]);
+  const hLineY       = useDerivedValue(() => (derivedPaths.value as any).crossCloseY >= 0 ? (derivedPaths.value as any).crossCloseY : (derivedPaths.value.crossClose ?? PAD_T), [derivedPaths]);
   const bubbleY      = useDerivedValue(() => hLineY.value - 9,                       [hLineY]);
   const hLine1       = useDerivedValue(() => ({x: PAD_L,           y: hLineY.value}), [hLineY]);
   const hLine2       = useDerivedValue(() => ({x: PAD_L + chartW,  y: hLineY.value}), [hLineY]);

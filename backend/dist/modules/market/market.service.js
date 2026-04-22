@@ -2,12 +2,24 @@ import ccxt from 'ccxt';
 import { redisConnection } from '../../config/queue.js';
 import { env } from '../../config/env.js';
 // ─── Constants ────────────────────────────────────────────────────────────────
-const VALID_CRYPTO_TIMEFRAMES = ['1m', '5m', '15m', '1h', '4h', '1d', '1w'];
+// All intervals the frontend can request (matches BINANCE_INTERVALS keys)
+const VALID_CRYPTO_TIMEFRAMES = [
+    '1m', '3m', '5m', '15m', '30m',
+    '1h', '2h', '4h', '6h', '12h',
+    '1d', '3d', '1w', '1M',
+];
+function normalizeTf(tf) {
+    return tf; // no aliases anymore — all TFs are real exchange intervals
+}
 const KUCOIN_TF_MAP = {
-    '1m': '1min', '5m': '5min', '15m': '15min', '1h': '1hour', '4h': '4hour', '1d': '1day', '1w': '1week',
+    '1m': '1min', '3m': '3min', '5m': '5min', '15m': '15min', '30m': '30min',
+    '1h': '1hour', '2h': '2hour', '4h': '4hour', '6h': '6hour', '8h': '8hour', '12h': '12hour',
+    '1d': '1day', '3d': '3day', '1w': '1week', '1M': '1week',
 };
 const KRAKEN_TF_MAP = {
-    '1m': 1, '5m': 5, '15m': 15, '1h': 60, '4h': 240, '1d': 1440, '1w': 10080,
+    '1m': 1, '3m': 3, '5m': 5, '15m': 15, '30m': 30,
+    '1h': 60, '2h': 120, '4h': 240, '6h': 360, '12h': 720,
+    '1d': 1440, '3d': 4320, '1w': 10080, '1M': 10080,
 };
 // Kraken REST OHLC pair names.
 // MATIC → POLUSD (Polygon rebranded to POL on Kraken, Sep 2024)
@@ -230,14 +242,29 @@ async function fetchCryptoCandles(symbol, tf, limit, exchange) {
 }
 // ─── Stock candles (Alpaca primary, Twelve Data fallback) ─────────────────────
 const ALPACA_TF_MAP = {
-    '1m': '1Min', '5m': '5Min', '15m': '15Min', '1h': '1Hour', '4h': '4Hour', '1d': '1Day', '1w': '1Week',
+    '1m': '1Min', '3m': '3Min', '5m': '5Min', '15m': '15Min', '30m': '30Min',
+    '1h': '1Hour', '2h': '2Hour', '4h': '4Hour', '6h': '6Hour', '12h': '12Hour',
+    '1d': '1Day', '1w': '1Week',
+    // Monthly not available from Alpaca — fall back to daily
+    '1M': '1Day',
 };
 async function fetchStockBars(symbol, timeframe, limit) {
     const apiKey = env.ALPACA_API_KEY;
     const apiSecret = env.ALPACA_API_SECRET;
     if (apiKey && apiSecret && apiKey !== 'PLACEHOLDER') {
         try {
-            const calendarDays = Math.ceil(limit * 7 / 5) + 5;
+            // Calculate the correct lookback window per timeframe so we get `limit` bars.
+            // For intraday: ~390 trading minutes/day, 5 trading days/week.
+            // We add a 50% buffer and cap calendar days per timeframe to avoid hitting Alpaca limits.
+            const minutesPerBar = {
+                '1Min': 1, '3Min': 3, '5Min': 5, '15Min': 15, '30Min': 30,
+                '1Hour': 60, '2Hour': 120, '4Hour': 240, '6Hour': 360, '12Hour': 720,
+                '1Day': 390, '1Week': 390 * 5, // treat 1 bar = 1 trading day / 5-day week
+            };
+            const minsPerBar = minutesPerBar[timeframe] ?? 390;
+            const tradingMinsNeeded = limit * minsPerBar * 1.5; // 50% buffer for non-trading hours
+            const tradingDaysNeeded = tradingMinsNeeded / 390;
+            const calendarDays = Math.ceil(tradingDaysNeeded * 7 / 5) + 5;
             const start = new Date(Date.now() - calendarDays * 86400000).toISOString().split('T')[0];
             const url = `https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=${timeframe}&limit=${limit}&feed=sip&sort=asc&start=${start}`;
             const response = await fetch(url, {
@@ -247,9 +274,10 @@ async function fetchStockBars(symbol, timeframe, limit) {
                 const data = await response.json();
                 if (data.bars?.length > 0) {
                     let bars = data.bars;
-                    // If last bar is stale, fetch more recent bars
+                    // If last bar is stale (>5 calendar days old — covers weekends + holidays),
+                    // fetch a small top-up to get any recent bars we missed.
                     const lastBarDate = new Date(bars[bars.length - 1].t);
-                    if ((Date.now() - lastBarDate.getTime()) / 86400000 > 3 && bars.length >= limit) {
+                    if ((Date.now() - lastBarDate.getTime()) / 86400000 > 5 && bars.length >= limit) {
                         const recentStart = new Date(lastBarDate.getTime() + 86400000).toISOString().split('T')[0];
                         const recentRes = await fetch(`https://data.alpaca.markets/v2/stocks/${encodeURIComponent(symbol)}/bars?timeframe=${timeframe}&limit=30&feed=sip&sort=asc&start=${recentStart}`, { headers: { 'APCA-API-KEY-ID': apiKey, 'APCA-API-SECRET-KEY': apiSecret } });
                         if (recentRes.ok) {
@@ -306,8 +334,11 @@ async function fetchStockBars(symbol, timeframe, limit) {
 }
 // ─── Public getCandles ────────────────────────────────────────────────────────
 export async function getCandles(symbol, timeframe = '4h', limit = 100, exchange) {
-    const tf = timeframe.toLowerCase();
-    const isStock = !symbol.includes('/');
+    // Preserve case for monthly TFs (1M must stay uppercase); lowercase only intraday/daily/weekly
+    const rawTf = normalizeTf(timeframe);
+    const tf = ['1M'].includes(rawTf) ? rawTf : rawTf.toLowerCase();
+    // Stock if no slash, or ends with /USD but NOT /USDT (e.g. QQQ/USD, AAPL/USD)
+    const isStock = !symbol.includes('/') || (symbol.endsWith('/USD') && !symbol.endsWith('/USDT'));
     const exKey = exchange ?? 'default';
     const cacheKey = `ohlcv3:${symbol.replace('/', '+')}:${tf}:${limit}:${exKey}`;
     const cached = await redisConnection.get(cacheKey).catch(() => null);
@@ -316,7 +347,7 @@ export async function getCandles(symbol, timeframe = '4h', limit = 100, exchange
     let candles;
     let source = 'unknown';
     if (isStock) {
-        const alpacaTF = ALPACA_TF_MAP[tf];
+        const alpacaTF = ALPACA_TF_MAP[tf] ?? ALPACA_TF_MAP['1d'];
         if (!alpacaTF)
             throw new Error(`Invalid timeframe for stocks: ${tf}`);
         candles = await fetchStockBars(symbol.replace('/USD', ''), alpacaTF, limit);
@@ -329,7 +360,9 @@ export async function getCandles(symbol, timeframe = '4h', limit = 100, exchange
         candles = result.candles;
         source = result.source;
     }
-    const ttl = isStock ? 60 : (tf === '1m' ? 30 : tf === '5m' ? 60 : 300);
+    const ttl = isStock
+        ? (tf === '1m' || tf === '3m' || tf === '5m' ? 20 : tf === '15m' || tf === '30m' ? 45 : 120)
+        : (tf === '1m' ? 30 : tf === '5m' ? 60 : 300);
     const payload = { candles, source };
     // Only cache non-empty results — empty results should be retried next request
     if (candles.length > 0) {
@@ -427,7 +460,7 @@ async function fetchLivePriceCoinGecko(symbol) {
     }
 }
 export async function getLivePrice(symbol, exchange) {
-    const isStock = !symbol.includes('/');
+    const isStock = !symbol.includes('/') || (symbol.endsWith('/USD') && !symbol.endsWith('/USDT'));
     if (isStock) {
         try {
             const apiKey = env.ALPACA_API_KEY;
