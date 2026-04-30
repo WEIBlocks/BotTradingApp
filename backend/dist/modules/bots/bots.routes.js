@@ -1,7 +1,7 @@
 import { authenticate } from '../../middleware/authenticate.js';
 import { requireSubscription, getActiveProSubscription } from '../../middleware/requireSubscription.js';
 import { SubscriptionRequiredError } from '../../middleware/requireSubscription.js';
-import { createBot, updateBot, getBotForEdit, pauseBot, stopBot, resumeBot, purchaseBot, startShadowMode, pauseShadowSession, resumeShadowSession, stopShadowSession, getShadowResults, getUserShadowSessions, getUserActiveBots, addReview, backtestBot, getPaperTradingStatus, activateLiveMode, getBotDecisions, getLeaderboard, compareBots, startCopyTrading, stopCopyTrading, getBotEquityCurve, getBotTradeMarkers, updateUserConfig, getSubscription, getBotFeedStats, getPublicLiveStats, getShadowSessionLiveStats, getMyLiveStats, } from './bots.service.js';
+import { createBot, updateBot, deleteBot, getBotForEdit, pauseBot, stopBot, resumeBot, purchaseBot, startShadowMode, pauseShadowSession, resumeShadowSession, stopShadowSession, getShadowResults, getUserShadowSessions, getUserActiveBots, addReview, backtestBot, getPaperTradingStatus, activateLiveMode, getBotDecisions, getLeaderboard, compareBots, startCopyTrading, stopCopyTrading, getBotEquityCurve, getBotTradeMarkers, updateUserConfig, getSubscription, getBotFeedStats, getPublicLiveStats, getShadowSessionLiveStats, getMyLiveStats, } from './bots.service.js';
 import { botIdParamsSchema, createBotBodySchema, updateBotBodySchema, purchaseBotBodySchema, shadowModeBodySchema, reviewBodySchema, backtestBodySchema, paperTradingSetupBodySchema, dataResponseSchema, updateUserConfigBodySchema, subscriptionIdParamsSchema, } from './bots.schema.js';
 // ─── Simple in-memory cache for getUserActiveBots (per user, 30s TTL) ────────
 const activeBotsCache = new Map();
@@ -44,6 +44,19 @@ export async function botsRoutes(app) {
         const { id } = request.params;
         const bot = await updateBot(request.user.userId, id, request.body);
         return { data: bot };
+    });
+    // DELETE /:id - Delete a bot (creator only, blocked if anyone is running it)
+    zApp.delete('/:id', {
+        schema: {
+            params: botIdParamsSchema,
+            response: { 200: dataResponseSchema },
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (request, reply) => {
+        const { id } = request.params;
+        const result = await deleteBot(request.user.userId, id);
+        invalidateActiveBotsCache(request.user.userId);
+        return { data: result };
     });
     // GET /:id/edit - Get bot data for editing (creator only)
     zApp.get('/:id/edit', {

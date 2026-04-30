@@ -9,6 +9,7 @@ import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 import {RootStackParamList, Bot} from '../../types';
 import {marketplaceApi} from '../../services/marketplace';
 import {creatorApi} from '../../services/creator';
+import {botsService} from '../../services/bots';
 import {useToast} from '../../context/ToastContext';
 import {useAuth} from '../../context/AuthContext';
 import {configApi} from '../../services/config';
@@ -234,7 +235,19 @@ function TrendingCard({bot, onPress}: {bot: Bot; onPress: () => void}) {
 
 // ─── My Bot Card (creator-owned) ─────────────────────────────────────────────
 
-function MyBotCard({bot, onEdit, onPress}: {bot: any; onEdit: () => void; onPress: () => void}) {
+function MyBotCard({
+  bot,
+  onEdit,
+  onPress,
+  onDelete,
+  onPublish,
+}: {
+  bot: any;
+  onEdit: () => void;
+  onPress: () => void;
+  onDelete: () => void;
+  onPublish: () => void;
+}) {
   const isPublished = bot.isPublished;
   const returnColor = (bot.returnPercent ?? 0) >= 0 ? '#10B981' : '#EF4444';
   const returnSign = (bot.returnPercent ?? 0) >= 0 ? '+' : '';
@@ -265,7 +278,8 @@ function MyBotCard({bot, onEdit, onPress}: {bot: any; onEdit: () => void; onPres
         </View>
       </View>
 
-      <Text style={myBotStyles.botName} numberOfLines={1}>{bot.name}</Text>
+      {/* Full bot name — wraps to multiple lines instead of truncating */}
+      <Text style={myBotStyles.botName}>{bot.name}</Text>
 
       {/* Stats */}
       <View style={myBotStyles.statsRow}>
@@ -287,14 +301,53 @@ function MyBotCard({bot, onEdit, onPress}: {bot: any; onEdit: () => void; onPres
         </View>
       </View>
 
-      {/* Edit button */}
-      <TouchableOpacity style={myBotStyles.editBtn} onPress={onEdit} activeOpacity={0.7}>
-        <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
-          <Path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
-          <Path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
-        </Svg>
-        <Text style={myBotStyles.editBtnText}>Edit Bot</Text>
-      </TouchableOpacity>
+      {/* Actions — two-row layout that fits the 48% card on any phone width:
+          Row 1: full-width "View Details"
+          Row 2: Edit / Publish (if draft) / Delete — each flex:1 inside an icon-only or icon+label button */}
+      <View style={myBotStyles.actionsCol}>
+        <TouchableOpacity style={myBotStyles.viewDetailsBtn} onPress={onPress} activeOpacity={0.85}>
+          <Text style={myBotStyles.viewDetailsText}>View Details</Text>
+        </TouchableOpacity>
+        <View style={myBotStyles.actionRow}>
+          <TouchableOpacity
+            style={myBotStyles.editBtn}
+            onPress={onEdit}
+            activeOpacity={0.7}
+            hitSlop={{top: 6, bottom: 6, left: 4, right: 4}}>
+            <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+              <Path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+              <Path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+            </Svg>
+            <Text style={myBotStyles.editBtnText}>Edit</Text>
+          </TouchableOpacity>
+          {!isPublished && (
+            <TouchableOpacity
+              style={myBotStyles.publishBtn}
+              onPress={onPublish}
+              activeOpacity={0.7}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M22 2L11 13M22 2L15 22 11 13 2 9l20-7z" stroke="#8B5CF6" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+              </Svg>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity
+            style={myBotStyles.deleteBtn}
+            onPress={onDelete}
+            activeOpacity={0.7}
+            hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+            <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+              <Path
+                d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6"
+                stroke="#EF4444"
+                strokeWidth={2}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </Svg>
+          </TouchableOpacity>
+        </View>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -303,7 +356,7 @@ function MyBotCard({bot, onEdit, onPress}: {bot: any; onEdit: () => void; onPres
 
 export default function MarketplaceScreen() {
   const navigation = useNavigation<NavProp>();
-  const {alert: showAlert} = useToast();
+  const {alert: showAlert, showConfirm} = useToast();
   const {user} = useAuth();
   const [activeTab, setActiveTab] = useState<'marketplace' | 'mybots'>('marketplace');
   const [searchQuery, setSearchQuery] = useState('');
@@ -495,6 +548,44 @@ export default function MarketplaceScreen() {
                   bot={bot}
                   onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
                   onEdit={() => navigation.navigate('BotBuilder', {editBotId: bot.id})}
+                  onPublish={() => {
+                    showConfirm({
+                      title: 'Publish Bot',
+                      message: `Publish "${bot.name}" to the marketplace?`,
+                      confirmText: 'Publish',
+                      onConfirm: async () => {
+                        try {
+                          await creatorApi.publishBot(bot.id);
+                          showAlert('Published!', `${bot.name} is now live.`);
+                          fetchData();
+                        } catch (e: any) {
+                          showAlert('Error', e?.message || 'Failed to publish.');
+                        }
+                      },
+                    });
+                  }}
+                  onDelete={() => {
+                    showConfirm({
+                      title: 'Delete Bot',
+                      message: `Permanently delete "${bot.name}"? This will fail if any user is currently running it in shadow or live mode. This action cannot be undone.`,
+                      confirmText: 'Delete',
+                      onConfirm: async () => {
+                        try {
+                          await botsService.deleteBot(bot.id);
+                          // Optimistic local removal so the card disappears immediately;
+                          // fetchData will reconcile with the server state.
+                          setMyBots(prev => prev.filter(b => b.id !== bot.id));
+                          showAlert('Deleted', `${bot.name} has been deleted.`);
+                          fetchData();
+                        } catch (e: any) {
+                          showAlert(
+                            'Cannot Delete',
+                            e?.message || 'This bot is currently in use and cannot be deleted.',
+                          );
+                        }
+                      },
+                    });
+                  }}
                 />
               ))}
             </View>
@@ -750,7 +841,14 @@ const myBotStyles = StyleSheet.create({
     paddingHorizontal: 7, paddingVertical: 3, maxWidth: 80,
   },
   strategyText: {fontFamily: 'Inter-SemiBold', fontSize: 9},
-  botName: {fontFamily: 'Inter-Bold', fontSize: 13, color: '#FFFFFF', marginBottom: 12},
+  botName: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 13,
+    lineHeight: 17,
+    color: '#FFFFFF',
+    marginBottom: 12,
+    flexWrap: 'wrap',
+  },
   statsRow: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.04)',
@@ -760,13 +858,59 @@ const myBotStyles = StyleSheet.create({
   statVal: {fontFamily: 'Inter-Bold', fontSize: 13, color: '#FFFFFF', marginBottom: 2},
   statLbl: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)'},
   statDivider: {width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.08)'},
-  editBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, height: 32, borderRadius: 8,
-    backgroundColor: 'rgba(16,185,129,0.1)',
-    borderWidth: 1, borderColor: 'rgba(16,185,129,0.25)',
+  actionsCol: {
+    flexDirection: 'column',
+    gap: 6,
   },
-  editBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#10B981'},
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 6,
+  },
+  viewDetailsBtn: {
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(16,185,129,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.25)',
+  },
+  viewDetailsText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    color: '#10B981',
+  },
+  editBtn: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 4, height: 32, borderRadius: 8,
+    paddingHorizontal: 6,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  editBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: 'rgba(255,255,255,0.75)'},
+  publishBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(139,92,246,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(139,92,246,0.3)',
+  },
+  deleteBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.3)',
+  },
   summaryRow: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#161B22', borderRadius: 14,
@@ -870,7 +1014,7 @@ const styles = StyleSheet.create({
   viewAll: {fontFamily: 'Inter-Medium', fontSize: 13, color: '#10B981'},
 
   trendingRow: {flexDirection: 'row', gap: 10, marginBottom: 24},
-  gridRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 10},
+  gridRow: {flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 10, rowGap: 12},
   browseAllBtn: {
     marginTop: 16, height: 48, borderRadius: 12,
     backgroundColor: 'rgba(16,185,129,0.1)',

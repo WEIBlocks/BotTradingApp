@@ -34,6 +34,7 @@ import {
   PatternAnalysis,
   UserBotBreakdown,
 } from '../../services/creator';
+import {botsService} from '../../services/bots';
 
 type TabKey = 'overview' | 'earnings' | 'analytics' | 'abtests' | 'patterns';
 
@@ -64,6 +65,20 @@ function PublishIcon() {
       <Path
         d="M22 2L11 13M22 2L15 22 11 13 2 9l20-7z"
         stroke="#FFFFFF"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </Svg>
+  );
+}
+
+function TrashIcon() {
+  return (
+    <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6"
+        stroke="#EF4444"
         strokeWidth={2}
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -837,6 +852,32 @@ export default function CreatorStudioScreen() {
                       <Text style={bm.publishActionText}>Publish</Text>
                     </TouchableOpacity>
                   )}
+                  <TouchableOpacity
+                    style={bm.deleteActionBtn}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      showConfirm({
+                        title: 'Delete Bot',
+                        message: `Permanently delete "${bot.name}"? This will fail if any user is currently running it in shadow or live mode. This action cannot be undone.`,
+                        confirmText: 'Delete',
+                        onConfirm: async () => {
+                          try {
+                            await botsService.deleteBot(bot.id);
+                            showAlert('Deleted', `${bot.name} has been deleted.`);
+                            fetchData();
+                          } catch (e: any) {
+                            // 409 → bot is in use; surface backend message verbatim.
+                            showAlert(
+                              'Cannot Delete',
+                              e?.message || 'This bot is currently in use and cannot be deleted.',
+                            );
+                          }
+                        },
+                      });
+                    }}>
+                    <TrashIcon />
+                    <Text style={bm.deleteActionText}>Delete</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             ))}
@@ -1718,10 +1759,12 @@ const bm = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
+    rowGap: 8,
   },
   actionBtn: {
-    flex: 1,
+    flexBasis: '100%',
     backgroundColor: 'rgba(16,185,129,0.12)',
     borderRadius: 10,
     paddingVertical: 10,
@@ -1735,13 +1778,16 @@ const bm = StyleSheet.create({
     color: '#10B981',
   },
   editActionBtn: {
+    flex: 1,
+    minWidth: 90,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 5,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 10,
     paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
   },
   editActionText: {
     fontFamily: 'Inter-Medium',
@@ -1749,13 +1795,16 @@ const bm = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
   },
   publishActionBtn: {
+    flex: 1,
+    minWidth: 90,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 5,
     backgroundColor: 'rgba(139,92,246,0.15)',
     borderRadius: 10,
     paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     borderWidth: 1,
     borderColor: 'rgba(139,92,246,0.3)',
   },
@@ -1763,6 +1812,25 @@ const bm = StyleSheet.create({
     fontFamily: 'Inter-Medium',
     fontSize: 13,
     color: '#8B5CF6',
+  },
+  deleteActionBtn: {
+    flex: 1,
+    minWidth: 90,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(239,68,68,0.12)',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.3)',
+  },
+  deleteActionText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 13,
+    color: '#EF4444',
   },
   // Per-user breakdown
   userSection: {

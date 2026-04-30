@@ -6,6 +6,7 @@ import { SubscriptionRequiredError } from '../../middleware/requireSubscription.
 import {
   createBot,
   updateBot,
+  deleteBot,
   getBotForEdit,
   pauseBot,
   stopBot,
@@ -93,6 +94,20 @@ export async function botsRoutes(app: FastifyInstance) {
     const { id } = request.params;
     const bot = await updateBot(request.user.userId, id, request.body);
     return { data: bot };
+  });
+
+  // DELETE /:id - Delete a bot (creator only, blocked if anyone is running it)
+  zApp.delete('/:id', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await deleteBot(request.user.userId, id);
+    invalidateActiveBotsCache(request.user.userId);
+    return { data: result };
   });
 
   // GET /:id/edit - Get bot data for editing (creator only)

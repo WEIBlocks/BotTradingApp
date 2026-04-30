@@ -793,4 +793,9 @@ export declare function getBotFeedStats(userId: string, botId: string, mode?: 'p
         pnl: number;
     }[];
 }>;
+export declare function deleteBot(userId: string, botId: string): Promise<{
+    deleted: boolean;
+    botId: string;
+    name: string;
+}>;
 export {};

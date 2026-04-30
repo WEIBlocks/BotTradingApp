@@ -174,8 +174,6 @@ export declare function createExperiment(creatorId: string, data: {
     creatorId: string;
     botId: string;
     confidence: number | null;
-    startDate: Date | null;
-    endDate: Date | null;
     variantAVersionId: string | null;
     variantBVersionId: string | null;
     variantAConfig: unknown;
@@ -189,6 +187,8 @@ export declare function createExperiment(creatorId: string, data: {
     variantAChurn: number | null;
     variantBChurn: number | null;
     winnerVariant: string | null;
+    startDate: Date | null;
+    endDate: Date | null;
 }>;
 export declare function getExperiments(creatorId: string): Promise<{
     id: string;

@@ -170,6 +170,16 @@ export const botsService = {
     return api.get<{data: any}>(`/bots/${botId}/edit`);
   },
 
+  /**
+   * Delete a bot (creator only).
+   * Backend rejects with 409 if anyone is running it (live, paper, shadow,
+   * copy-trading, or has open positions). On success the bot and all its
+   * dependent data are removed from the database.
+   */
+  deleteBot(botId: string) {
+    return api.delete<{data: {deleted: true; botId: string; name: string}}>(`/bots/${botId}`);
+  },
+
   /** Get a subscription by ID (includes userConfig overrides) */
   getSubscription(subscriptionId: string) {
     return api.get<{data: any}>(`/bots/subscriptions/${subscriptionId}`);

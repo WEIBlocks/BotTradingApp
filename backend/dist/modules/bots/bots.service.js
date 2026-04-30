@@ -1,13 +1,16 @@
 import { db } from '../../config/database.js';
-import { bots, botStatistics, botSubscriptions, shadowSessions, reviews, } from '../../db/schema/bots.js';
+import { bots, botStatistics, botSubscriptions, shadowSessions, reviews, botVersions, creatorEarnings, } from '../../db/schema/bots.js';
 import { trades } from '../../db/schema/trades.js';
 import { users } from '../../db/schema/users.js';
-import { activityLog } from '../../db/schema/training.js';
+import { activityLog, trainingUploads } from '../../db/schema/training.js';
 import { botDecisions } from '../../db/schema/decisions.js';
 import { botPositions } from '../../db/schema/positions.js';
 import { exchangeConnections } from '../../db/schema/exchanges.js';
-import { eq, and, sql, desc, asc, gte } from 'drizzle-orm';
-import { NotFoundError, ConflictError, ValidationError, AppError } from '../../lib/errors.js';
+import { copyTradingSessions } from '../../db/schema/copy-trading.js';
+import { botExperiments, userBotProfitability, botPatternAnalysis } from '../../db/schema/analytics.js';
+import { arenaGladiators } from '../../db/schema/arena.js';
+import { eq, and, sql, desc, asc, gte, inArray } from 'drizzle-orm';
+import { NotFoundError, ConflictError, ValidationError, ForbiddenError, AppError } from '../../lib/errors.js';
 import { invalidateRulesCache } from '../../lib/bot-engine.js';
 async function logActivity(userId, type, title, subtitle, amount) {
     try {
@@ -1508,4 +1511,82 @@ export async function getBotFeedStats(userId, botId, mode) {
         equityDates: equityDatesData,
         monthlyReturns,
     };
+}
+// ─── Delete Bot (creator only, with active-usage guards) ───────────────────
+//
+// A creator may delete their bot ONLY when no one (creator included) has it
+// running in shadow or live. We block the delete if any of these exist:
+//   • botSubscriptions with status='active'           (someone is live/paper-trading)
+//   • shadowSessions   with status in ('running','paused')  (active shadow run)
+//   • copyTradingSessions with status='active'        (active copy follower)
+//   • botPositions     with status='open'             (any open position on the bot)
+//
+// On a clean slate we delete dependent rows in FK-safe order and finally the bot.
+export async function deleteBot(userId, botId) {
+    // Ownership
+    const [existing] = await db
+        .select({ id: bots.id, name: bots.name, creatorId: bots.creatorId })
+        .from(bots)
+        .where(eq(bots.id, botId));
+    if (!existing) {
+        throw new NotFoundError('Bot');
+    }
+    if (existing.creatorId !== userId) {
+        throw new ForbiddenError('You can only delete bots you created');
+    }
+    // ─── Active-usage checks ─────────────────────────────────────────────────
+    const [activeSub] = await db
+        .select({ id: botSubscriptions.id, mode: botSubscriptions.mode, userId: botSubscriptions.userId })
+        .from(botSubscriptions)
+        .where(and(eq(botSubscriptions.botId, botId), eq(botSubscriptions.status, 'active')))
+        .limit(1);
+    if (activeSub) {
+        throw new ConflictError(`Cannot delete: this bot is currently running in ${activeSub.mode === 'live' ? 'live' : 'paper'} mode. Stop all active subscriptions first.`);
+    }
+    const [activeShadow] = await db
+        .select({ id: shadowSessions.id })
+        .from(shadowSessions)
+        .where(and(eq(shadowSessions.botId, botId), inArray(shadowSessions.status, ['running', 'paused'])))
+        .limit(1);
+    if (activeShadow) {
+        throw new ConflictError('Cannot delete: this bot has an active shadow mode session. Stop the shadow run first.');
+    }
+    const [activeCopy] = await db
+        .select({ id: copyTradingSessions.id })
+        .from(copyTradingSessions)
+        .where(and(eq(copyTradingSessions.botId, botId), eq(copyTradingSessions.status, 'active')))
+        .limit(1);
+    if (activeCopy) {
+        throw new ConflictError('Cannot delete: this bot has active copy-trading followers. They must stop following first.');
+    }
+    const [openPos] = await db
+        .select({ id: botPositions.id })
+        .from(botPositions)
+        .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'open')))
+        .limit(1);
+    if (openPos) {
+        throw new ConflictError('Cannot delete: this bot has open positions. Close all positions before deleting.');
+    }
+    // ─── Cascade delete dependents (FK-safe order) ──────────────────────────
+    // botDecisions and botPositions reference botSubscriptions, so they go first.
+    await db.delete(botDecisions).where(eq(botDecisions.botId, botId));
+    await db.delete(botPositions).where(eq(botPositions.botId, botId));
+    await db.delete(botSubscriptions).where(eq(botSubscriptions.botId, botId));
+    await db.delete(shadowSessions).where(eq(shadowSessions.botId, botId));
+    await db.delete(copyTradingSessions).where(eq(copyTradingSessions.botId, botId));
+    await db.delete(arenaGladiators).where(eq(arenaGladiators.botId, botId));
+    await db.delete(reviews).where(eq(reviews.botId, botId));
+    await db.delete(botExperiments).where(eq(botExperiments.botId, botId));
+    await db.delete(userBotProfitability).where(eq(userBotProfitability.botId, botId));
+    await db.delete(botPatternAnalysis).where(eq(botPatternAnalysis.botId, botId));
+    await db.delete(trainingUploads).where(eq(trainingUploads.botId, botId));
+    await db.delete(creatorEarnings).where(eq(creatorEarnings.botId, botId));
+    await db.delete(botStatistics).where(eq(botStatistics.botId, botId));
+    await db.delete(botVersions).where(eq(botVersions.botId, botId));
+    // knowledgeEmbeddings cascades automatically via onDelete: 'cascade'
+    // Finally, the bot itself
+    await db.delete(bots).where(eq(bots.id, botId));
+    invalidateRulesCache(botId);
+    // Note: activeBotsCache (in bots.routes.ts) has a 30s TTL, so it'll self-clear.
+    return { deleted: true, botId, name: existing.name };
 }
