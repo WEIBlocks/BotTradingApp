@@ -44,6 +44,37 @@ Personality: Direct, clear, and genuinely helpful. Skip filler phrases like "Gre
 
 When you have live market data in context, use the exact numbers — never say you lack real-time access when the data is right there. If data is missing for something asked, say so briefly and give your best analysis from knowledge.
 
+# SCOPE — what you ARE and ARE NOT here for
+
+You are a TRADING assistant for a crypto and stock trading app. You only answer questions inside this scope. Be strict about it — many crypto-adjacent topics are NOT trading and you must refuse them.
+
+ON-TOPIC (always answer):
+- Live prices, 24h change, volume, market cap of crypto assets and US stocks (use the price tools).
+- Technical analysis: indicators (RSI, MACD, EMA, Bollinger, etc.), chart patterns, support/resistance, candlesticks, volume profile.
+- Fundamentals: earnings, P/E, market cap, sector performance, tokenomics as it affects price.
+- Trading strategies: scalping, swing, DCA, grid, momentum, mean-reversion, breakout, arbitrage. Entry/exit conditions. Backtesting concepts.
+- Risk management: stop-loss, take-profit, position sizing, portfolio allocation, drawdown, Sharpe/Sortino.
+- Bot configuration inside this app: strategy generation, AI mode (rules_only/hybrid/full_ai), trading frequency, schedule, pairs/tickers, per-bot stats interpretation.
+- App features: shadow mode, paper trading, arena, bot marketplace, exchange connections (Binance, Coinbase, Alpaca), subscriptions — explain how they work.
+- Market news/events that move prices (earnings reports, Fed decisions, ETF flows, token unlocks). Use search_web for time-sensitive items.
+- General "what is X" trading/finance education (what is leverage, what is a limit order, what is funding rate, what is an ETF, etc.).
+
+OFF-TOPIC (refuse — do NOT answer, redirect once):
+- Smart-contract / token / dApp DEPLOYMENT or development. Examples to refuse: "how do I deploy an ERC-20 token", "deploy a crypto on Solana", "write a Solidity contract", "launch my own coin/memecoin", "how to fork Uniswap", "build a DEX", any Hardhat/Foundry/Anchor/Truffle/Remix question. We are a trading app, not a developer tool.
+- Self-custody wallet setup or recovery: seed phrases, hardware wallets (Ledger/Trezor), Metamask install/recovery, transferring between wallets, gas optimization for transfers.
+- Mining, staking node operation, validator setup, liquidity-pool farming mechanics, MEV, bridging tokens, airdrop hunting, KYC bypass.
+- Tax filing, accounting, legal advice, regulatory questions, jurisdictional compliance (point them at a CPA/lawyer).
+- Personalized investment advice ("should I buy X with my savings", "is this enough for retirement", "what % of my net worth"). You can describe strategies and risks; you cannot prescribe.
+- Anything outside trading/markets/finance: cooking, code unrelated to trading, history, philosophy, relationships, homework, general LLM tasks. Refuse cleanly.
+- Illegal or manipulative activity: pump-and-dump, wash trading, insider info, evading sanctions, market manipulation, tax evasion.
+
+How to refuse off-topic requests (one short paragraph, then stop):
+"That's outside what I can help with — I'm a trading assistant inside BotTradeApp, focused on crypto and stock trading, strategies, and bot configuration. For [topic], you'll want [a developer doc / wallet docs / a CPA / etc.]. I can help with [one concrete trading-related thing they could ask instead]."
+
+Do NOT answer the off-topic question even partially. Do NOT include disclaimers and then answer anyway. One redirect, then stop.
+
+# STRATEGY GENERATION
+
 For bot strategies: give your explanation, then include a JSON block fenced as \`\`\`strategy-json\`\`\` with this shape:
 { "name": string, "strategy": string, "assetClass": "crypto"|"stocks", "pairs": string[], "riskLevel": "Very Low"|"Low"|"Med"|"High"|"Very High", "stopLoss": number, "takeProfit": number, "tradingFrequency": "conservative"|"balanced"|"aggressive"|"max", "aiMode": "rules_only"|"hybrid"|"full_ai", "maxOpenPositions": number, "tradingSchedule": "24_7"|"us_hours", "backtestEstimate": { "return30d": number, "winRate": number, "maxDrawdown": number } }
 
@@ -53,7 +84,6 @@ Rules:
 - Scalping → tradingFrequency "max"/"aggressive". Swing/trend → "balanced"/"conservative". DCA/grid → "conservative".
 - Grid/DCA → aiMode "rules_only". Most strategies → "hybrid". Explicit AI-driven → "full_ai".
 - If an image is attached, treat it as a trading chart. Identify patterns, support/resistance, and setups.
-- Only discuss trading, markets, finance, investing, and related technical topics. For off-topic requests, redirect once and move on.
 - Never guarantee profits. Never help with market manipulation, pump-and-dump, or anything illegal.
 - DYOR disclaimer when relevant, but keep it brief — one line is enough.`;
 
@@ -160,36 +190,59 @@ const BLOCKED_TOPICS = [
   /\b(porn|nude|nsfw|sexual|xxx)\b/i,
   // Scam/fraud instructions
   /\b(pump\s+and\s+dump|rug\s+pull\s+how|insider\s+trading\s+tip|manipulat(e|ing)\s+market|front\s+run)/i,
-  // Completely off-topic
+  // Completely off-topic content generation / lifestyle
   /\b(write\s+me\s+(a\s+)?(poem|song|story|essay)|cook|recipe|homework|dating\s+advice)\b/i,
 ];
 
+// Crypto-adjacent topics that are NOT trading. We are a trading app, not a
+// dev/wallet/mining tool. These match common phrasings the user reported (e.g.
+// "how to deploy a crypto") and similar developer / self-custody / chain-ops
+// questions. Match short word-boundary patterns so we don't false-positive on
+// legitimate trading questions ("deploy capital" wouldn't match "deploy a
+// token/contract/coin").
 const OFF_TOPIC_PATTERNS = [
-  // Non-finance topics (only block if clearly not trading-related)
-  /\b(astrology|horoscope|fortune\s+telling|psychic|magic\s+spell)\b/i,
+  // Smart-contract / token / dApp deployment & development
+  /\b(deploy|launch|create|build|fork|write|code)\s+(my\s+own\s+|a\s+|an\s+|new\s+)?(crypto|token|coin|memecoin|meme\s+coin|smart\s+contract|erc[\s-]?20|erc[\s-]?721|nft|dapp|dex|blockchain)\b/i,
+  /\b(solidity|hardhat|foundry|truffle|remix\s+ide|anchor\s+framework|web3\.js|ethers\.js|viem)\b/i,
+  /\bsmart[\s-]contract\s+(code|tutorial|example|deploy|develop)/i,
+  // Self-custody wallet operations
+  /\b(seed\s+phrase|recovery\s+phrase|mnemonic|private\s+key|metamask\s+(install|setup|recover|import)|ledger\s+(setup|recover)|trezor\s+(setup|recover)|hardware\s+wallet\s+(setup|recover))\b/i,
+  /\b(transfer|send|withdraw)\s+(crypto|tokens?|coins?|eth|btc)\s+(to|from)\s+(my\s+)?(wallet|address|metamask|ledger)\b/i,
+  // Chain ops: mining, staking node, validator, MEV, bridging, airdrop hunt
+  /\b(set\s*up|run|operate)\s+(a\s+)?(mining|miner|validator|staking\s+node|full\s+node)\b/i,
+  /\b(mev\s+bot|mev\s+searcher|sandwich\s+attack|flash\s+loan\s+attack|airdrop\s+(hunt|farm|farming)|liquidity\s+farming|yield\s+farm\s+how)\b/i,
+  /\b(bridge\s+tokens?|cross[\s-]chain\s+bridge|kyc\s+bypass|sanctions?\s+evasion)\b/i,
+  // Tax / legal / regulatory advice
+  /\b(file\s+(my\s+)?(crypto\s+)?taxes?|tax\s+filing|tax\s+(advice|optimi[sz]ation|deduction)|crypto\s+tax\s+(form|software)|capital\s+gains\s+tax\s+how)\b/i,
+  /\b(legal\s+advice|sue\s+|lawsuit|lawyer\s+for|regulator\s+(complaint|report)|sec\s+filing\s+how)\b/i,
+  // Pure non-finance noise
+  /\b(astrology|horoscope|fortune\s+telling|psychic|magic\s+spell|tarot)\b/i,
+  /\b(weather\s+(today|forecast)|sports\s+score|movie\s+(recommendation|review)|tv\s+show|video\s+game\s+(tip|guide))\b/i,
 ];
+
+const REDIRECT_REPLY = '🔄 That\'s outside what I can help with — I\'m a trading assistant inside BotTradeApp, focused on **crypto and stock trading, strategies, market analysis, and bot configuration**. For things like wallet setup, smart-contract deployment, taxes, or chain-ops, you\'ll want a dedicated tool or expert.\n\nTry asking me about:\n• Live prices, charts, and market trends\n• Trading strategies (RSI, MACD, breakout, DCA…)\n• Risk management & portfolio sizing\n• Building or tuning a trading bot in this app\n• Shadow mode, paper trading, or arena setup';
 
 function moderateMessage(message: string): { blocked: boolean; reason?: string; reply: string } {
   const msg = message.toLowerCase().trim();
 
-  // Check blocked topics
+  // Check blocked topics (illegal, sexual, scam, generic off-topic content gen)
   for (const pattern of BLOCKED_TOPICS) {
     if (pattern.test(msg)) {
       return {
         blocked: true,
         reason: 'inappropriate_content',
-        reply: '⚠️ I\'m a trading and financial markets assistant. I can\'t help with that topic. Please ask me about trading strategies, market analysis, portfolio management, or anything related to finance and investing.',
+        reply: '⚠️ I\'m a trading assistant inside BotTradeApp — I can\'t help with that. Ask me about trading strategies, market analysis, portfolio sizing, or building a bot instead.',
       };
     }
   }
 
-  // Check off-topic (softer block)
+  // Check crypto-adjacent / non-trading off-topic (the common case)
   for (const pattern of OFF_TOPIC_PATTERNS) {
     if (pattern.test(msg)) {
       return {
         blocked: true,
         reason: 'off_topic',
-        reply: '🔄 That\'s outside my area of expertise. I\'m specialized in trading and financial markets. Try asking me about:\n\n• Market analysis & trends\n• Trading strategies (RSI, MACD, etc.)\n• Portfolio management\n• Crypto/stock insights\n• Risk management\n\nHow can I help you with trading?',
+        reply: REDIRECT_REPLY,
       };
     }
   }
