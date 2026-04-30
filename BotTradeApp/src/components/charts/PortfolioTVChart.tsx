@@ -322,9 +322,12 @@ interface TVWebViewProps {
 }
 
 function TVWebView({points, currentValue, style}: TVWebViewProps) {
-  const wvRef    = useRef<WebView>(null);
-  const readyRef = useRef(false);
-  const lastValRef = useRef<number>(0);
+  const wvRef       = useRef<WebView>(null);
+  const readyRef    = useRef(false);
+  const lastValRef  = useRef<number>(0);
+  // Keep a ref so onMessage always sees the latest points without recreating the callback
+  const pointsRef   = useRef(points);
+  useEffect(() => { pointsRef.current = points; }, [points]);
 
   const post = useCallback((msg: object) => {
     wvRef.current?.postMessage(JSON.stringify(msg));
@@ -335,18 +338,19 @@ function TVWebView({points, currentValue, style}: TVWebViewProps) {
       const msg = JSON.parse(e.nativeEvent.data);
       if (msg.type === 'ready') {
         readyRef.current = true;
-        if (points.length > 0) post({type: 'setData', points});
+        // Use ref so we always send the CURRENT points, not the ones from mount
+        if (pointsRef.current.length > 0) {
+          post({type: 'setData', points: pointsRef.current});
+        }
       }
     } catch {}
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [post]);
 
-  // Send data when points change
+  // Send data whenever points array changes (timeframe switch)
   useEffect(() => {
     if (!readyRef.current || points.length === 0) return;
     post({type: 'setData', points});
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points]);
+  }, [points, post]);
 
   // Live price tick — update last point only
   useEffect(() => {
@@ -405,14 +409,23 @@ export default function PortfolioTVChart({
   const [selectedTF, setSelectedTF]       = useState('1M');
   const [fullscreen, setFullscreen]       = useState(false);
   const {width: screenW, height: screenH} = Dimensions.get('screen');
+  // Keep the last non-empty data so the chart doesn't blank out during timeframe transitions
+  const [stableData, setStableData]       = useState<EquityPoint[]>([]);
+  useEffect(() => {
+    if (data.length > 0) setStableData(data);
+  }, [data]);
 
   const handleTF = useCallback((tf: Timeframe) => {
     setSelectedTF(tf.label);
     onTimeframeChange?.(tf.days, tf.granularity);
   }, [onTimeframeChange]);
 
-  // All data is already scoped to the requested timeframe by the backend
-  const visibleData = useMemo(() => data, [data]);
+  // While loading a new timeframe, keep showing the previous data so the chart
+  // doesn't flash blank. Once new data arrives it replaces stableData above.
+  const visibleData = useMemo(
+    () => (loading && stableData.length > 0 ? stableData : data.length > 0 ? data : stableData),
+    [data, stableData, loading],
+  );
 
   // Compute change % from first → last visible point
   const {changeAmt, changePct, isPositive} = useMemo(() => {
@@ -471,18 +484,21 @@ export default function PortfolioTVChart({
 
       {/* ── Chart ── */}
       <View style={[styles.chartWrap, {width, height}]}>
-        {loading ? (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator color="#10B981" size="small" />
-          </View>
-        ) : visibleData.length < 1 ? (
+        {visibleData.length < 1 && !loading ? (
           <View style={styles.emptyBox}>
             <Text style={styles.emptyTxt}>
               Connecting to your exchange{'\n'}Equity curve updates every 5 minutes
             </Text>
           </View>
         ) : (
-          <TVWebView points={visibleData} currentValue={currentValue} />
+          <>
+            <TVWebView points={visibleData.length > 0 ? visibleData : [{time: Math.floor(Date.now()/1000) - 300, value: currentValue || 1}, {time: Math.floor(Date.now()/1000), value: currentValue || 1}]} currentValue={currentValue} />
+            {loading && (
+              <View style={[StyleSheet.absoluteFill, styles.loadingOverlay]}>
+                <ActivityIndicator color="#10B981" size="small" />
+              </View>
+            )}
+          </>
         )}
       </View>
 
@@ -594,6 +610,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#0F1117',
+  },
+  loadingOverlay: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(15,17,23,0.55)',
+    borderRadius: 12,
   },
   emptyBox: {
     flex: 1,

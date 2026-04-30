@@ -1,0 +1,291 @@
+﻿=== Searching pm2 out log for cancel/stop/auto patterns ===
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+
+=== Searching pm2 error log for cancel patterns ===
+
+=== ShadowTrade lines (last 60) ===
+[ShadowTrade] Skipping Stock version 1% take profit, 65% — US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit — US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle — US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% — US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit — US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle — US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% — US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit — US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle — US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% — US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit — US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle — US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% — US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit — US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle — US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% — US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit — US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle — US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% — US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit — US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle — US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% — US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit — US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle — US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% — US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit — US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle — US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% — US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit — US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle — US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% — US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit — US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle — US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% — US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit — US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle — US stock market closed
+=== Searching pm2 out log for cancel/stop/auto patterns ===
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+
+=== Searching pm2 error log for cancel patterns ===
+
+=== ShadowTrade lines (last 60) ===
+[ShadowTrade] Skipping Stock version 1% take profit, 65% � US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit � US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle � US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% � US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit � US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle � US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% � US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit � US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle � US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% � US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit � US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle � US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% � US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit � US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle � US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% � US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit � US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle � US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% � US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit � US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle � US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% � US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit � US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle � US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% � US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit � US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle � US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% � US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit � US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle � US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% � US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit � US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle � US stock market closed
+[ShadowTrade] Skipping Stock version 1% take profit, 65% � US stock market closed
+[ShadowTrade] Skipping Adaptive Stock version Position Sizing Dip Buy with Partial Take Profit � US stock market closed
+[ShadowTrade] Processing active shadow sessions...
+[ShadowTrade] Processing 11 active sessions
+[ShadowTrade] Skipping Stocks Buy 40% of Price Dip Size / Sell at 68% Profit Cycle � US stock market closed
+

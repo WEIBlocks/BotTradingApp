@@ -203,11 +203,21 @@ export const dashboardApi = {
       const dates: any[]      = Array.isArray(d?.dates) ? d.dates : [];
 
       // Zip values + dates into {time (unix seconds), value} pairs
-      const equityPoints = values.map((v: number, i: number) => {
+      let equityPoints = values.map((v: number, i: number) => {
         const raw = dates[i];
         const ms  = raw ? new Date(raw).getTime() : Date.now();
         return {time: Math.floor(ms / 1000), value: v};
       }).filter(p => p.value > 0 && p.time > 0);
+
+      // LightweightCharts needs ≥2 points to draw a line. If we only got one point
+      // (e.g. no history yet, only current balance), synthesise a second point 5 min
+      // earlier at the same value so the chart renders a flat baseline rather than blank.
+      if (equityPoints.length === 1) {
+        equityPoints = [
+          {time: equityPoints[0].time - 300, value: equityPoints[0].value},
+          equityPoints[0],
+        ];
+      }
 
       return {
         equityPoints,

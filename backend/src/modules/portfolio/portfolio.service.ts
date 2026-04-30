@@ -114,11 +114,10 @@ export async function getAssets(userId: string, mode?: 'live' | 'testnet') {
 }
 
 export async function getEquityHistory(userId: string, days = 30, granularity: 'hourly' | 'daily' = 'daily') {
-  // For short timeframes (≤2 days) use hourly snapshots, else daily
   const useHourly = granularity === 'hourly';
 
-  // Live equity: exchange portfolio snapshots (real exchange balances only)
-  const snapshots = await db
+  // Fetch requested granularity first
+  let snapshots = await db
     .select({
       date: portfolioSnapshots.date,
       totalValue: portfolioSnapshots.totalValue,
@@ -134,6 +133,27 @@ export async function getEquityHistory(userId: string, days = 30, granularity: '
       ),
     )
     .orderBy(portfolioSnapshots.date);
+
+  // If hourly was requested but no hourly snapshots exist yet, fall back to daily
+  // so the 1D tab always shows something rather than a blank chart.
+  if (useHourly && snapshots.length === 0) {
+    snapshots = await db
+      .select({
+        date: portfolioSnapshots.date,
+        totalValue: portfolioSnapshots.totalValue,
+        change24h: portfolioSnapshots.change24h,
+        changePercent: portfolioSnapshots.changePercent,
+      })
+      .from(portfolioSnapshots)
+      .where(
+        and(
+          eq(portfolioSnapshots.userId, userId),
+          sql`COALESCE(portfolio_snapshots.granularity, 'daily') = 'daily'`,
+          gte(portfolioSnapshots.date, sql`now() - (${days} || ' days')::interval`),
+        ),
+      )
+      .orderBy(portfolioSnapshots.date);
+  }
 
   // Shadow equity: cumulative PnL from paper/shadow bot positions only
   const shadowPositions = await db

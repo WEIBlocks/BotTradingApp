@@ -1,0 +1,147 @@
+﻿=== Log file sizes & rotation ===
+-rw-r--r-- 1 root root 40M Apr 28 19:11 /root/.pm2/logs/bottradeapp-error-0.log
+-rw-r--r-- 1 root root 40M Apr 29 08:27 /root/.pm2/logs/bottradeapp-out-0.log
+
+=== Search ALL pm2 logs (including rotated) for cancel/auto-stop ===
+--- /root/.pm2/logs/bottradeapp-out-0.log ---
+[ShadowTrade] Session 91d75e8b-2a29-483d-9ff5-02c37ecfbeee completed (expired)
+[ShadowTrade] Session aeb860eb-0038-436d-9142-93871d1b2b58 completed (expired)
+[LiveTrade] Subscription bc5555b1-ab23-470f-bbd9-a90398dca72c expired
+[SubExpiry] Subscription expired for user acbaafbf
+[ShadowTrade] Session c4187174-5c82-4419-9a94-a6749c3b7b30 completed (expired)
+[ShadowTrade] Session a4502f4f-28c7-4a10-ade0-d453e35ea8b5 completed (expired)
+[ShadowTrade] Session 2f95c35a-e13a-47a7-acb9-3568064e95d1 completed (expired)
+[ShadowTrade] Session 41cb5ecc-b284-4e1d-be82-d56d344bf3e9 completed (expired)
+[ShadowTrade] Session 06ba29f6-f4e6-49fe-ad08-b2ae46815d82 completed (expired)
+[ShadowTrade] Session 1dc7c399-77d0-4206-88df-b155bb615b5b completed (expired)
+[ShadowTrade] Session bef6a5d7-c91b-4579-a9ed-ed207634873f completed (expired)
+[ShadowTrade] Session 7a2e830d-9689-4cc8-bd18-1cf347dde33f completed (expired)
+[ShadowTrade] Session 56e6b125-ef05-4556-a939-8ad75dbe9f3d completed (expired)
+[ShadowTrade] Session 693b17f2-ef0c-4e9d-af58-d63193d87014 completed (expired)
+[ShadowTrade] Session 52a338ac-42dc-46b1-8b64-e8e4b7f2975b completed (expired)
+[ShadowTrade] Session 9127edb5-ed21-4927-bee5-d6a7685562bf completed (expired)
+[ShadowTrade] Session 224b637c-3131-4016-aba1-52515ccbec64 completed (expired)
+[ShadowTrade] Session 64f0f8cc-2847-4892-b89b-5bd2b4c62375 completed (expired)
+[ShadowTrade] Session c4389330-6e1b-4528-bf11-7f0f6128f5a4 completed (expired)
+[ShadowTrade] Session 295259c8-0ed4-40f5-80bb-eb8c28fe1ada completed (expired)
+[ShadowTrade] Session e5a29b54-8933-44b3-b645-314d9752c1fc completed (expired)
+[ShadowTrade] Session 46329700-df3c-4e86-9b36-b5637a9a7f52 completed (expired)
+[ShadowTrade] Session 27426cba-1b79-466c-93c7-5e33cd6a0dce completed (expired)
+[ShadowTrade] Session ba7a1eaa-8379-427c-b549-c46914adc6b3 completed (expired)
+[ShadowTrade] Session 5e60fe6d-eae7-45da-b7c5-dec5b7ea8c46 completed (expired)
+[ShadowTrade] Session b5b2f977-9cfa-403f-9c33-cf7bf615d479 completed (expired)
+[ShadowTrade] Session dd50ee40-c4ce-4955-86db-8ed731794f2b completed (expired)
+[ShadowTrade] Session b5f93143-d14f-471b-89ac-6941e3934e4b completed (expired)
+[ShadowTrade] Session bb2db796-b1d2-4944-bf08-e8a97a274772 completed (expired)
+[ShadowTrade] Session 886ae8e4-23f3-4db1-8470-66da25877c06 completed (expired)
+--- /root/.pm2/logs/bottradeapp-error-0.log ---
+
+=== Recent stop actions in logs ===
+[AI:chat] message: "what should the stop loss and take profit percentages be? give me the most profitable option"
+[AI:chat] message: ""For the current setup, calculate the Stop Loss and Take Profit. Place the Stop Loss exactly above/below the most recent..."
+
+=== Look for [ShadowTrade] complete/end/duration patterns ===
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot — US stock market closed
+=== Log file sizes & rotation ===
+-rw-r--r-- 1 root root 40M Apr 28 19:11 /root/.pm2/logs/bottradeapp-error-0.log
+-rw-r--r-- 1 root root 40M Apr 29 08:27 /root/.pm2/logs/bottradeapp-out-0.log
+
+=== Search ALL pm2 logs (including rotated) for cancel/auto-stop ===
+--- /root/.pm2/logs/bottradeapp-out-0.log ---
+[ShadowTrade] Session 91d75e8b-2a29-483d-9ff5-02c37ecfbeee completed (expired)
+[ShadowTrade] Session aeb860eb-0038-436d-9142-93871d1b2b58 completed (expired)
+[LiveTrade] Subscription bc5555b1-ab23-470f-bbd9-a90398dca72c expired
+[SubExpiry] Subscription expired for user acbaafbf
+[ShadowTrade] Session c4187174-5c82-4419-9a94-a6749c3b7b30 completed (expired)
+[ShadowTrade] Session a4502f4f-28c7-4a10-ade0-d453e35ea8b5 completed (expired)
+[ShadowTrade] Session 2f95c35a-e13a-47a7-acb9-3568064e95d1 completed (expired)
+[ShadowTrade] Session 41cb5ecc-b284-4e1d-be82-d56d344bf3e9 completed (expired)
+[ShadowTrade] Session 06ba29f6-f4e6-49fe-ad08-b2ae46815d82 completed (expired)
+[ShadowTrade] Session 1dc7c399-77d0-4206-88df-b155bb615b5b completed (expired)
+[ShadowTrade] Session bef6a5d7-c91b-4579-a9ed-ed207634873f completed (expired)
+[ShadowTrade] Session 7a2e830d-9689-4cc8-bd18-1cf347dde33f completed (expired)
+[ShadowTrade] Session 56e6b125-ef05-4556-a939-8ad75dbe9f3d completed (expired)
+[ShadowTrade] Session 693b17f2-ef0c-4e9d-af58-d63193d87014 completed (expired)
+[ShadowTrade] Session 52a338ac-42dc-46b1-8b64-e8e4b7f2975b completed (expired)
+[ShadowTrade] Session 9127edb5-ed21-4927-bee5-d6a7685562bf completed (expired)
+[ShadowTrade] Session 224b637c-3131-4016-aba1-52515ccbec64 completed (expired)
+[ShadowTrade] Session 64f0f8cc-2847-4892-b89b-5bd2b4c62375 completed (expired)
+[ShadowTrade] Session c4389330-6e1b-4528-bf11-7f0f6128f5a4 completed (expired)
+[ShadowTrade] Session 295259c8-0ed4-40f5-80bb-eb8c28fe1ada completed (expired)
+[ShadowTrade] Session e5a29b54-8933-44b3-b645-314d9752c1fc completed (expired)
+[ShadowTrade] Session 46329700-df3c-4e86-9b36-b5637a9a7f52 completed (expired)
+[ShadowTrade] Session 27426cba-1b79-466c-93c7-5e33cd6a0dce completed (expired)
+[ShadowTrade] Session ba7a1eaa-8379-427c-b549-c46914adc6b3 completed (expired)
+[ShadowTrade] Session 5e60fe6d-eae7-45da-b7c5-dec5b7ea8c46 completed (expired)
+[ShadowTrade] Session b5b2f977-9cfa-403f-9c33-cf7bf615d479 completed (expired)
+[ShadowTrade] Session dd50ee40-c4ce-4955-86db-8ed731794f2b completed (expired)
+[ShadowTrade] Session b5f93143-d14f-471b-89ac-6941e3934e4b completed (expired)
+[ShadowTrade] Session bb2db796-b1d2-4944-bf08-e8a97a274772 completed (expired)
+[ShadowTrade] Session 886ae8e4-23f3-4db1-8470-66da25877c06 completed (expired)
+--- /root/.pm2/logs/bottradeapp-error-0.log ---
+
+=== Recent stop actions in logs ===
+[AI:chat] message: "what should the stop loss and take profit percentages be? give me the most profitable option"
+[AI:chat] message: ""For the current setup, calculate the Stop Loss and Take Profit. Place the Stop Loss exactly above/below the most recent..."
+
+=== Look for [ShadowTrade] complete/end/duration patterns ===
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+[ShadowTrade] Skipping QQQ Swing Trend Bot � US stock market closed
+
