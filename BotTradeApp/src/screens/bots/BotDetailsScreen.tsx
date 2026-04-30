@@ -1,5 +1,5 @@
 import React, {useCallback, useState} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, Dimensions, ActivityIndicator, RefreshControl, Modal, TextInput} from 'react-native';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, Dimensions, ActivityIndicator, RefreshControl, Modal, TextInput, KeyboardAvoidingView, Platform} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
 import Svg, {Circle as SvgCircle, Path} from 'react-native-svg';
@@ -1354,92 +1354,103 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         transparent
         animationType="slide"
         onRequestClose={() => setShadowModalVisible(false)}>
-        <View style={modalStyles.overlay}>
-          <View style={modalStyles.sheet}>
-            <View style={modalStyles.handle} />
-            <View style={modalStyles.headerRow}>
-              <Text style={modalStyles.title}>Start Shadow Mode</Text>
-              <TouchableOpacity onPress={() => setShadowModalVisible(false)} style={modalStyles.closeBtn}>
-                <XIcon size={18} color="rgba(255,255,255,0.5)" />
-              </TouchableOpacity>
-            </View>
-            <Text style={modalStyles.desc}>
-              Run {bot?.name ?? 'this bot'} with virtual funds. No real trades will be executed.
-            </Text>
-
-            {/* Duration picker */}
-            <Text style={modalStyles.label}>DURATION</Text>
-            <View style={modalStyles.durationGrid}>
-              {DURATION_OPTIONS.map((opt, idx) => (
-                <TouchableOpacity
-                  key={opt.label}
-                  style={[modalStyles.durationChip, selectedDurationIdx === idx && modalStyles.durationChipActive]}
-                  onPress={() => { setSelectedDurationIdx(idx); setCustomDays(''); }}
-                  activeOpacity={0.7}>
-                  <Text style={[modalStyles.durationChipText, selectedDurationIdx === idx && modalStyles.durationChipTextActive]}>
-                    {opt.label}
-                  </Text>
+        {/* KeyboardAvoidingView pushes the bottom sheet up when the keyboard
+            opens so the Confirm button stays tappable. ScrollView lets long
+            content (with custom-days + balance + min-order fields) scroll. */}
+        <KeyboardAvoidingView
+          style={modalStyles.overlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView
+            style={{flexGrow: 0}}
+            contentContainerStyle={{flexGrow: 1, justifyContent: 'flex-end'}}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}>
+            <View style={modalStyles.sheet}>
+              <View style={modalStyles.handle} />
+              <View style={modalStyles.headerRow}>
+                <Text style={modalStyles.title}>Start Shadow Mode</Text>
+                <TouchableOpacity onPress={() => setShadowModalVisible(false)} style={modalStyles.closeBtn}>
+                  <XIcon size={18} color="rgba(255,255,255,0.5)" />
                 </TouchableOpacity>
-              ))}
-              <TouchableOpacity
-                style={[modalStyles.durationChip, selectedDurationIdx === -1 && modalStyles.durationChipActive]}
-                onPress={() => setSelectedDurationIdx(-1)}
-                activeOpacity={0.7}>
-                <Text style={[modalStyles.durationChipText, selectedDurationIdx === -1 && modalStyles.durationChipTextActive]}>Custom</Text>
-              </TouchableOpacity>
-            </View>
-
-            {selectedDurationIdx === -1 && (
-              <View style={modalStyles.customRow}>
-                <TextInput
-                  style={modalStyles.customInput}
-                  value={customDays}
-                  onChangeText={setCustomDays}
-                  placeholder="Days"
-                  placeholderTextColor="rgba(255,255,255,0.25)"
-                  keyboardType="number-pad"
-                  maxLength={3}
-                />
-                <Text style={modalStyles.customLabel}>days</Text>
               </View>
-            )}
+              <Text style={modalStyles.desc}>
+                Run {bot?.name ?? 'this bot'} with virtual funds. No real trades will be executed.
+              </Text>
 
-            {/* Virtual balance */}
-            <Text style={modalStyles.label}>VIRTUAL BALANCE</Text>
-            <View style={modalStyles.balanceRow}>
-              <Text style={modalStyles.dollarSign}>$</Text>
-              <TextInput
-                style={modalStyles.balanceInput}
-                value={virtualBalance}
-                onChangeText={setVirtualBalance}
-                keyboardType="number-pad"
-                maxLength={8}
-              />
+              {/* Duration picker */}
+              <Text style={modalStyles.label}>DURATION</Text>
+              <View style={modalStyles.durationGrid}>
+                {DURATION_OPTIONS.map((opt, idx) => (
+                  <TouchableOpacity
+                    key={opt.label}
+                    style={[modalStyles.durationChip, selectedDurationIdx === idx && modalStyles.durationChipActive]}
+                    onPress={() => { setSelectedDurationIdx(idx); setCustomDays(''); }}
+                    activeOpacity={0.7}>
+                    <Text style={[modalStyles.durationChipText, selectedDurationIdx === idx && modalStyles.durationChipTextActive]}>
+                      {opt.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+                <TouchableOpacity
+                  style={[modalStyles.durationChip, selectedDurationIdx === -1 && modalStyles.durationChipActive]}
+                  onPress={() => setSelectedDurationIdx(-1)}
+                  activeOpacity={0.7}>
+                  <Text style={[modalStyles.durationChipText, selectedDurationIdx === -1 && modalStyles.durationChipTextActive]}>Custom</Text>
+                </TouchableOpacity>
+              </View>
+
+              {selectedDurationIdx === -1 && (
+                <View style={modalStyles.customRow}>
+                  <TextInput
+                    style={modalStyles.customInput}
+                    value={customDays}
+                    onChangeText={setCustomDays}
+                    placeholder="Days"
+                    placeholderTextColor="rgba(255,255,255,0.25)"
+                    keyboardType="number-pad"
+                    maxLength={3}
+                  />
+                  <Text style={modalStyles.customLabel}>days</Text>
+                </View>
+              )}
+
+              {/* Virtual balance */}
+              <Text style={modalStyles.label}>VIRTUAL BALANCE</Text>
+              <View style={modalStyles.balanceRow}>
+                <Text style={modalStyles.dollarSign}>$</Text>
+                <TextInput
+                  style={modalStyles.balanceInput}
+                  value={virtualBalance}
+                  onChangeText={setVirtualBalance}
+                  keyboardType="number-pad"
+                  maxLength={8}
+                />
+              </View>
+
+              {/* Min order value */}
+              <Text style={modalStyles.label}>MIN ORDER VALUE (PER TRADE)</Text>
+              <View style={modalStyles.balanceRow}>
+                <Text style={modalStyles.dollarSign}>$</Text>
+                <TextInput
+                  style={modalStyles.balanceInput}
+                  value={shadowMinOrder}
+                  onChangeText={setShadowMinOrder}
+                  keyboardType="decimal-pad"
+                  maxLength={8}
+                />
+              </View>
+              <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 16}}>
+                {`Bot skips trades below this · min $${bot?.category === 'Stocks' ? '1' : '10'}`}
+              </Text>
+
+              {/* Confirm button */}
+              <TouchableOpacity style={modalStyles.confirmBtn} onPress={handleConfirmShadow} activeOpacity={0.85}>
+                <Text style={modalStyles.confirmText}>Start Shadow Mode</Text>
+              </TouchableOpacity>
+              <Text style={modalStyles.disclaimer}>No real money will be used. You can pause or stop anytime.</Text>
             </View>
-
-            {/* Min order value */}
-            <Text style={modalStyles.label}>MIN ORDER VALUE (PER TRADE)</Text>
-            <View style={modalStyles.balanceRow}>
-              <Text style={modalStyles.dollarSign}>$</Text>
-              <TextInput
-                style={modalStyles.balanceInput}
-                value={shadowMinOrder}
-                onChangeText={setShadowMinOrder}
-                keyboardType="decimal-pad"
-                maxLength={8}
-              />
-            </View>
-            <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 16}}>
-              {`Bot skips trades below this · min $${bot?.category === 'Stocks' ? '1' : '10'}`}
-            </Text>
-
-            {/* Confirm button */}
-            <TouchableOpacity style={modalStyles.confirmBtn} onPress={handleConfirmShadow} activeOpacity={0.85}>
-              <Text style={modalStyles.confirmText}>Start Shadow Mode</Text>
-            </TouchableOpacity>
-            <Text style={modalStyles.disclaimer}>No real money will be used. You can pause or stop anytime.</Text>
-          </View>
-        </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* ─── Dynamic Footer ────────────────────────────────────────────── */}
@@ -1854,8 +1865,10 @@ const modalStyles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
+    // marginBottom:30,
+    
     backgroundColor: '#161B22', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 24, paddingBottom: 40, paddingTop: 12,
+    paddingHorizontal: 24, paddingBottom: 90, paddingTop: 12,
     maxHeight: '85%',
   },
   handle: {

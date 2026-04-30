@@ -642,12 +642,15 @@ export default function BotBuilderScreen() {
         <Text style={styles.label}>DAILY LOSS LIMIT (%)</Text>
         <TextInput
           style={styles.textInput}
-          placeholder="e.g. 5 (auto-pause bot if daily loss exceeds this %)"
+          placeholder="e.g. 5"
           placeholderTextColor="rgba(255,255,255,0.3)"
           value={dailyLossLimit}
           onChangeText={setDailyLossLimit}
           keyboardType="decimal-pad"
         />
+        <Text style={styles.fieldHint}>
+          Auto-pauses the bot if its daily loss exceeds this percentage.
+        </Text>
 
         {/* ── Advanced AI & Trading Settings ────────────────────── */}
         <Text style={styles.label}>TRADING FREQUENCY</Text>
@@ -885,6 +888,14 @@ const styles = StyleSheet.create({
   },
   categoryBtnTextActive: {
     color: '#10B981',
+  },
+  fieldHint: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    lineHeight: 17,
+    color: 'rgba(255,255,255,0.45)',
+    marginTop: -2,
+    marginBottom: 14,
   },
   textInput: {
     backgroundColor: '#161B22',

@@ -1,7 +1,7 @@
 import React, {useEffect, useCallback, useState} from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  Dimensions, Pressable, ActivityIndicator,
+  Dimensions, Pressable, ActivityIndicator, ScrollView,
 } from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useToast} from '../../context/ToastContext';
@@ -81,6 +81,21 @@ function IconStop({color}: {color: string}) {
     </Svg>
   );
 }
+function IconCreateBot({color}: {color: string}) {
+  return (
+    <Svg width={26} height={26} viewBox="0 0 24 24" fill="none">
+      {/* Bot head */}
+      <Rect x={5} y={8} width={14} height={11} rx={3} stroke={color} strokeWidth={1.7} />
+      <Path d="M12 8V5" stroke={color} strokeWidth={1.9} strokeLinecap="round" />
+      <Circle cx={12} cy={4} r={1.2} fill={color} />
+      <Circle cx={9} cy={13.5} r={1.2} fill={color} />
+      <Circle cx={15} cy={13.5} r={1.2} fill={color} />
+      {/* Plus badge in bottom-right */}
+      <Circle cx={18.5} cy={18.5} r={4.2} fill="#0F1318" stroke={color} strokeWidth={1.6} />
+      <Path d="M18.5 16.6v3.8M16.6 18.5h3.8" stroke={color} strokeWidth={1.7} strokeLinecap="round" />
+    </Svg>
+  );
+}
 
 // ─── Glow accent line at top of card ──────────────────────────────────────────
 
@@ -118,7 +133,8 @@ function ActionCard({action, index, ready}: {action: Action; index: number; read
   const pressed = useSharedValue(0);
 
   useEffect(() => {
-    if (ready) prog.value = withTiming(1, {duration: 240 + index * 60});
+    // Snappier entry: ~140ms base + small stagger so cards land quickly
+    if (ready) prog.value = withTiming(1, {duration: 140 + index * 28});
   }, [ready, index, prog]);
 
   const anim = useAnimatedStyle(() => ({
@@ -177,15 +193,15 @@ export default function QuickActionsModal({navigation}: Props) {
   const backdropO   = useSharedValue(0);
 
   const handleDismiss = useCallback(() => {
-    translateY.value = withSpring(SH, {damping: 24, stiffness: 220});
-    backdropO.value  = withTiming(0, {duration: 200}, (fin) => {
+    translateY.value = withSpring(SH, {damping: 22, stiffness: 320});
+    backdropO.value  = withTiming(0, {duration: 140}, (fin) => {
       if (fin) runOnJS(navigation.goBack)();
     });
   }, [navigation, translateY, backdropO]);
 
   const goTo = useCallback((screen: keyof RootStackParamList) => {
     handleDismiss();
-    setTimeout(() => navigation.navigate(screen as any), 260);
+    setTimeout(() => navigation.navigate(screen as any), 160);
   }, [handleDismiss, navigation]);
 
   const handlePauseAll = useCallback(async () => {
@@ -223,10 +239,14 @@ export default function QuickActionsModal({navigation}: Props) {
   }, [showAlert, showConfirm, handleDismiss]);
 
   useEffect(() => {
-    translateY.value = withSpring(0, {damping: 20, stiffness: 160}, (fin) => {
+    // Trigger card enter animations almost immediately so the user sees them
+    // unfolding alongside the sheet rise instead of waiting for the spring.
+    translateY.value = withSpring(0, {damping: 22, stiffness: 280}, (fin) => {
       if (fin) runOnJS(setReady)(true);
     });
-    backdropO.value = withTiming(1, {duration: 260});
+    backdropO.value = withTiming(1, {duration: 160});
+    // Don't gate cards on the spring finishing — kick off card animations now.
+    setTimeout(() => setReady(true), 60);
   }, [translateY, backdropO]);
 
   const sheetStyle    = useAnimatedStyle(() => ({transform: [{translateY: translateY.value}]}));
@@ -262,6 +282,12 @@ export default function QuickActionsModal({navigation}: Props) {
       Icon: IconBots, color: '#F472B6',
       bg: 'rgba(244,114,182,0.07)', border: 'rgba(244,114,182,0.18)',
       onPress: () => goTo('AllBots'),
+    },
+    {
+      id: 'create', label: 'Create Bot', subtitle: 'Build your own strategy',
+      tag: 'New', Icon: IconCreateBot, color: '#22D3EE',
+      bg: 'rgba(34,211,238,0.07)', border: 'rgba(34,211,238,0.18)',
+      onPress: () => goTo('BotBuilder'),
     },
     {
       id: 'pause',
@@ -306,42 +332,57 @@ export default function QuickActionsModal({navigation}: Props) {
           </TouchableOpacity>
         </View>
 
-        {/* 2×3 grid — explicit rows to guarantee 2 per row */}
-        <View style={styles.grid}>
-          {[0, 1, 2].map(row => (
-            <View key={row} style={styles.gridRow}>
-              {ACTIONS.slice(row * 2, row * 2 + 2).map((a, i) => (
-                <ActionCard key={a.id} action={a} index={row * 2 + i} ready={ready} />
-              ))}
-            </View>
-          ))}
-        </View>
-
-        {/* Emergency stop */}
-        <TouchableOpacity
-          style={styles.emergencyRow}
-          onPress={handleEmergencyStop}
-          activeOpacity={0.78}>
-          {/* red glow line */}
-          <View style={styles.emergencyGlow} />
-          <View style={styles.emergencyInner}>
-            <View style={styles.emergencyIconBox}>
-              <IconStop color="#EF4444" />
-            </View>
-            <View style={{flex: 1}}>
-              <Text style={styles.emergencyLabel}>Emergency Stop</Text>
-              <Text style={styles.emergencyHint}>Halts all bots · closes live positions</Text>
-            </View>
-            <View style={styles.emergencyArrow}>
-              <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
-                <Path d="M9 18l6-6-6-6" stroke="#EF4444" strokeWidth={2.3}
-                  strokeLinecap="round" strokeLinejoin="round" />
-              </Svg>
-            </View>
+        {/* Scrollable body — keeps the sheet within the screen no matter
+            how many actions the grid grows to. */}
+        <ScrollView
+          style={styles.body}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.bodyContent}
+          bounces>
+          {/* 2-column grid — dynamic row count derived from ACTIONS length.
+              If the last row has a single card, a phantom flex:1 spacer keeps
+              the card the same width as the rest of the grid. */}
+          <View style={styles.grid}>
+            {Array.from({length: Math.ceil(ACTIONS.length / 2)}).map((_, row) => {
+              const rowActions = ACTIONS.slice(row * 2, row * 2 + 2);
+              const needsSpacer = rowActions.length === 1;
+              return (
+                <View key={row} style={styles.gridRow}>
+                  {rowActions.map((a, i) => (
+                    <ActionCard key={a.id} action={a} index={row * 2 + i} ready={ready} />
+                  ))}
+                  {needsSpacer && <View style={{flex: 1}} />}
+                </View>
+              );
+            })}
           </View>
-        </TouchableOpacity>
 
-        {/* Dismiss pill */}
+          {/* Emergency stop */}
+          <TouchableOpacity
+            style={styles.emergencyRow}
+            onPress={handleEmergencyStop}
+            activeOpacity={0.78}>
+            {/* red glow line */}
+            <View style={styles.emergencyGlow} />
+            <View style={styles.emergencyInner}>
+              <View style={styles.emergencyIconBox}>
+                <IconStop color="#EF4444" />
+              </View>
+              <View style={{flex: 1}}>
+                <Text style={styles.emergencyLabel}>Emergency Stop</Text>
+                <Text style={styles.emergencyHint}>Halts all bots · closes live positions</Text>
+              </View>
+              <View style={styles.emergencyArrow}>
+                <Svg width={13} height={13} viewBox="0 0 24 24" fill="none">
+                  <Path d="M9 18l6-6-6-6" stroke="#EF4444" strokeWidth={2.3}
+                    strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </ScrollView>
+
+        {/* Dismiss pill — pinned outside the scrollable area */}
         <TouchableOpacity onPress={handleDismiss} style={styles.dismissWrap} activeOpacity={0.6}>
           <Text style={styles.dismissTxt}>Dismiss</Text>
         </TouchableOpacity>
@@ -366,17 +407,24 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 30,
     paddingHorizontal: 24,
     paddingTop: 12,
-    paddingBottom: 36,
+    paddingBottom: 24,
     borderTopWidth: 1,
     borderLeftWidth: 1,
     borderRightWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
+    // Cap height so the sheet always fits on the screen — body scrolls if
+    // the grid grows beyond what fits.
+    maxHeight: SH * 0.88,
     // subtle inner glow at top
     shadowColor: '#10B981',
     shadowOffset: {width: 0, height: -4},
     shadowOpacity: 0.04,
     shadowRadius: 20,
   },
+
+  // Scrollable body inside the sheet (grid + emergency row)
+  body: {flexShrink: 1},
+  bodyContent: {paddingBottom: 8},
 
   handle: {
     width: 40, height: 4.5,
@@ -390,7 +438,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
   },
   headerLeft: {flexDirection: 'row', alignItems: 'center', gap: 12},
   headerDot: {
@@ -421,11 +469,11 @@ const styles = StyleSheet.create({
 
   card: {
     borderRadius: 20,
-    padding: 18,
-    paddingBottom: 14,
+    padding: 16,
+    paddingBottom: 12,
     borderWidth: 1,
     overflow: 'hidden',
-    minHeight: 148,
+    minHeight: 134,
     justifyContent: 'space-between',
   },
 
