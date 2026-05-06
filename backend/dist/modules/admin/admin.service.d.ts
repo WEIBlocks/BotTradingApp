@@ -100,6 +100,7 @@ export declare function approveBot(botId: string): Promise<{
     tags: string[] | null;
     avatarColor: string | null;
     avatarLetter: string | null;
+    avatarUrl: string | null;
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
@@ -124,6 +125,7 @@ export declare function rejectBot(botId: string, reason?: string): Promise<{
     tags: string[] | null;
     avatarColor: string | null;
     avatarLetter: string | null;
+    avatarUrl: string | null;
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
@@ -147,6 +149,7 @@ export declare function suspendBot(botId: string): Promise<{
     tags: string[] | null;
     avatarColor: string | null;
     avatarLetter: string | null;
+    avatarUrl: string | null;
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
@@ -305,6 +308,7 @@ export declare function reactivateBot(botId: string): Promise<{
     tags: string[] | null;
     avatarColor: string | null;
     avatarLetter: string | null;
+    avatarUrl: string | null;
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;

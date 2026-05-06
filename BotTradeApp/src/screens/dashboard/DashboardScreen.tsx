@@ -6,8 +6,9 @@ import {CommonActions} from '@react-navigation/native';
 import Svg, {Path, Rect, Circle, Polygon} from 'react-native-svg';
 import {RootStackParamList, Trade} from '../../types';
 import {useAuth} from '../../context/AuthContext';
+import {useFavorites} from '../../context/FavoritesContext';
 import {useToast} from '../../context/ToastContext';
-import {dashboardApi, DashboardSummary, ActiveBot as DashActiveBot, ExchangePower} from '../../services/dashboard';
+import {dashboardApi, DashboardSummary, ActiveBot as DashActiveBot, ExchangePower, PnlSummary} from '../../services/dashboard';
 import {botsService} from '../../services/bots';
 import {tradesApi} from '../../services/trades';
 import {arenaApi, ArenaSession} from '../../services/arena';
@@ -42,8 +43,11 @@ function resolveBotDisplayStatus(bot: DashActiveBot, shadowSessions: ShadowSessi
   // stopped / expired with no shadow session
   return {label: 'SHADOW DONE', color: '#10B981', icon: 'completed' as const};
 }
-import PortfolioTVChart from '../../components/charts/PortfolioTVChart';
+import PortfolioLineChart from '../../components/charts/PortfolioLineChart';
 import PlusIcon from '../../components/icons/PlusIcon';
+import HeartIcon from '../../components/icons/HeartIcon';
+import BotAvatar from '../../components/common/BotAvatar';
+import FavoriteHeart from '../../components/common/FavoriteHeart';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -265,8 +269,13 @@ export default function DashboardScreen() {
   const navigation = useNavigation<NavProp>();
   const {user: authUser, isNewUser} = useAuth();
   const {alert: showAlert, showConfirm, showToast} = useToast();
+  const {favorites: favBots, refresh: refreshFavorites} = useFavorites();
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
+  const [pnlSummary, setPnlSummary] = useState<PnlSummary | null>(null);
+  // PnL card local UI state — selected mode tab and asset-class subtab.
+  const [pnlMode, setPnlMode] = useState<'live' | 'shadow'>('shadow');
+  const [pnlAsset, setPnlAsset] = useState<'total' | 'crypto' | 'stocks' | 'other'>('total');
   const [activeBots, setActiveBots] = useState<DashActiveBot[]>([]);
   const [recentTrades, setRecentTrades] = useState<Trade[]>([]);
   // Live portfolio equity points {time (unix s), value} — live exchange only, no paper/shadow
@@ -294,7 +303,7 @@ export default function DashboardScreen() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [s, bots, trades, arenaSession, shadowRes] = await Promise.all([
+      const [s, bots, trades, arenaSession, shadowRes, pnl] = await Promise.all([
         dashboardApi.getSummary(),
         dashboardApi.getActiveBots(),
         tradesApi.getRecent(5).catch(() => [] as Trade[]),
@@ -303,12 +312,20 @@ export default function DashboardScreen() {
           const items = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
           return items.map((s: any) => ({id: s.id, botId: s.botId, status: s.status})) as ShadowSessionInfo[];
         }).catch(() => [] as ShadowSessionInfo[]),
+        dashboardApi.getPnlSummary().catch(() => null),
       ]);
       setSummary(s);
       setActiveBots(bots);
       setRecentTrades(trades);
       setActiveArenas(Array.isArray(arenaSession) ? arenaSession : (arenaSession ? [arenaSession] : []));
       setShadowSessions(shadowRes);
+      setPnlSummary(pnl);
+      // Auto-select the most informative default tab on first load:
+      // prefer Live if there's any live PnL, otherwise Shadow.
+      if (pnl) {
+        const hasLive = pnl.live.total.trades > 0;
+        setPnlMode(hasLive ? 'live' : 'shadow');
+      }
     } catch (e) {
       showAlert('Error', 'Failed to load dashboard data. Pull down to retry.');
     } finally {
@@ -323,7 +340,10 @@ export default function DashboardScreen() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+  useFocusEffect(useCallback(() => {
+    fetchData();
+    refreshFavorites();
+  }, [fetchData, refreshFavorites]));
 
   // equityPoints are passed directly to PortfolioTVChart.
   // Real-time current value is passed via currentValue prop — the TV chart updates
@@ -542,17 +562,143 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* Live portfolio equity — TradingView Lightweight Charts, live exchange only */}
+        {/* Live portfolio equity — Skia line chart (same component used by
+            BotDetails for PnL). Native canvas, no WebView, renders reliably
+            regardless of network conditions. */}
         <View style={styles.chartCard}>
-          <PortfolioTVChart
-            data={equityPoints}
+          <PortfolioLineChart
+            data={equityPoints.map(p => p.value)}
+            dates={equityPoints.map(p => new Date(p.time * 1000))}
             currentValue={totalBalance}
             width={CHART_WIDTH - 32}
             height={240}
+            isRealData={equityPoints.length >= 2}
             loading={equityLoading}
-            onTimeframeChange={fetchEquity}
+            onTimeframeChange={(days: number) => {
+              // Map the line-chart timeframes to {days, granularity}: <=2d hourly,
+              // longer = daily. Mirrors the original PortfolioTVChart routing.
+              fetchEquity(days, days <= 2 ? 'hourly' : 'daily');
+            }}
           />
         </View>
+
+        {/* Realized PnL summary — live/shadow tabs × asset class subtabs */}
+        {pnlSummary && (pnlSummary.live.total.trades > 0 || pnlSummary.shadow.total.trades > 0) && (() => {
+          const mode = pnlSummary[pnlMode];
+          const bucket = mode[pnlAsset];
+          const pnlColor = bucket.pnl >= 0 ? '#10B981' : '#EF4444';
+          const sign = bucket.pnl >= 0 ? '+' : '';
+          // Subtabs: only show asset classes that actually have trades in this mode.
+          type SubtabKey = 'total' | 'crypto' | 'stocks' | 'other';
+          const allSubtabs: Array<{key: SubtabKey; label: string; count: number}> = [
+            {key: 'total',  label: 'All',    count: mode.total.bots.length},
+            {key: 'crypto', label: 'Crypto', count: mode.crypto.bots.length},
+            {key: 'stocks', label: 'Stocks', count: mode.stocks.bots.length},
+            {key: 'other',  label: 'Other',  count: mode.other.bots.length},
+          ];
+          const subtabs = allSubtabs.filter(t => t.count > 0 || t.key === 'total');
+          return (
+            <View style={styles.section}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionTitle}>REALIZED PnL</Text>
+              </View>
+              <View style={pnlStyles.card}>
+                {/* Mode tabs (Live / Shadow) */}
+                <View style={pnlStyles.modeRow}>
+                  {(['live', 'shadow'] as const).map(m => {
+                    const active = pnlMode === m;
+                    const modeData = pnlSummary[m];
+                    const accent = m === 'live' ? '#10B981' : '#3B82F6';
+                    return (
+                      <TouchableOpacity
+                        key={m}
+                        style={[pnlStyles.modeTab, active && {backgroundColor: accent + '22', borderColor: accent}]}
+                        onPress={() => { setPnlMode(m); setPnlAsset('total'); }}
+                        activeOpacity={0.75}>
+                        <Text style={[pnlStyles.modeTabText, active && {color: accent}]}>
+                          {m === 'live' ? 'LIVE' : 'SHADOW'}
+                        </Text>
+                        <Text style={[pnlStyles.modeTabCount, active && {color: accent}]}>
+                          {modeData.total.trades} trades
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* Hero PnL number */}
+                <View style={pnlStyles.heroRow}>
+                  <Text style={[pnlStyles.heroPnl, {color: pnlColor}]}>
+                    {sign}${Math.abs(bucket.pnl).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                  </Text>
+                  <View style={pnlStyles.heroMetaCol}>
+                    <Text style={pnlStyles.heroMeta}>{bucket.trades} closed</Text>
+                    <Text style={pnlStyles.heroMeta}>Win rate {bucket.winRate}%</Text>
+                  </View>
+                </View>
+
+                {/* Asset-class subtabs */}
+                {subtabs.length > 1 && (
+                  <View style={pnlStyles.subtabRow}>
+                    {subtabs.map(t => {
+                      const active = pnlAsset === t.key;
+                      return (
+                        <TouchableOpacity
+                          key={t.key}
+                          style={[pnlStyles.subtab, active && pnlStyles.subtabActive]}
+                          onPress={() => setPnlAsset(t.key)}
+                          activeOpacity={0.75}>
+                          <Text style={[pnlStyles.subtabText, active && pnlStyles.subtabTextActive]}>
+                            {t.label}
+                          </Text>
+                          <Text style={[pnlStyles.subtabCount, active && pnlStyles.subtabCountActive]}>
+                            {t.count}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
+
+                {/* Per-bot breakdown — full list, with internal scroll once
+                    we exceed 8 rows so the dashboard layout stays compact. */}
+                {bucket.bots.length === 0 ? (
+                  <View style={{paddingVertical: 18, alignItems: 'center'}}>
+                    <Text style={pnlStyles.emptyText}>No closed trades in this segment yet.</Text>
+                  </View>
+                ) : (
+                  <ScrollView
+                    style={bucket.bots.length > 8 ? pnlStyles.botListScroll : undefined}
+                    contentContainerStyle={pnlStyles.botList}
+                    nestedScrollEnabled
+                    showsVerticalScrollIndicator={bucket.bots.length > 8}>
+                    {bucket.bots.map(bot => {
+                      const c = bot.pnl >= 0 ? '#10B981' : '#EF4444';
+                      const s = bot.pnl >= 0 ? '+' : '';
+                      return (
+                        <TouchableOpacity
+                          key={bot.botId}
+                          style={pnlStyles.botRow}
+                          onPress={() => navigation.navigate('BotDetails', {botId: bot.botId})}
+                          activeOpacity={0.75}>
+                          <View style={{flex: 1, minWidth: 0, marginRight: 10}}>
+                            <Text style={pnlStyles.botName} numberOfLines={1}>{bot.botName}</Text>
+                            <Text style={pnlStyles.botMeta} numberOfLines={1}>
+                              {bot.category.toUpperCase()} · {bot.trades} trades · {bot.winRate}% win
+                            </Text>
+                          </View>
+                          <Text style={[pnlStyles.botPnl, {color: c}]}>
+                            {s}${Math.abs(bot.pnl).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+              </View>
+            </View>
+          );
+        })()}
 
         {/* Active Bots */}
         <View style={styles.section}>
@@ -620,9 +766,14 @@ export default function DashboardScreen() {
                   style={[styles.botCard, {borderLeftColor: display.color}]}
                   onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
                   activeOpacity={0.7}>
-                  <View style={[styles.botAvatar, {backgroundColor: bot.avatarColor}]}>
-                    <Text style={styles.botAvatarText}>{bot.avatarLetter}</Text>
-                  </View>
+                  <BotAvatar
+                    size={40}
+                    avatarUrl={bot.avatarUrl}
+                    avatarColor={bot.avatarColor}
+                    avatarLetter={bot.avatarLetter}
+                    fallback="robot"
+                    style={styles.botAvatar}
+                  />
                   <View style={styles.botInfo}>
                     <View style={styles.botNameRow}>
                       <Text style={styles.botName} numberOfLines={1}>{bot.name}</Text>
@@ -786,6 +937,61 @@ export default function DashboardScreen() {
             )}
           </View>
         </View>
+
+        {/* Favorites — only renders when the user has saved at least one bot */}
+        {favBots.length > 0 && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+                <HeartIcon size={16} filled color="#EF4444" />
+                <Text style={styles.sectionTitle}>FAVORITES</Text>
+                <View style={favStyles.countPill}>
+                  <Text style={favStyles.countPillText}>{favBots.length}</Text>
+                </View>
+              </View>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('Main' as any, {screen: 'Market'})}
+                accessibilityRole="button">
+                <Text style={styles.sectionAction}>View all</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.sectionCard}>
+              {favBots.slice(0, 5).map((bot, idx) => {
+                const returnColor = (bot.returnPercent || 0) >= 0 ? '#10B981' : '#EF4444';
+                const returnSign = (bot.returnPercent || 0) >= 0 ? '+' : '';
+                const isLast = idx === Math.min(favBots.length, 5) - 1;
+                return (
+                  <TouchableOpacity
+                    key={bot.id}
+                    style={[favStyles.row, !isLast && favStyles.rowBorder]}
+                    onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
+                    activeOpacity={0.7}>
+                    <BotAvatar
+                      size={38}
+                      avatarUrl={bot.avatarUrl}
+                      avatarColor={bot.avatarColor}
+                      avatarLetter={bot.avatarLetter}
+                      fallback="robot"
+                    />
+                    <View style={favStyles.info}>
+                      <Text style={favStyles.name} numberOfLines={1}>{bot.name}</Text>
+                      <Text style={favStyles.strategy} numberOfLines={1}>
+                        {bot.strategy}{bot.risk ? ` · ${bot.risk}` : ''}
+                      </Text>
+                    </View>
+                    <View style={favStyles.rightCol}>
+                      <Text style={[favStyles.return, {color: returnColor}]}>
+                        {returnSign}{(bot.returnPercent || 0).toFixed(1)}%
+                      </Text>
+                      <Text style={favStyles.returnLbl}>30D</Text>
+                    </View>
+                    <FavoriteHeart botId={bot.id} bot={bot} size={20} style={favStyles.heart} />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        )}
 
         {/* Recent Trades */}
         <View style={styles.section}>
@@ -1149,5 +1355,141 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     shadowColor: '#10B981', shadowOffset: {width: 0, height: 4},
     shadowOpacity: 0.5, shadowRadius: 12, elevation: 10,
+  },
+});
+
+const favStyles = StyleSheet.create({
+  countPill: {
+    backgroundColor: 'rgba(239,68,68,0.15)',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  countPillText: {fontFamily: 'Inter-Bold', fontSize: 10, color: '#EF4444'},
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    gap: 10,
+  },
+  rowBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255,255,255,0.04)',
+  },
+  info: {flex: 1, minWidth: 0},
+  name: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
+  strategy: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2},
+  rightCol: {alignItems: 'flex-end', minWidth: 56},
+  return: {fontFamily: 'Inter-Bold', fontSize: 13},
+  returnLbl: {fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', marginTop: 1},
+  heart: {paddingLeft: 6, paddingVertical: 4},
+});
+
+const pnlStyles = StyleSheet.create({
+  card: {
+    backgroundColor: '#161B22',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+    padding: 14,
+  },
+  modeRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+  },
+  modeTab: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    alignItems: 'center',
+  },
+  modeTabText: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 12,
+    letterSpacing: 0.6,
+    color: 'rgba(255,255,255,0.5)',
+  },
+  modeTabCount: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.35)',
+    marginTop: 2,
+  },
+  heroRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  heroPnl: {
+    fontFamily: 'Inter-Bold',
+    fontSize: 26,
+    letterSpacing: -0.3,
+  },
+  heroMetaCol: {alignItems: 'flex-end'},
+  heroMeta: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.4)',
+    marginTop: 1,
+  },
+  subtabRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginBottom: 12,
+    flexWrap: 'wrap',
+  },
+  subtab: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  subtabActive: {
+    backgroundColor: 'rgba(16,185,129,0.12)',
+    borderColor: 'rgba(16,185,129,0.4)',
+  },
+  subtabText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.55)',
+    letterSpacing: 0.3,
+  },
+  subtabTextActive: {color: '#10B981'},
+  subtabCount: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.35)',
+  },
+  subtabCountActive: {color: '#10B981'},
+  botList: {gap: 0},
+  // ~8 bot rows ≈ 480 px (each row is ~58 px tall with the meta line + border).
+  // Caps the section height so the dashboard stays compact even with 20+ bots;
+  // the inner ScrollView takes over for the rest.
+  botListScroll: {maxHeight: 460},
+  botRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.04)',
+  },
+  botName: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
+  botMeta: {fontFamily: 'Inter-Regular', fontSize: 10.5, color: 'rgba(255,255,255,0.4)', marginTop: 2},
+  botPnl: {fontFamily: 'Inter-Bold', fontSize: 14, letterSpacing: -0.2},
+  emptyText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.4)',
   },
 });

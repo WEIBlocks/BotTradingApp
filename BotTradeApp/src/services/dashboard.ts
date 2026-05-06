@@ -46,6 +46,7 @@ interface ActiveBotRow {
   botRiskLevel: string;
   botAvatarColor: string;
   botAvatarLetter: string;
+  botAvatarUrl?: string | null;
   return30d: number | null;
   winRate: number | null;
   activeUsers: number | null;
@@ -75,6 +76,41 @@ export interface DashboardSummary {
   exchanges: ExchangePower[];
 }
 
+// ─── PnL summary types (matches backend /portfolio/pnl-summary) ─────────────
+
+export interface PnlBotRow {
+  botId: string;
+  botName: string;
+  category: 'crypto' | 'stocks' | 'other';
+  pnl: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+}
+
+export interface PnlBucket {
+  pnl: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  bots: PnlBotRow[];
+}
+
+export interface PnlModeSummary {
+  total: PnlBucket;
+  crypto: PnlBucket;
+  stocks: PnlBucket;
+  other: PnlBucket;
+}
+
+export interface PnlSummary {
+  live: PnlModeSummary;
+  shadow: PnlModeSummary;
+  generatedAt: string;
+}
+
 export interface ActiveBot {
   id: string;
   subscriptionId: string;
@@ -82,6 +118,7 @@ export interface ActiveBot {
   pair: string;
   avatarColor: string;
   avatarLetter: string;
+  avatarUrl?: string | null;
   status: string;        // subscription mode: 'live' | 'paper'
   subStatus: string;     // subscription status: 'active' | 'shadow' | 'paused' | 'stopped'
   totalReturn: number;
@@ -159,6 +196,7 @@ export const dashboardApi = {
       pair: `${row.botCategory ?? 'Crypto'}`,
       avatarColor: row.botAvatarColor ?? '#6C63FF',
       avatarLetter: row.botAvatarLetter ?? (row.botName?.[0] ?? 'B'),
+      avatarUrl: row.botAvatarUrl ?? null,
       status: row.subscriptionMode ?? 'paper',
       subStatus: row.subscriptionStatus ?? 'active',
       totalReturn: Number(row.return30d) || 0,
@@ -225,6 +263,17 @@ export const dashboardApi = {
       };
     } catch {
       return {equityPoints: [], isRealData: false};
+    }
+  },
+
+  /** Realized PnL split by mode (live/shadow) × asset class (crypto/stocks/other),
+   *  with per-bot contributors. Sourced from `bot_positions WHERE status='closed'`. */
+  async getPnlSummary(): Promise<PnlSummary | null> {
+    try {
+      const res = await api.get<DataWrap<PnlSummary>>('/portfolio/pnl-summary');
+      return res?.data ?? null;
+    } catch {
+      return null;
     }
   },
 };

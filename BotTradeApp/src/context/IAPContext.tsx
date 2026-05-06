@@ -124,8 +124,11 @@ function IAPProviderInner({children}: {children: React.ReactNode}) {
     setState(prev => ({...prev, initialized: false, activeSubscription: null}));
 
     async function init() {
-      // If no user, mark initialized with no subscription
+      // If no user, mark initialized with no subscription. Reset the dedupe
+      // ref so logging back in as the SAME user re-runs the IAP check
+      // (otherwise lastCheckedUserId would still equal that id after login).
       if (!currentUserId) {
+        lastCheckedUserId.current = undefined as any;
         if (mounted) {
           setState(prev => ({...prev, initialized: true, activeSubscription: null}));
         }

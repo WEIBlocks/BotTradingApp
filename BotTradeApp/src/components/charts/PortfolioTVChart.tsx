@@ -15,6 +15,10 @@ import {
   ActivityIndicator, Platform,
 } from 'react-native';
 import WebView from 'react-native-webview';
+// Inline the lightweight-charts library so the WebView never depends on a CDN
+// at runtime. unpkg.com being slow/blocked on the user's network was making
+// the chart silently never render.
+import {LIGHTWEIGHT_CHARTS_SOURCE} from '../../assets/vendor/lightweight-charts-source';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -102,7 +106,7 @@ const CHART_HTML = `<!DOCTYPE html>
   <div class="tt-val"  id="tt-val">—</div>
   <div class="tt-chg"  id="tt-chg"></div>
 </div>
-<script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+<script>__INLINE_LIGHTWEIGHT_CHARTS__</script>
 <script>
 (function() {
   var chart, lineSeries;
@@ -235,8 +239,14 @@ const CHART_HTML = `<!DOCTYPE html>
     lineSeries.applyOptions({ color: clr, crosshairMarkerBorderColor: clr });
   }
 
+  function rnLog(msg) {
+    try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'log', msg: msg })); } catch (e) {}
+  }
+
   function loadData(points) {
-    if (!points || !points.length) return;
+    rnLog('loadData called with ' + (points ? points.length : 0) + ' pts');
+    if (!points || !points.length) { rnLog('  bail: no points'); return; }
+    rnLog('  sample: ' + JSON.stringify(points[0]) + ' .. ' + JSON.stringify(points[points.length-1]));
 
     // Sort ascending by time to guarantee no LightweightCharts ordering errors
     points = points.slice().sort(function(a, b) { return a.time - b.time; });
@@ -250,7 +260,7 @@ const CHART_HTML = `<!DOCTYPE html>
     var keys = Object.keys(seen).map(Number).sort(function(a,b){return a-b;});
     for (var j = 0; j < keys.length; j++) deduped.push(seen[keys[j]]);
 
-    if (!deduped.length) return;
+    if (!deduped.length) { rnLog('  bail: deduped empty'); return; }
 
     currentData = deduped;
     firstValue = deduped[0].value;
@@ -262,7 +272,14 @@ const CHART_HTML = `<!DOCTYPE html>
     var lastVal = deduped[deduped.length - 1].value;
     applyColor(lastVal >= firstValue);
 
-    lineSeries.setData(deduped);
+    rnLog('  about to setData with ' + deduped.length + ' deduped pts, lineSeries=' + (lineSeries ? 'ok' : 'NULL'));
+    try {
+      lineSeries.setData(deduped);
+      rnLog('  setData OK');
+    } catch (e) {
+      rnLog('  setData THREW: ' + String(e));
+      return;
+    }
 
     // Pad Y axis so the line is never touching the top/bottom edge
     var minVal = Infinity, maxVal = -Infinity;
@@ -284,28 +301,68 @@ const CHART_HTML = `<!DOCTYPE html>
     }
 
     chart.timeScale().fitContent();
+
+    // Read back what the series actually has after setData — if data() shows
+    // less than we sent or wrong values, that pinpoints the issue inside the
+    // library.
+    setTimeout(function() {
+      try {
+        var seriesData = lineSeries.data();
+        rnLog('  series.data() length=' + seriesData.length + ' first=' + JSON.stringify(seriesData[0]) + ' last=' + JSON.stringify(seriesData[seriesData.length-1]));
+        var vr = chart.timeScale().getVisibleRange();
+        rnLog('  visibleRange=' + JSON.stringify(vr));
+        // DOM inspection
+        var canvases = document.querySelectorAll('canvas');
+        rnLog('  canvas count=' + canvases.length);
+        for (var ci = 0; ci < canvases.length; ci++) {
+          var c = canvases[ci];
+          rnLog('  canvas[' + ci + ']: w=' + c.width + ' h=' + c.height + ' style=' + c.getAttribute('style'));
+        }
+        // Chart container
+        var chartEl = document.getElementById('chart');
+        rnLog('  chartEl: clientW=' + chartEl.clientWidth + ' clientH=' + chartEl.clientHeight + ' offsetW=' + chartEl.offsetWidth + ' offsetH=' + chartEl.offsetHeight);
+        rnLog('  window.innerWidth=' + window.innerWidth + ' innerHeight=' + window.innerHeight);
+        // Force a resize to match the chart to current dimensions
+        chart.applyOptions({ width: chartEl.clientWidth || window.innerWidth, height: chartEl.clientHeight || window.innerHeight });
+        rnLog('  resize applied');
+      } catch (e) { rnLog('  readback err: ' + String(e)); }
+    }, 100);
   }
 
   function updateLastPoint(value) {
+    rnLog('updateLast called value=' + value + ' currentData.length=' + currentData.length);
     if (!currentData.length) return;
     var last = currentData[currentData.length - 1];
     var updated = { time: last.time, value: value };
-    lineSeries.update(updated);
-    currentData[currentData.length - 1] = updated;
-    applyColor(value >= firstValue);
+    try {
+      lineSeries.update(updated);
+      currentData[currentData.length - 1] = updated;
+      applyColor(value >= firstValue);
+    } catch (e) { rnLog('updateLast threw: ' + String(e)); }
   }
-
-  document.addEventListener('message', onMsg);
-  window.addEventListener('message',   onMsg);
 
   function onMsg(e) {
     try {
-      var msg = JSON.parse(e.data);
+      // RN postMessage delivers data either as a string in e.data OR as the
+      // top-level event itself depending on RN/WebView version. Be defensive.
+      var raw = (e && e.data) ? e.data : e;
+      if (typeof raw !== 'string') raw = String(raw);
+      var msg = JSON.parse(raw);
+      try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'log', msg: 'received ' + msg.type + ' (' + (msg.points ? msg.points.length + ' pts' : '') + ')' })); } catch(e) {}
       if (msg.type === 'setData')         loadData(msg.points);
       else if (msg.type === 'updateLast') updateLastPoint(msg.value);
       else if (msg.type === 'fitContent') chart.timeScale().fitContent();
-    } catch(err) {}
+    } catch(err) {
+      try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'jserr', msg: 'onMsg parse: ' + String(err) })); } catch(e) {}
+    }
   }
+  document.addEventListener('message', onMsg);
+  window.addEventListener('message', onMsg);
+
+  // Surface any uncaught script errors back to RN so we don't have a silent blank chart.
+  window.onerror = function(msg, url, line) {
+    try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'jserr', msg: String(msg) + ' at ' + url + ':' + line })); } catch(e) {}
+  };
 
   try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ready' })); } catch(e) {}
 })();
@@ -329,8 +386,30 @@ function TVWebView({points, currentValue, style}: TVWebViewProps) {
   const pointsRef   = useRef(points);
   useEffect(() => { pointsRef.current = points; }, [points]);
 
+  // RN-to-WebView postMessage was removed in react-native-webview 11.x; we
+  // use injectJavaScript which is the supported path. Synthesizes a
+  // MessageEvent so the existing window.addEventListener('message', onMsg)
+  // logic in the HTML keeps working unchanged.
   const post = useCallback((msg: object) => {
-    wvRef.current?.postMessage(JSON.stringify(msg));
+    const payload = JSON.stringify(msg);
+    // Escape backticks/backslashes/dollars so we can embed safely in a JS
+    // template literal context. JSON.stringify already escapes quotes and
+    // backslashes, but we still wrap in JSON.parse(<json-str>) so the inner
+    // payload is a real object rather than embedded string parsing.
+    const escaped = payload.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const js = `
+      (function() {
+        try {
+          var data = '${escaped}';
+          var ev = new MessageEvent('message', { data: data });
+          window.dispatchEvent(ev);
+        } catch (e) {
+          try { window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'jserr', msg: 'inject: ' + String(e) })); } catch (_) {}
+        }
+        true;
+      })();
+    `;
+    wvRef.current?.injectJavaScript(js);
   }, []);
 
   const onMessage = useCallback((e: any) => {
@@ -342,9 +421,25 @@ function TVWebView({points, currentValue, style}: TVWebViewProps) {
         if (pointsRef.current.length > 0) {
           post({type: 'setData', points: pointsRef.current});
         }
+      } else if (msg.type === 'jserr') {
+        console.warn('[PortfolioTVChart] webview error:', msg.msg);
+      } else if (msg.type === 'log') {
+        console.log('[PortfolioTVChart][wv]', msg.msg);
       }
     } catch {}
   }, [post]);
+
+  // Watchdog: if 'ready' never arrives, the chart script failed to load. Log
+  // it so we don't silently end up with a blank box. Most common cause used
+  // to be the unpkg.com CDN being slow/blocked — that's now bundled locally.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (!readyRef.current) {
+        console.warn('[PortfolioTVChart] WebView "ready" not received within 5s — chart script may have failed to initialize.');
+      }
+    }, 5000);
+    return () => clearTimeout(t);
+  }, []);
 
   // Send data whenever points array changes (timeframe switch)
   useEffect(() => {
@@ -363,7 +458,9 @@ function TVWebView({points, currentValue, style}: TVWebViewProps) {
   return (
     <WebView
       ref={wvRef}
-      source={{html: CHART_HTML}}
+      // Function replacement avoids `$1`/`$&` patterns being interpreted in the
+      // minified library source (which contains many `$` chars).
+      source={{html: CHART_HTML.replace('__INLINE_LIGHTWEIGHT_CHARTS__', () => LIGHTWEIGHT_CHARTS_SOURCE)}}
       style={[{flex: 1, backgroundColor: '#0F1117'}, style]}
       originWhitelist={['*']}
       scrollEnabled={false}

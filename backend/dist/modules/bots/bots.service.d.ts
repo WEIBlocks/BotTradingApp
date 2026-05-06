@@ -1,5 +1,9 @@
 interface CreateBotData {
     name: string;
+    subtitle?: string;
+    description?: string;
+    tags?: string[];
+    priceMonthly?: number;
     strategy: string;
     category?: string;
     risk_level?: string;
@@ -43,27 +47,35 @@ export declare function createBot(userId: string, data: CreateBotData): Promise<
     creatorFeePercent: string | null;
     platformFeePercent: string | null;
     avatarLetter: string | null;
+    avatarUrl: string | null;
     isPublished: boolean | null;
 }>;
 interface UpdateBotData {
     name?: string;
+    subtitle?: string;
+    description?: string;
+    tags?: string[];
+    priceMonthly?: number;
+    creatorFeePercent?: number;
     strategy?: string;
     category?: string;
     risk_level?: string;
     pairs?: string[];
+    prompt?: string;
     stopLoss?: number;
     takeProfit?: number;
     maxPositionSize?: number;
-    creatorFeePercent?: number;
-    prompt?: string;
+    dailyLossLimit?: number;
+    maxOpenPositions?: number;
+    tradeDirection?: 'buy' | 'sell' | 'both';
+    orderType?: 'market' | 'limit';
     tradingFrequency?: 'conservative' | 'balanced' | 'aggressive' | 'max';
+    tradingSchedule?: string;
+    aiMode?: 'rules_only' | 'hybrid' | 'full_ai';
     maxHoldsBeforeAI?: number;
     aiConfidenceThreshold?: number;
-    aiMode?: 'rules_only' | 'hybrid' | 'full_ai';
     customEntryConditions?: any[];
     customExitConditions?: any[];
-    maxOpenPositions?: number;
-    tradingSchedule?: string;
 }
 export declare function updateBot(userId: string, botId: string, data: UpdateBotData): Promise<{
     id: string;
@@ -81,6 +93,7 @@ export declare function updateBot(userId: string, botId: string, data: UpdateBot
     tags: string[] | null;
     avatarColor: string | null;
     avatarLetter: string | null;
+    avatarUrl: string | null;
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
@@ -104,6 +117,7 @@ export declare function getBotForEdit(userId: string, botId: string): Promise<{
     tags: string[] | null;
     avatarColor: string | null;
     avatarLetter: string | null;
+    avatarUrl: string | null;
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
@@ -380,6 +394,7 @@ export declare function getUserActiveBots(userId: string): Promise<{
     botRiskLevel: "Very Low" | "Low" | "Med" | "High" | "Very High" | null;
     botAvatarColor: string | null;
     botAvatarLetter: string | null;
+    botAvatarUrl: string | null;
     winRate: string | null;
     activeUsers: number | null;
     avgRating: string | null;
@@ -493,6 +508,7 @@ export declare function getLeaderboard(): Promise<{
     riskLevel: "Very Low" | "Low" | "Med" | "High" | "Very High" | null;
     avatarLetter: string | null;
     avatarColor: string | null;
+    avatarUrl: string | null;
     creatorId: string;
     return30d: string | null;
     winRate: string | null;
@@ -798,4 +814,72 @@ export declare function deleteBot(userId: string, botId: string): Promise<{
     botId: string;
     name: string;
 }>;
+export declare function setBotAvatar(userId: string, botId: string, avatarUrl: string | null): Promise<{
+    id: string;
+    creatorId: string;
+    name: string;
+    subtitle: string | null;
+    description: string | null;
+    prompt: string | null;
+    strategy: string;
+    category: "Crypto" | "Stocks" | "Forex" | "Multi" | null;
+    riskLevel: "Very Low" | "Low" | "Med" | "High" | "Very High" | null;
+    priceMonthly: string | null;
+    creatorFeePercent: string | null;
+    platformFeePercent: string | null;
+    tags: string[] | null;
+    avatarColor: string | null;
+    avatarLetter: string | null;
+    avatarUrl: string | null;
+    status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
+    isPublished: boolean | null;
+    config: unknown;
+    version: string | null;
+    createdAt: Date | null;
+    updatedAt: Date | null;
+}>;
+export declare function addFavorite(userId: string, botId: string): Promise<{
+    favorited: boolean;
+    botId: string;
+}>;
+export declare function removeFavorite(userId: string, botId: string): Promise<{
+    favorited: boolean;
+    botId: string;
+}>;
+export declare function isFavorited(userId: string, botId: string): Promise<{
+    favorited: boolean;
+    botId: string;
+}>;
+/**
+ * Returns the user's favorited bots, enriched with stats. Same shape as the
+ * marketplace bot listing so the mobile mapBot() helper consumes it directly.
+ */
+export declare function getUserFavorites(userId: string): Promise<{
+    id: string;
+    name: string;
+    subtitle: string | null;
+    strategy: string;
+    category: "Crypto" | "Stocks" | "Forex" | "Multi" | null;
+    riskLevel: "Very Low" | "Low" | "Med" | "High" | "Very High" | null;
+    priceMonthly: string | null;
+    tags: string[] | null;
+    avatarColor: string | null;
+    avatarLetter: string | null;
+    avatarUrl: string | null;
+    status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
+    isPublished: boolean | null;
+    creatorId: string;
+    config: unknown;
+    version: string | null;
+    createdAt: Date | null;
+    favoritedAt: Date | null;
+    return30d: string | null;
+    winRate: string | null;
+    maxDrawdown: string | null;
+    sharpeRatio: string | null;
+    activeUsers: number | null;
+    avgRating: string | null;
+    reviewCount: number | null;
+    creatorName: string | null;
+}[]>;
 export {};

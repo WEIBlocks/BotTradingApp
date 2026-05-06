@@ -171,16 +171,26 @@ const ExchangeManageScreen = () => {
         ) : null}
         {connections.map((exchange) => (
           <View key={exchange.id} style={styles.card}>
-            {/* Top Row */}
+            {/* Top Row — avatar + name/label on the left, single status pill on
+                the right. Tags (Testnet / PAPER / LIVE) move to their own row
+                below so a long provider name never gets squeezed by 2-3 badges. */}
             <View style={styles.cardTopRow}>
               <View style={styles.exchangeCircle}>
                 {(() => { const Logo = EXCHANGE_LOGOS[exchange.provider]; return Logo ? <Logo size={44} /> : <View style={{width: 44, height: 44, borderRadius: 22, backgroundColor: EXCHANGE_COLORS[exchange.provider] || '#6366F1', alignItems: 'center', justifyContent: 'center'}}><Text style={styles.exchangeLetter}>{exchange.provider.charAt(0)}</Text></View>; })()}
               </View>
               <View style={styles.exchangeInfo}>
-                <Text style={styles.providerName}>{exchange.provider}</Text>
-                <Text style={styles.accountLabel}>{exchange.accountLabel}</Text>
+                <Text style={styles.providerName} numberOfLines={1}>{exchange.provider}</Text>
+                <Text style={styles.accountLabel} numberOfLines={1}>{exchange.accountLabel}</Text>
               </View>
-              <View style={{flexDirection: 'row', gap: 6, alignItems: 'center'}}>
+              <View style={styles.statusBadge}>
+                <View style={styles.statusDot} />
+                <Text style={styles.statusText}>Connected</Text>
+              </View>
+            </View>
+
+            {/* Tag row — wraps onto a second line on narrow phones. */}
+            {(exchange.sandbox || exchange.provider?.toLowerCase() === 'alpaca') && (
+              <View style={styles.tagRow}>
                 {exchange.sandbox && (
                   <View style={styles.testnetBadge}>
                     <Text style={styles.testnetText}>Testnet</Text>
@@ -197,12 +207,8 @@ const ExchangeManageScreen = () => {
                     </Text>
                   </View>
                 )}
-                <View style={styles.statusBadge}>
-                  <View style={styles.statusDot} />
-                  <Text style={styles.statusText}>Connected</Text>
-                </View>
               </View>
-            </View>
+            )}
 
             {/* Details Row */}
             <View style={styles.detailsRow}>
@@ -310,7 +316,7 @@ const styles = StyleSheet.create({
   cardTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   exchangeCircle: {
     width: 44,
@@ -327,7 +333,15 @@ const styles = StyleSheet.create({
   },
   exchangeInfo: {
     flex: 1,
+    minWidth: 0, // allow truncation instead of pushing siblings out of bounds
     marginLeft: 14,
+    marginRight: 10,
+  },
+  tagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 14,
   },
   providerName: {
     fontFamily: 'Inter-SemiBold',
@@ -341,6 +355,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   statusBadge: {
+    flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(16,185,129,0.12)',

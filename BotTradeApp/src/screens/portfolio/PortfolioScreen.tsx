@@ -9,6 +9,7 @@ import {dashboardApi, ActiveBot as DashActiveBot} from '../../services/dashboard
 import {botsService} from '../../services/bots';
 import {api} from '../../services/api';
 import AllocationBar from '../../components/charts/AllocationBar';
+import BotAvatar from '../../components/common/BotAvatar';
 
 // ─── Shadow session type (for cross-referencing status) ─────────────────────
 interface ShadowSessionInfo {
@@ -531,9 +532,14 @@ export default function PortfolioScreen() {
                   style={[styles.botCard, {borderLeftColor: display.color}]}
                   onPress={() => navigation.navigate('BotDetails', {botId: bot.id})}
                   activeOpacity={0.7}>
-                  <View style={[styles.botAvatar, {backgroundColor: bot.avatarColor}]}>
-                    <Text style={styles.botAvatarText}>{bot.avatarLetter}</Text>
-                  </View>
+                  <BotAvatar
+                    size={42}
+                    avatarUrl={bot.avatarUrl}
+                    avatarColor={bot.avatarColor}
+                    avatarLetter={bot.avatarLetter}
+                    fallback="robot"
+                    style={styles.botAvatar}
+                  />
                   <View style={styles.botInfo}>
                     <View style={styles.botNameRow}>
                       <Text style={styles.botName} numberOfLines={1}>{bot.name}</Text>

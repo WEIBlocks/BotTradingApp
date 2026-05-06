@@ -126,6 +126,7 @@ export interface Bot {
   creatorName: string;
   avatarColor: string;
   avatarLetter: string;
+  avatarUrl?: string | null; // Optional uploaded image URL (relative to backend host, e.g. /uploads/abc.png)
   returnPercent: number; // 30D return
   returnValue?: number;
   winRate: number; // 0-100
@@ -272,6 +273,7 @@ export interface ActiveBot {
   pair: string;
   avatarColor: string;
   avatarLetter: string;
+  avatarUrl?: string | null;
   dailyReturn: number;
   totalReturn: number;
   status: BotStatus;

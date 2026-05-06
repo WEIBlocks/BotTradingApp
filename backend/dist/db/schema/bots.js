@@ -58,6 +58,10 @@ export const bots = pgTable("bots", {
     tags: text("tags").array(),
     avatarColor: varchar("avatar_color", { length: 9 }),
     avatarLetter: varchar("avatar_letter", { length: 2 }),
+    // Optional uploaded image. Stored as a relative URL (e.g. /uploads/abc.png)
+    // served by the backend's static handler. When null, UI falls back to the
+    // letter+color avatar. Length 500 leaves room for absolute URLs too.
+    avatarUrl: text("avatar_url"),
     status: botStatusEnum("status").default("draft"),
     isPublished: boolean("is_published").default(false),
     config: jsonb("config"),
@@ -202,4 +206,17 @@ export const reviews = pgTable("reviews", {
 }, (t) => ({
     userBotUnique: unique("reviews_user_bot_unique").on(t.userId, t.botId),
     botIdIdx: index("reviews_bot_id_idx").on(t.botId),
+}));
+// User favorites — many-to-many between users and bots. (userId, botId) is
+// unique so the toggle endpoint can rely on insert-or-noop / delete semantics
+// and the "is this bot favorited" lookup is cheap.
+export const botFavorites = pgTable("bot_favorites", {
+    id: uuid("id").primaryKey().default(sql `gen_random_uuid()`),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    botId: uuid("bot_id").notNull().references(() => bots.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (t) => ({
+    userBotUnique: unique("bot_favorites_user_bot_unique").on(t.userId, t.botId),
+    userIdIdx: index("bot_favorites_user_id_idx").on(t.userId),
+    botIdIdx: index("bot_favorites_bot_id_idx").on(t.botId),
 }));

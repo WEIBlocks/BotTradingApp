@@ -49,3 +49,33 @@ export declare function getAllocation(userId: string, mode?: 'live' | 'testnet')
  * Get total P&L breakdown by bot
  */
 export declare function getPnlByBot(userId: string): Promise<Record<string, unknown>[]>;
+export interface PnlBotRow {
+    botId: string;
+    botName: string;
+    category: string;
+    pnl: number;
+    trades: number;
+    wins: number;
+    losses: number;
+    winRate: number;
+}
+export interface PnlBucket {
+    pnl: number;
+    trades: number;
+    wins: number;
+    losses: number;
+    winRate: number;
+    bots: PnlBotRow[];
+}
+export interface PnlModeSummary {
+    total: PnlBucket;
+    crypto: PnlBucket;
+    stocks: PnlBucket;
+    other: PnlBucket;
+}
+export interface PnlSummary {
+    live: PnlModeSummary;
+    shadow: PnlModeSummary;
+    generatedAt: string;
+}
+export declare function getPnlSummary(userId: string): Promise<PnlSummary>;

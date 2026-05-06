@@ -6,7 +6,9 @@ import { botPositions } from '../../db/schema/positions.js';
 import { exchangeConnections } from '../../db/schema/exchanges.js';
 import { NotFoundError, AppError } from '../../lib/errors.js';
 // ─── Constants ──────────────────────────────────────────────────────────────
-const MAX_BOTS_PER_SESSION = 5;
+// No upper bound on bots per session — the tick loop iterates over N
+// gladiators, the balance is split equally per asset class, and the DB has
+// no constraint. Only the minimum (2) is enforced inline below.
 const MAX_DURATION_SECONDS = 86400; // 24 hours max
 const MAX_SESSIONS_PER_DAY = 10;
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -83,8 +85,7 @@ export async function createSession(userId, botIds, durationSeconds = 180, mode 
     // ── Basic validation ──
     if (botIds.length < 2)
         throw new AppError(400, 'Select at least 2 bots for the arena battle.');
-    if (botIds.length > MAX_BOTS_PER_SESSION)
-        throw new AppError(400, `Maximum ${MAX_BOTS_PER_SESSION} bots per battle.`);
+    // No max-bots cap — see MAX_DURATION_SECONDS comment block.
     if (durationSeconds > MAX_DURATION_SECONDS)
         throw new AppError(400, 'Maximum battle duration is 24 hours.');
     if (durationSeconds < 60)

@@ -67,6 +67,19 @@ export async function creatorRoutes(app: FastifyInstance) {
     return { data: bot };
   });
 
+  // POST /bots/:id/unpublish — hide from marketplace without deleting.
+  zApp.post('/bots/:id/unpublish', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { id } = request.params;
+    const bot = await creatorService.unpublishBot(request.user.userId, id);
+    return { data: bot };
+  });
+
   // GET /earnings — full earnings summary with breakdown
   zApp.get('/earnings', {
     schema: {

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { authenticate } from '../../middleware/authenticate.js';
-import { getSummary, getAssets, getAllocation, getEquityHistory, getPnlByBot, getConnectedModes } from './portfolio.service.js';
+import { getSummary, getAssets, getAllocation, getEquityHistory, getPnlByBot, getConnectedModes, getPnlSummary } from './portfolio.service.js';
 import { dataResponseSchema } from './portfolio.schema.js';
 
 export async function portfolioRoutes(app: FastifyInstance) {
@@ -73,6 +73,19 @@ export async function portfolioRoutes(app: FastifyInstance) {
     },
   }, async (request) => {
     const result = await getPnlByBot(request.user.userId);
+    return { data: result };
+  });
+
+  // GET /pnl-summary — realized PnL split by mode (live/shadow) × asset class
+  // (crypto/stocks/other) with per-bot contributors. Powers the dashboard
+  // "Total PnL" card with live/shadow tabs and crypto/stocks subtabs.
+  zApp.get('/pnl-summary', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request) => {
+    const result = await getPnlSummary(request.user.userId);
     return { data: result };
   });
 }

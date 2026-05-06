@@ -259,3 +259,83 @@ export async function getPnlByBot(userId) {
   `);
     return rows;
 }
+function emptyBucket() {
+    return { pnl: 0, trades: 0, wins: 0, losses: 0, winRate: 0, bots: [] };
+}
+function emptyMode() {
+    return { total: emptyBucket(), crypto: emptyBucket(), stocks: emptyBucket(), other: emptyBucket() };
+}
+function classify(category) {
+    const c = (category ?? '').toLowerCase();
+    if (c === 'crypto')
+        return 'crypto';
+    if (c === 'stocks')
+        return 'stocks';
+    return 'other';
+}
+function finalizeBucket(b) {
+    // Round to 2 dp for display + final winRate.
+    b.pnl = Math.round(b.pnl * 100) / 100;
+    b.winRate = b.trades > 0 ? Math.round((b.wins / b.trades) * 1000) / 10 : 0;
+    // Sort bots by abs(pnl) descending so largest contributors (gain or loss) lead.
+    b.bots.sort((x, y) => Math.abs(y.pnl) - Math.abs(x.pnl));
+    return b;
+}
+export async function getPnlSummary(userId) {
+    // One query, both modes, classified by bot category.
+    const rows = await db.execute(sql `
+    SELECT
+      bp.bot_id,
+      b.name        AS bot_name,
+      b.category    AS bot_category,
+      bp.is_paper,
+      SUM(bp.pnl::numeric)                                        AS pnl,
+      COUNT(*)::int                                               AS trades,
+      SUM(CASE WHEN bp.pnl::numeric > 0 THEN 1 ELSE 0 END)::int   AS wins,
+      SUM(CASE WHEN bp.pnl::numeric <= 0 THEN 1 ELSE 0 END)::int  AS losses
+    FROM bot_positions bp
+    JOIN bots b ON b.id = bp.bot_id
+    WHERE bp.user_id = ${userId} AND bp.status = 'closed'
+    GROUP BY bp.bot_id, b.name, b.category, bp.is_paper
+  `);
+    const live = emptyMode();
+    const shadow = emptyMode();
+    for (const r of rows) {
+        const isPaper = r.is_paper === true;
+        const mode = isPaper ? shadow : live;
+        const cls = classify(r.bot_category);
+        const bucket = mode[cls];
+        const pnl = Number(r.pnl) || 0;
+        const trades = Number(r.trades) || 0;
+        const wins = Number(r.wins) || 0;
+        const losses = Number(r.losses) || 0;
+        const botRow = {
+            botId: r.bot_id,
+            botName: r.bot_name ?? 'Unnamed Bot',
+            category: cls,
+            pnl: Math.round(pnl * 100) / 100,
+            trades,
+            wins,
+            losses,
+            winRate: trades > 0 ? Math.round((wins / trades) * 1000) / 10 : 0,
+        };
+        bucket.pnl += pnl;
+        bucket.trades += trades;
+        bucket.wins += wins;
+        bucket.losses += losses;
+        bucket.bots.push(botRow);
+        mode.total.pnl += pnl;
+        mode.total.trades += trades;
+        mode.total.wins += wins;
+        mode.total.losses += losses;
+        // Push a copy into total.bots so the "all" tab can list every contributor.
+        mode.total.bots.push(botRow);
+    }
+    for (const mode of [live, shadow]) {
+        finalizeBucket(mode.total);
+        finalizeBucket(mode.crypto);
+        finalizeBucket(mode.stocks);
+        finalizeBucket(mode.other);
+    }
+    return { live, shadow, generatedAt: new Date().toISOString() };
+}

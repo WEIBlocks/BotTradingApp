@@ -6,9 +6,9 @@ import {RootStackParamList} from '../../types';
 import {arenaApi, ArenaSession} from '../../services/arena';
 import {useToast} from '../../context/ToastContext';
 import ArenaMultilineChart from '../../components/charts/ArenaMultilineChart';
+import {getLineColor} from '../../utils/arenaColors';
 
 const {width} = Dimensions.get('window');
-const LINE_COLORS = ['#39FF14', '#A855F7', '#EC4899', '#22D3EE', '#EAB308'];
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ArenaLive'>;
 
@@ -228,7 +228,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
   }, [session?.id, navigation]);
 
   const activeGladiators = (session?.gladiators ?? [])
-    .map((g, i) => ({...g, lineColor: LINE_COLORS[i]}));
+    .map((g, i) => ({...g, lineColor: getLineColor(i)}));
 
   const datasets = activeGladiators.map(g => g.equityData || []);
   const progressPct = (session?.progress ?? 0) * 100;
@@ -536,7 +536,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
                 <Text style={styles.chartTitle}>Live Performance</Text>
                 <View style={styles.dotsRow}>
                   {activeGladiators.map((g, i) => (
-                    <View key={g.id} style={[styles.legendDot, {backgroundColor: LINE_COLORS[i]}]} />
+                    <View key={g.id} style={[styles.legendDot, {backgroundColor: getLineColor(i)}]} />
                   ))}
                 </View>
               </View>
@@ -570,7 +570,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
           const isFirst = rank === 1;
           const returnColor = (g.currentReturn || 0) >= 0 ? '#10B981' : '#EF4444';
           const returnSign = (g.currentReturn || 0) >= 0 ? '+' : '';
-          const accentColor = LINE_COLORS[activeGladiators.findIndex(a => a.id === g.id)] || '#10B981';
+          const accentColor = getLineColor(activeGladiators.findIndex(a => a.id === g.id));
 
           // Count decisions per bot — holds are trimmed to 20 in backend, so estimate total
           const botLog = (g as any).decisionLog || [];
@@ -775,34 +775,41 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
                     const pnlPct = t.pnlPercent ?? 0;
                     return (
                       <View key={`trade-${i}`} style={{marginBottom: 8, backgroundColor: '#111827', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#1F2937', borderLeftWidth: 3, borderLeftColor: borderColor}}>
-                        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4}}>
-                          <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
-                            <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: t.botColor}} />
-                            <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#9CA3AF'}}>{t.botName}</Text>
-                            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#FFFFFF'}}>{t.symbol}</Text>
-                            {t.category && (
-                              <View style={{backgroundColor: t.category === 'Stocks' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3}}>
-                                <Text style={{fontFamily: 'Inter-Bold', fontSize: 7, color: t.category === 'Stocks' ? '#3B82F6' : '#F59E0B'}}>{t.category === 'Stocks' ? 'STOCK' : 'CRYPTO'}</Text>
-                              </View>
-                            )}
-                          </View>
+                        {/* flexWrap header: dot + bot name (wraps fully) + symbol +
+                            category badge + OPEN/PnL. Everything stays inside the
+                            card; long names push the right-side pill to a new line
+                            instead of off the screen. */}
+                        <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 4, marginBottom: 4}}>
+                          <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: t.botColor, flexShrink: 0}} />
+                          <Text style={{flexShrink: 1, fontFamily: 'Inter-Medium', fontSize: 11, color: '#9CA3AF'}}>
+                            {t.botName}
+                          </Text>
+                          <Text style={{flexShrink: 0, fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#FFFFFF'}}>{t.symbol}</Text>
+                          {t.category && (
+                            <View style={{flexShrink: 0, backgroundColor: t.category === 'Stocks' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)', paddingHorizontal: 4, paddingVertical: 1, borderRadius: 3}}>
+                              <Text style={{fontFamily: 'Inter-Bold', fontSize: 7, color: t.category === 'Stocks' ? '#3B82F6' : '#F59E0B'}}>{t.category === 'Stocks' ? 'STOCK' : 'CRYPTO'}</Text>
+                            </View>
+                          )}
+                          <View style={{flex: 1}} />
                           {isOpen ? (
-                            <Text style={{fontFamily: 'Inter-Bold', fontSize: 11, color: '#3B82F6'}}>OPEN</Text>
+                            <Text style={{flexShrink: 0, fontFamily: 'Inter-Bold', fontSize: 11, color: '#3B82F6'}}>OPEN</Text>
                           ) : (
-                            <Text style={{fontFamily: 'Inter-Bold', fontSize: 12, color: borderColor}}>
+                            <Text style={{flexShrink: 0, fontFamily: 'Inter-Bold', fontSize: 12, color: borderColor}}>
                               {isWin ? '+' : ''}{pnlPct.toFixed(2)}%
                             </Text>
                           )}
                         </View>
-                        <View style={{flexDirection: 'row', gap: 12, marginBottom: 2}}>
+                        {/* Trade numbers row — flexWrap so a long line drops cleanly to a
+                            second row on narrow phones instead of overflowing. */}
+                        <View style={{flexDirection: 'row', flexWrap: 'wrap', columnGap: 12, rowGap: 2, marginBottom: 2}}>
                           <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: '#9CA3AF'}}>Entry: ${t.entryPrice?.toFixed(2)}</Text>
                           {!isOpen && <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: '#9CA3AF'}}>Exit: ${t.exitPrice?.toFixed(2)}</Text>}
                           <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: '#9CA3AF'}}>Size: ${t.entryValue?.toFixed(0)}</Text>
                           {!isOpen && <Text style={{fontFamily: 'Inter-Bold', fontSize: 11, color: borderColor}}>P&L: {pnlVal >= 0 ? '+' : ''}${pnlVal.toFixed(2)}</Text>}
                         </View>
                         {t.entryReasoning && (
-                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: '#6B7280', fontStyle: 'italic'}} numberOfLines={1}>
-                            {t.entryReasoning.slice(0, 80)}
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: '#6B7280', fontStyle: 'italic'}}>
+                            {t.entryReasoning}
                           </Text>
                         )}
                       </View>
@@ -856,20 +863,24 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
                   </Text>
                   {paged.map((d, i) => (
                     <View key={`dec-${decisionPage}-${i}`} style={{marginBottom: 8, backgroundColor: '#111827', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#1F2937', borderLeftWidth: d.action !== 'HOLD' ? 3 : 1, borderLeftColor: d.action === 'BUY' ? '#10B981' : d.action === 'SELL' ? '#EF4444' : '#1F2937'}}>
-                      <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4}}>
-                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
-                          <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: d.botColor}} />
-                          <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: '#9CA3AF'}}>{d.botName}</Text>
-                          <Text style={{fontFamily: 'Inter-Bold', fontSize: 12, color: d.action === 'BUY' ? '#10B981' : d.action === 'SELL' ? '#EF4444' : '#6B7280'}}>
-                            {d.action === 'BUY' ? '🟢' : d.action === 'SELL' ? '🔴' : '⏸'} {d.action}
-                          </Text>
-                        </View>
-                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.2)'}}>
+                      {/* Top row: dot + bot name (wraps to multiple lines when long) +
+                          action pill — all inside a flexWrap row so the action and
+                          timestamp drop to the next visual line instead of overflowing. */}
+                      <View style={{flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 8, rowGap: 4, marginBottom: 4}}>
+                        <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: d.botColor, flexShrink: 0}} />
+                        <Text style={{flexShrink: 1, fontFamily: 'Inter-Medium', fontSize: 11, color: '#9CA3AF'}}>
+                          {d.botName}
+                        </Text>
+                        <Text style={{flexShrink: 0, fontFamily: 'Inter-Bold', fontSize: 11, color: d.action === 'BUY' ? '#10B981' : d.action === 'SELL' ? '#EF4444' : '#6B7280'}}>
+                          {d.action === 'BUY' ? '🟢' : d.action === 'SELL' ? '🔴' : '⏸'} {d.action}
+                        </Text>
+                        <View style={{flex: 1}} />
+                        <Text style={{flexShrink: 0, fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)'}}>
                           {new Date(d.time).toLocaleTimeString('en-US', {hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false})}
                         </Text>
                       </View>
                       <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: '#6B7280'}}>{d.symbol} @ ${d.price?.toFixed?.(2) ?? '0'}</Text>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2}} numberOfLines={2}>{d.reasoning}</Text>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2}}>{d.reasoning}</Text>
                     </View>
                   ))}
 

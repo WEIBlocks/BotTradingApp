@@ -36,10 +36,22 @@ function parseRefreshExpiry(): Date {
   return new Date(Date.now() + ms);
 }
 
+// SHA-256 hash of the full token. Replaces bcrypt because bcrypt has a 72-byte
+// input cap and refresh JWTs are ~200 chars, so all refresh tokens for the
+// same user end up sharing a bcrypt-equivalent prefix and bcrypt.compare
+// returns true for ALL of them — causing the wrong DB row to be matched
+// during refresh, and forcing a logout.
+//
+// SHA-256 hashes the entire input deterministically; we can do an exact
+// indexed lookup `WHERE token_hash = ?` instead of an N-row scan.
+function hashRefreshToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex');
+}
+
 async function createTokenPair(userId: string, role: string) {
   const accessToken = signAccessToken({ userId, role });
   const rawRefreshToken = signRefreshToken({ userId, role });
-  const tokenHash = await bcrypt.hash(rawRefreshToken, 10);
+  const tokenHash = hashRefreshToken(rawRefreshToken);
 
   await db.insert(refreshTokens).values({
     userId,
@@ -360,24 +372,20 @@ export async function refreshToken(token: string) {
     throw new UnauthorizedError('Invalid or expired refresh token');
   }
 
-  const storedTokens = await db
+  // Exact lookup by SHA-256 hash — guaranteed to match exactly the row that
+  // was inserted when this token was issued (no false positives like bcrypt).
+  const tokenHash = hashRefreshToken(token);
+  const [matchedToken] = await db
     .select()
     .from(refreshTokens)
     .where(
       and(
         eq(refreshTokens.userId, payload.userId),
+        eq(refreshTokens.tokenHash, tokenHash),
         eq(refreshTokens.revoked, false),
       ),
-    );
-
-  let matchedToken = null;
-  for (const stored of storedTokens) {
-    const matches = await bcrypt.compare(token, stored.tokenHash);
-    if (matches) {
-      matchedToken = stored;
-      break;
-    }
-  }
+    )
+    .limit(1);
 
   if (!matchedToken) {
     throw new UnauthorizedError('Refresh token not found or already revoked');
@@ -387,6 +395,7 @@ export async function refreshToken(token: string) {
     throw new UnauthorizedError('Refresh token has expired');
   }
 
+  // Revoke the exact row we just matched, then issue a new pair (rotation).
   await db
     .update(refreshTokens)
     .set({ revoked: true })
@@ -429,24 +438,15 @@ export async function changePassword(userId: string, currentPassword: string, ne
 }
 
 export async function logout(userId: string, token: string) {
-  const storedTokens = await db
-    .select()
-    .from(refreshTokens)
+  // Exact-hash revoke (see refreshToken() for why bcrypt is wrong here).
+  const tokenHash = hashRefreshToken(token);
+  await db
+    .update(refreshTokens)
+    .set({ revoked: true })
     .where(
       and(
         eq(refreshTokens.userId, userId),
-        eq(refreshTokens.revoked, false),
+        eq(refreshTokens.tokenHash, tokenHash),
       ),
     );
-
-  for (const stored of storedTokens) {
-    const matches = await bcrypt.compare(token, stored.tokenHash);
-    if (matches) {
-      await db
-        .update(refreshTokens)
-        .set({ revoked: true })
-        .where(eq(refreshTokens.id, stored.id));
-      break;
-    }
-  }
 }

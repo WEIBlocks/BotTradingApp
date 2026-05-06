@@ -20,7 +20,9 @@ interface ExchangeInfo {
 }
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
-const MAX_GLADIATORS = 5;
+// No hard cap on gladiator count — the readiness bar is purely visual and
+// uses this number only to scale the bar fill.
+const READINESS_BAR_FULL_AT = 8;
 
 const DURATION_OPTIONS = [
   {label: '1 Min',    seconds: 60},
@@ -208,7 +210,9 @@ export default function ArenaSetupScreen() {
 
   const selectedBots = gladiators.filter(g => g.selected);
   const selectedCount = selectedBots.length;
-  const progress = selectedCount / MAX_GLADIATORS;
+  // Visual-only — clamps the readiness bar at 100% once the user passes the
+  // "fills the bar" threshold. Selection itself is unbounded.
+  const progress = Math.min(1, selectedCount / READINESS_BAR_FULL_AT);
 
   // Detect session type from selected bots
   const hasCrypto = selectedBots.some(g => (g.assetClass ?? 'crypto') !== 'stocks');
@@ -221,11 +225,11 @@ export default function ArenaSetupScreen() {
     setGladiators(prev =>
       prev.map(g => {
         if (g.id !== id) return g;
-        if (!g.selected && selectedCount >= MAX_GLADIATORS) return g;
+        // No upper bound — user can select as many bots as they have.
         return {...g, selected: !g.selected};
       }),
     );
-  }, [selectedCount]);
+  }, []);
 
   // Per-bot allocation preview
   const getPerBotPreview = () => {
@@ -333,14 +337,14 @@ export default function ArenaSetupScreen() {
           <BackArrow />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>BOT BATTLE ARENA</Text>
-        <TouchableOpacity style={styles.headerBtn} onPress={() => showAlert('Bot Battle Arena', 'Select 2–5 bots to compete in a real-time trading arena. The balance is shared equally across all bots in the same asset class. Winner = highest % return from their allocation.')}>
+        <TouchableOpacity style={styles.headerBtn} onPress={() => showAlert('Bot Battle Arena', 'Select 2 or more bots to compete in a real-time trading arena. The balance is shared equally across all bots in the same asset class. Winner = highest % return from their allocation.')}>
           <InfoCircleIcon />
         </TouchableOpacity>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <Text style={styles.title}>Select Your Bots</Text>
-        <Text style={styles.subtitle}>Pick 2–{MAX_GLADIATORS} bots. The shared balance is split equally between them based on asset class.</Text>
+        <Text style={styles.subtitle}>Pick 2 or more bots. The shared balance is split equally between them based on asset class.</Text>
 
         {/* Active battles list */}
         {activeSessions.length > 0 && (
@@ -614,10 +618,13 @@ export default function ArenaSetupScreen() {
                 </View>
               </View>
               <View style={styles.cardInfo}>
-                <View style={{flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3}}>
+                <View style={styles.nameRow}>
+                  {/* Full name shown — wraps to multiple lines when long.
+                      flexShrink:1 keeps the badge inside the info column so
+                      it never overlaps the radio. */}
                   <Text style={styles.cardName}>{item.name}</Text>
-                  <View style={{backgroundColor: assetBadgeColor + '22', paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4}}>
-                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 8, color: assetBadgeColor, letterSpacing: 0.3}}>{assetLabel}</Text>
+                  <View style={[styles.assetBadge, {backgroundColor: assetBadgeColor + '22'}]}>
+                    <Text style={[styles.assetBadgeText, {color: assetBadgeColor}]}>{assetLabel}</Text>
                   </View>
                 </View>
                 <View style={styles.cardMeta}>
@@ -625,7 +632,9 @@ export default function ArenaSetupScreen() {
                   {item.statLabel ? <><Text style={styles.metaSep}> · </Text><Text style={styles.statLabelText}>{item.statLabel}</Text></> : null}
                 </View>
               </View>
-              <RadioSelect active={item.selected} />
+              <View style={styles.radioWrap}>
+                <RadioSelect active={item.selected} />
+              </View>
             </TouchableOpacity>
           );
         })}
@@ -637,7 +646,7 @@ export default function ArenaSetupScreen() {
       <View style={styles.footer}>
         <View style={styles.readinessRow}>
           <Text style={styles.readinessLabel}>BATTLE SQUAD READINESS</Text>
-          <Text style={styles.readinessCount}>{selectedCount}/{MAX_GLADIATORS} Selected</Text>
+          <Text style={styles.readinessCount}>{selectedCount} Selected</Text>
         </View>
         <ProgressBar progress={progress} />
         {/* Selection summary */}
@@ -677,12 +686,22 @@ const styles = StyleSheet.create({
   avatarWrap: {marginRight: 14, position: 'relative'},
   levelBadge: {position: 'absolute', bottom: -5, left: 0, right: 0, borderRadius: 6, paddingVertical: 2, alignItems: 'center'},
   levelText: {fontFamily: 'Inter-Bold', fontSize: 7, color: '#FFFFFF', letterSpacing: 0.2, textTransform: 'uppercase'},
-  cardInfo: {flex: 1, marginRight: 10},
-  cardName: {fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF'},
+  // flex:1 + minWidth:0 lets the name wrap inside the info column instead
+  // of pushing the asset badge out and over the radio.
+  cardInfo: {flex: 1, minWidth: 0, marginRight: 10},
+  // flexWrap so when the name takes multiple lines, the badge wraps along
+  // with it (or sits next to the last line) and never overflows.
+  nameRow: {flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 3},
+  // Smaller font + flexShrink so long names render fully on multiple lines.
+  cardName: {flexShrink: 1, fontFamily: 'Inter-SemiBold', fontSize: 13, lineHeight: 17, color: '#FFFFFF'},
+  // Badge never shrinks — it renders at natural width inside cardInfo.
+  assetBadge: {flexShrink: 0, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4},
+  assetBadgeText: {fontFamily: 'Inter-Bold', fontSize: 8, letterSpacing: 0.3},
   cardMeta: {flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap'},
-  strategyText: {fontFamily: 'Inter-Regular', fontSize: 12, color: '#10B981'},
-  metaSep: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.2)'},
-  statLabelText: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
+  strategyText: {flexShrink: 1, fontFamily: 'Inter-Regular', fontSize: 11, color: '#10B981'},
+  metaSep: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.2)'},
+  statLabelText: {flexShrink: 1, fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)'},
+  radioWrap: {flexShrink: 0},
   footer: {paddingHorizontal: 20, paddingTop: 14, paddingBottom: 34, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.07)', backgroundColor: '#0A0E14'},
   readinessRow: {flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10},
   readinessLabel: {fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase'},

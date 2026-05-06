@@ -35,6 +35,7 @@ import {
   UserBotBreakdown,
 } from '../../services/creator';
 import {botsService} from '../../services/bots';
+import BotAvatar from '../../components/common/BotAvatar';
 
 type TabKey = 'overview' | 'earnings' | 'analytics' | 'abtests' | 'patterns';
 
@@ -665,9 +666,13 @@ export default function CreatorStudioScreen() {
               <View key={bot.id} style={bm.card}>
                 {/* Bot Header */}
                 <View style={bm.header}>
-                  <View style={[bm.avatar, {backgroundColor: bot.avatarColor || '#8B5CF6'}]}>
-                    <Text style={bm.avatarText}>{bot.avatarLetter || bot.name.charAt(0)}</Text>
-                  </View>
+                  <BotAvatar
+                    size={40}
+                    avatarUrl={bot.avatarUrl}
+                    avatarColor={bot.avatarColor || '#8B5CF6'}
+                    avatarLetter={bot.avatarLetter || bot.name.charAt(0)}
+                    borderRadius={12}
+                  />
                   <View style={bm.headerInfo}>
                     <View style={bm.nameRow}>
                       <Text style={bm.name} numberOfLines={1}>{bot.name}</Text>
@@ -828,7 +833,35 @@ export default function CreatorStudioScreen() {
                     <EditIcon />
                     <Text style={bm.editActionText}>Edit</Text>
                   </TouchableOpacity>
-                  {!bot.isPublished && (
+                  {/* Publish / Unpublish toggle. Published bots show "Hide"
+                      which calls /creator/bots/:id/unpublish — sets
+                      isPublished=false so the bot disappears from the
+                      marketplace listings without deleting. Existing
+                      subscribers keep running unaffected. */}
+                  {bot.isPublished ? (
+                    <TouchableOpacity
+                      style={bm.publishActionBtn}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        showConfirm({
+                          title: 'Hide from Marketplace',
+                          message: `Hide "${bot.name}" from the marketplace? Existing subscribers will keep running. You can re-publish anytime.`,
+                          confirmText: 'Hide',
+                          onConfirm: async () => {
+                            try {
+                              await creatorApi.unpublishBot(bot.id);
+                              showAlert('Hidden', `${bot.name} is no longer in the marketplace.`);
+                              fetchData();
+                            } catch (e: any) {
+                              showAlert('Error', e?.message || 'Failed to hide.');
+                            }
+                          },
+                        });
+                      }}>
+                      <PublishIcon />
+                      <Text style={bm.publishActionText}>Hide</Text>
+                    </TouchableOpacity>
+                  ) : (
                     <TouchableOpacity
                       style={bm.publishActionBtn}
                       activeOpacity={0.7}

@@ -1,6 +1,8 @@
 import { z } from 'zod';
 export const createSessionBodySchema = z.object({
-    botIds: z.array(z.string()).min(2).max(5),
+    // Min 2 bots required to have a battle. No upper bound — the tick loop and
+    // balance allocation scale linearly with the number of gladiators.
+    botIds: z.array(z.string()).min(2),
     durationSeconds: z.number().int().min(60).max(86400).optional().default(180),
     mode: z.enum(['shadow', 'live']).optional().default('shadow'),
     // Shadow mode: total virtual balance shared across all bots

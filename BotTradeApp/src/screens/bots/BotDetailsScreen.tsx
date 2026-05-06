@@ -13,10 +13,12 @@ import PortfolioLineChart from '../../components/charts/PortfolioLineChart';
 import TradingViewChart from '../../components/charts/TradingViewChart';
 import MonthlyReturnBars from '../../components/charts/MonthlyReturnBars';
 import Badge from '../../components/common/Badge';
+import BotAvatar from '../../components/common/BotAvatar';
+import HeartIcon from '../../components/icons/HeartIcon';
+import {useFavorites} from '../../context/FavoritesContext';
 import TradeRow from '../../components/common/TradeRow';
 import SectionHeader from '../../components/common/SectionHeader';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
-import ShareIcon from '../../components/icons/ShareIcon';
 import StarIcon from '../../components/icons/StarIcon';
 import XIcon from '../../components/icons/XIcon';
 import {useToast} from '../../context/ToastContext';
@@ -54,6 +56,24 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const {user} = useAuth();
   const {alert: showAlert, showConfirm} = useToast();
   const {isPro} = useIAP();
+  const {isFavorite, toggle: toggleFavorite} = useFavorites();
+
+  // Tracks whether this screen is still mounted. Every fire-and-forget
+  // .then(setX) chain consults this before calling setState — without it,
+  // a slow API response that lands after the user has navigated away
+  // attempts to update unmounted state, which Hermes (release/TestFlight
+  // builds) can promote from a warning to a hard crash.
+  const mountedRef = React.useRef(true);
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+  const safeSet = React.useCallback(<T,>(setter: React.Dispatch<React.SetStateAction<T>>) => {
+    return (value: React.SetStateAction<T>) => {
+      if (mountedRef.current) setter(value);
+    };
+  }, []);
+
   const [bot, setBot] = useState<Bot | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -185,6 +205,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       if (sub) {
         const subId = sub.subscriptionId || sub.id;
         botsService.getSubscription(subId).then((res: any) => {
+          if (!mountedRef.current) return;
           const uc = res?.data?.userConfig ?? {};
           setSubUserConfig({
             riskMultiplier: uc.riskMultiplier ?? 1,
@@ -221,9 +242,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       // Always fetch public live stats for LIVE tab (includes equity curve + recent trades)
       setStatsTabLoading(true);
       botsService.getPublicLiveStats(route.params.botId)
-        .then((res: any) => setPublicLiveStats(res?.data ?? null))
+        .then((res: any) => { if (mountedRef.current) setPublicLiveStats(res?.data ?? null); })
         .catch(() => {})
-        .finally(() => setStatsTabLoading(false));
+        .finally(() => { if (mountedRef.current) setStatsTabLoading(false); });
 
       // Determine who the current user is relative to this bot
       const isActiveLive = sub && (sub.subscriptionStatus === 'active' || sub.status === 'active') && (sub.subscriptionMode === 'live' || sub.mode === 'live');
@@ -232,14 +253,14 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       // Fetch user's personal live stats if running live
       if (isActiveLive) {
         botsService.getMyLiveStats(route.params.botId)
-          .then((res: any) => setMyLiveStats(res?.data ?? null))
+          .then((res: any) => { if (mountedRef.current) setMyLiveStats(res?.data ?? null); })
           .catch(() => {});
       }
 
       // Fetch shadow session stats if user has a shadow session
       if (shadowId) {
         botsService.getShadowSessionLiveStats(shadowId)
-          .then((res: any) => setShadowSessionStats(res?.data ?? null))
+          .then((res: any) => { if (mountedRef.current) setShadowSessionStats(res?.data ?? null); })
           .catch(() => {});
       }
     } catch {
@@ -281,8 +302,13 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   React.useEffect(() => {
     if (route.params.openShadow && bot && !loading && !openShadowTriggered.current) {
       openShadowTriggered.current = true;
-      // Small delay so the screen is fully rendered before the modal opens
-      setTimeout(() => handleStartShadow(), 300);
+      // Small delay so the screen is fully rendered before the modal opens.
+      // The handle is cleared on unmount so a fast back-nav doesn't trigger
+      // handleStartShadow on an unmounted screen.
+      const t = setTimeout(() => {
+        if (mountedRef.current) handleStartShadow();
+      }, 300);
+      return () => clearTimeout(t);
     }
   }, [bot, loading, route.params.openShadow]);
 
@@ -311,16 +337,20 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       showAlert('Select Duration', 'Please select how long to run shadow mode.');
       return;
     }
+    // Allow any positive virtual balance and any positive min-order value.
+    // The user is testing with virtual funds — no need to gate small amounts.
+    // The trading engine will skip individual trades whose calculated size
+    // is below the exchange's accepted minimum (separate concern).
     const balance = parseFloat(virtualBalance) || 10000;
-    if (balance < 100) {
-      showAlert('Invalid Balance', 'Virtual balance must be at least $100.');
+    if (balance <= 0) {
+      showAlert('Invalid Balance', 'Virtual balance must be greater than $0.');
       return;
     }
     const isStockBotCheck = bot.category === 'Stocks';
-    const minOrderFloor = isStockBotCheck ? 1 : 10;
-    const parsedMinOrder = parseFloat(shadowMinOrder) || minOrderFloor;
-    if (parsedMinOrder < minOrderFloor) {
-      showAlert('Invalid Min Order', `Minimum order must be at least $${minOrderFloor} for ${isStockBotCheck ? 'stock' : 'crypto'} bots.`);
+    const fallbackMin = isStockBotCheck ? 1 : 10;
+    const parsedMinOrder = parseFloat(shadowMinOrder) || fallbackMin;
+    if (parsedMinOrder <= 0) {
+      showAlert('Invalid Min Order', 'Minimum order value must be greater than $0.');
       return;
     }
 
@@ -557,8 +587,16 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity style={styles.iconBtn}>
-            <ShareIcon size={20} color="rgba(255,255,255,0.7)" />
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => bot && toggleFavorite(bot.id, bot).catch(() => {})}
+            accessibilityRole="button"
+            accessibilityLabel={bot && isFavorite(bot.id) ? 'Remove from favorites' : 'Add to favorites'}>
+            <HeartIcon
+              size={22}
+              filled={!!bot && isFavorite(bot.id)}
+              color={bot && isFavorite(bot.id) ? '#EF4444' : 'rgba(255,255,255,0.7)'}
+            />
           </TouchableOpacity>
         </View>
       </View>
@@ -613,8 +651,14 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         {/* Bot hero — compact card style */}
         <View style={styles.heroCard}>
           <View style={styles.heroTop}>
-            <View style={[styles.botAvatar, {backgroundColor: bot.avatarColor}]}>
-              <Text style={styles.botAvatarText}>{bot.avatarLetter}</Text>
+            <View style={styles.botAvatarWrap}>
+              <BotAvatar
+                size={72}
+                avatarUrl={bot.avatarUrl}
+                avatarColor={bot.avatarColor}
+                avatarLetter={bot.avatarLetter}
+                borderRadius={20}
+              />
             </View>
             <View style={styles.heroInfo}>
               <View style={styles.heroNameRow}>
@@ -877,15 +921,15 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             })()}
 
             {/* Recent Live Trades (all users — each is a complete round trip) */}
-            {publicLiveStats?.recentTrades?.length > 0 && (
+            {(publicLiveStats?.recentTrades?.length ?? 0) > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionLabel}>RECENT LIVE TRADES (ALL USERS)</Text>
                 <ScrollView style={{maxHeight: 360}} nestedScrollEnabled showsVerticalScrollIndicator={false}>
-                  {publicLiveStats.recentTrades.map((t: any) => (
+                  {(publicLiveStats?.recentTrades ?? []).map((t: any) => (
                     <View key={t.id} style={[styles.shadowTradeRow, {flexDirection: 'column', gap: 6, paddingVertical: 10}]}>
                       <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
                         <Text style={styles.shadowTradePair}>{t.symbol}</Text>
-                        <Text style={[styles.shadowTradePnl, {color: t.pnl >= 0 ? '#10B981' : '#EF4444'}]}>{t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)} <Text style={{fontSize: 11}}>{t.pnlPercent >= 0 ? '+' : ''}{t.pnlPercent.toFixed(2)}%</Text></Text>
+                        <Text style={[styles.shadowTradePnl, {color: (t.pnl ?? 0) >= 0 ? '#10B981' : '#EF4444'}]}>{(t.pnl ?? 0) >= 0 ? '+' : ''}${(t.pnl ?? 0).toFixed(2)} <Text style={{fontSize: 11}}>{(t.pnlPercent ?? 0) >= 0 ? '+' : ''}{(t.pnlPercent ?? 0).toFixed(2)}%</Text></Text>
                       </View>
                       <View style={{flexDirection: 'row', gap: 8}}>
                         <View style={{flex: 1, backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: 'rgba(16,185,129,0.15)'}}>
@@ -1284,7 +1328,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                         <View key={t.id} style={[styles.shadowTradeRow, {flexDirection: 'column', gap: 6, paddingVertical: 10}]}>
                           <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
                             <Text style={styles.shadowTradePair}>{t.symbol}</Text>
-                            <Text style={[styles.shadowTradePnl, {color: t.pnl >= 0 ? '#10B981' : '#EF4444'}]}>{t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(2)} <Text style={{fontSize: 11}}>{t.pnlPercent >= 0 ? '+' : ''}{t.pnlPercent.toFixed(2)}%</Text></Text>
+                            <Text style={[styles.shadowTradePnl, {color: (t.pnl ?? 0) >= 0 ? '#10B981' : '#EF4444'}]}>{(t.pnl ?? 0) >= 0 ? '+' : ''}${(t.pnl ?? 0).toFixed(2)} <Text style={{fontSize: 11}}>{(t.pnlPercent ?? 0) >= 0 ? '+' : ''}{(t.pnlPercent ?? 0).toFixed(2)}%</Text></Text>
                           </View>
                           <View style={{flexDirection: 'row', gap: 8}}>
                             <View style={{flex: 1, backgroundColor: 'rgba(16,185,129,0.08)', borderRadius: 8, padding: 8, borderWidth: 1, borderColor: 'rgba(16,185,129,0.15)'}}>
@@ -1354,25 +1398,33 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         transparent
         animationType="slide"
         onRequestClose={() => setShadowModalVisible(false)}>
-        {/* KeyboardAvoidingView pushes the bottom sheet up when the keyboard
-            opens so the Confirm button stays tappable. ScrollView lets long
-            content (with custom-days + balance + min-order fields) scroll. */}
+        {/* Two-region layout that stays sane no matter the keyboard:
+            • KeyboardAvoidingView is the OUTER shell so the whole sheet
+              translates up when the keyboard opens (iOS) / shrinks the
+              available height (Android).
+            • The sheet itself is split into a SCROLLABLE body (inputs) and
+              a STICKY footer (Confirm button). The footer is OUTSIDE the
+              ScrollView so it never disappears when the keyboard opens, and
+              never falls below the visible viewport when the keyboard
+              closes. Mirrors the working pattern from BotPurchaseScreen. */}
         <KeyboardAvoidingView
           style={modalStyles.overlay}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView
-            style={{flexGrow: 0}}
-            contentContainerStyle={{flexGrow: 1, justifyContent: 'flex-end'}}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}>
-            <View style={modalStyles.sheet}>
-              <View style={modalStyles.handle} />
-              <View style={modalStyles.headerRow}>
-                <Text style={modalStyles.title}>Start Shadow Mode</Text>
-                <TouchableOpacity onPress={() => setShadowModalVisible(false)} style={modalStyles.closeBtn}>
-                  <XIcon size={18} color="rgba(255,255,255,0.5)" />
-                </TouchableOpacity>
-              </View>
+          <View style={modalStyles.sheet}>
+            <View style={modalStyles.handle} />
+            <View style={modalStyles.headerRow}>
+              <Text style={modalStyles.title}>Start Shadow Mode</Text>
+              <TouchableOpacity onPress={() => setShadowModalVisible(false)} style={modalStyles.closeBtn}>
+                <XIcon size={18} color="rgba(255,255,255,0.5)" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={modalStyles.body}
+              contentContainerStyle={modalStyles.bodyContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator={false}>
               <Text style={modalStyles.desc}>
                 Run {bot?.name ?? 'this bot'} with virtual funds. No real trades will be executed.
               </Text>
@@ -1408,13 +1460,13 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                     placeholder="Days"
                     placeholderTextColor="rgba(255,255,255,0.25)"
                     keyboardType="number-pad"
-                    maxLength={3}
+                    maxLength={4}
                   />
                   <Text style={modalStyles.customLabel}>days</Text>
                 </View>
               )}
 
-              {/* Virtual balance */}
+              {/* Virtual balance — no upper cap; user can simulate any amount. */}
               <Text style={modalStyles.label}>VIRTUAL BALANCE</Text>
               <View style={modalStyles.balanceRow}>
                 <Text style={modalStyles.dollarSign}>$</Text>
@@ -1422,12 +1474,13 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                   style={modalStyles.balanceInput}
                   value={virtualBalance}
                   onChangeText={setVirtualBalance}
-                  keyboardType="number-pad"
-                  maxLength={8}
+                  keyboardType="decimal-pad"
                 />
               </View>
 
-              {/* Min order value */}
+              {/* Min order value — no enforced floor. The trading engine will
+                  silently skip individual trades that don't clear the actual
+                  exchange minimum, which is a separate concern. */}
               <Text style={modalStyles.label}>MIN ORDER VALUE (PER TRADE)</Text>
               <View style={modalStyles.balanceRow}>
                 <Text style={modalStyles.dollarSign}>$</Text>
@@ -1436,20 +1489,22 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                   value={shadowMinOrder}
                   onChangeText={setShadowMinOrder}
                   keyboardType="decimal-pad"
-                  maxLength={8}
                 />
               </View>
-              <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 16}}>
-                {`Bot skips trades below this · min $${bot?.category === 'Stocks' ? '1' : '10'}`}
+              <Text style={modalStyles.bodyHint}>
+                Trades below this value are skipped. Any positive amount is allowed.
               </Text>
+            </ScrollView>
 
-              {/* Confirm button */}
+            {/* Sticky footer — sits OUTSIDE the ScrollView so the keyboard can
+                never hide it, and it never disappears when the keyboard closes. */}
+            <View style={modalStyles.footer}>
               <TouchableOpacity style={modalStyles.confirmBtn} onPress={handleConfirmShadow} activeOpacity={0.85}>
                 <Text style={modalStyles.confirmText}>Start Shadow Mode</Text>
               </TouchableOpacity>
               <Text style={modalStyles.disclaimer}>No real money will be used. You can pause or stop anytime.</Text>
             </View>
-          </ScrollView>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -1593,6 +1648,7 @@ const styles = StyleSheet.create({
   heroNameRow: {flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2},
   heroSection: {alignItems: 'center', paddingVertical: 16},
   botAvatar: {width: 72, height: 72, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 12},
+  botAvatarWrap: {marginBottom: 12},
   botAvatarText: {fontFamily: 'Inter-Bold', fontSize: 28, color: '#FFFFFF'},
   badgesRow: {flexDirection: 'row', gap: 6, marginTop: 10},
   botName: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF', letterSpacing: -0.3, flexShrink: 1},
@@ -1865,11 +1921,12 @@ const modalStyles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
-    // marginBottom:30,
-    
     backgroundColor: '#161B22', borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    paddingHorizontal: 24, paddingBottom: 90, paddingTop: 12,
-    maxHeight: '85%',
+    paddingTop: 12,
+    maxHeight: '88%',
+    // sheet itself has no horizontal padding — body and footer apply their own
+    // so the sticky footer can have a different paddingBottom on iOS for
+    // home-indicator clearance without affecting the scrollable area.
   },
   handle: {
     width: 40, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.15)',
@@ -1878,6 +1935,21 @@ const modalStyles = StyleSheet.create({
   headerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     marginBottom: 8,
+    paddingHorizontal: 24,
+  },
+  body: {flexGrow: 0},
+  bodyContent: {paddingHorizontal: 24, paddingBottom: 8},
+  bodyHint: {
+    fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)',
+    marginTop: -16, marginBottom: 16,
+  },
+  footer: {
+    paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: '#161B22',
   },
   title: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF', letterSpacing: -0.3},
   closeBtn: {

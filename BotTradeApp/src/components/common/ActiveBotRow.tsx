@@ -1,6 +1,7 @@
 import React from 'react';
 import {View, Text, StyleSheet, TouchableOpacity} from 'react-native';
 import {ActiveBot} from '../../types';
+import BotAvatar from './BotAvatar';
 
 interface ActiveBotRowProps {
   bot: ActiveBot;
@@ -13,8 +14,13 @@ export default function ActiveBotRow({bot, onPress}: ActiveBotRowProps) {
 
   return (
     <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
-      <View style={[styles.avatar, {backgroundColor: bot.avatarColor}]}>
-        <Text style={styles.avatarLetter}>{bot.avatarLetter}</Text>
+      <View style={styles.avatarWrap}>
+        <BotAvatar
+          size={38}
+          avatarUrl={bot.avatarUrl}
+          avatarColor={bot.avatarColor}
+          avatarLetter={bot.avatarLetter}
+        />
       </View>
       <View style={styles.info}>
         <Text style={styles.name}>{bot.name}</Text>
@@ -38,15 +44,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255,255,255,0.04)',
   },
-  avatar: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  avatarLetter: {fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'},
+  avatarWrap: {marginRight: 12},
   info: {flex: 1},
   name: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
   pair: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2},

@@ -13,7 +13,7 @@ import SectionHeader from '../../components/common/SectionHeader';
 import ChevronRightIcon from '../../components/icons/ChevronRightIcon';
 import GiftIcon from '../../components/icons/GiftIcon';
 import BellIcon from '../../components/icons/BellIcon';
-import WalletIcon from '../../components/icons/WalletIcon';
+// import WalletIcon from '../../components/icons/WalletIcon'; // re-enable with the Wallet & Funds row below
 import GearIcon from '../../components/icons/GearIcon';
 
 function CrownIcon({size = 14, color = '#10B981'}: {size?: number; color?: string}) {
@@ -121,7 +121,8 @@ function TradingRoomIcon({size = 18, color = 'rgba(255,255,255,0.6)'}: {size?: n
 
 const SETTINGS = [
   {icon: BellIcon, label: 'Notifications', screen: 'Notifications'},
-  {icon: WalletIcon, label: 'Wallet & Funds', screen: 'WalletFunds'},
+  // Wallet & Funds is hidden for now — re-enable once the funding flow ships.
+  // {icon: WalletIcon, label: 'Wallet & Funds', screen: 'WalletFunds'},
   {icon: ExchangeMenuIcon, label: 'Connected Exchanges', screen: 'ExchangeManage'},
   {icon: ShadowMenuIcon, label: 'Shadow Mode', screen: 'ShadowMode'},
   {icon: BotMenuIcon, label: 'Creator Studio', screen: 'CreatorStudio'},

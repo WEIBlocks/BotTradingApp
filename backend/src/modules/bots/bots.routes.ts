@@ -1,5 +1,9 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
+import path from 'path';
+import fs from 'fs';
+import { randomUUID } from 'crypto';
+import { fileURLToPath } from 'url';
 import { authenticate } from '../../middleware/authenticate.js';
 import { requireSubscription, getActiveProSubscription } from '../../middleware/requireSubscription.js';
 import { SubscriptionRequiredError } from '../../middleware/requireSubscription.js';
@@ -7,6 +11,11 @@ import {
   createBot,
   updateBot,
   deleteBot,
+  setBotAvatar,
+  addFavorite,
+  removeFavorite,
+  isFavorited,
+  getUserFavorites,
   getBotForEdit,
   pauseBot,
   stopBot,
@@ -50,6 +59,12 @@ import {
   updateUserConfigBodySchema,
   subscriptionIdParamsSchema,
 } from './bots.schema.js';
+
+// ─── Uploads directory (shared with the training module) ───────────────────
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const UPLOADS_DIR = path.join(__dirname, '..', '..', '..', 'uploads');
+const ALLOWED_AVATAR_MIME = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']);
 
 // ─── Simple in-memory cache for getUserActiveBots (per user, 30s TTL) ────────
 const activeBotsCache = new Map<string, { data: unknown; at: number }>();
@@ -107,6 +122,101 @@ export async function botsRoutes(app: FastifyInstance) {
     const { id } = request.params;
     const result = await deleteBot(request.user.userId, id);
     invalidateActiveBotsCache(request.user.userId);
+    return { data: result };
+  });
+
+  // POST /:id/avatar - Upload an image for the bot (creator only).
+  //
+  // Multipart body with a single image file. Saves to /uploads/ and updates
+  // bots.avatarUrl. Returns the updated bot. Old avatar files are left on
+  // disk (cheap; the row only ever references one URL at a time).
+  app.post<{ Params: { id: string } }>('/:id/avatar', {
+    preHandler: [authenticate],
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const data = await (request as any).file();
+    if (!data) return reply.status(400).send({ error: 'No file provided' });
+
+    const mime = (data.mimetype || '').toLowerCase();
+    if (!ALLOWED_AVATAR_MIME.has(mime)) {
+      return reply.status(400).send({ error: 'Only JPEG, PNG, WebP, or GIF images are allowed' });
+    }
+
+    if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+
+    const safeName = path.basename(data.filename || 'avatar.jpg');
+    const ext = path.extname(safeName) || (mime === 'image/png' ? '.png' : '.jpg');
+    const uniqueName = `bot-${id}-${randomUUID()}${ext}`;
+    const filePath = path.join(UPLOADS_DIR, uniqueName);
+
+    const writeStream = fs.createWriteStream(filePath);
+    await new Promise<void>((resolve, reject) => {
+      data.file.pipe(writeStream);
+      data.file.on('error', reject);
+      writeStream.on('finish', resolve);
+      writeStream.on('error', reject);
+    });
+
+    const url = `/uploads/${uniqueName}`;
+    const bot = await setBotAvatar(request.user.userId, id, url);
+    return { data: bot };
+  });
+
+  // DELETE /:id/avatar - Remove the bot's image, fall back to letter+color.
+  app.delete<{ Params: { id: string } }>('/:id/avatar', {
+    preHandler: [authenticate],
+  }, async (request) => {
+    const { id } = request.params;
+    const bot = await setBotAvatar(request.user.userId, id, null);
+    return { data: bot };
+  });
+
+  // ─── Favorites ────────────────────────────────────────────────────────
+  // GET /user/favorites - list this user's favorited bots (with stats).
+  // Placed BEFORE /:id routes so the literal path takes precedence.
+  zApp.get('/user/favorites', {
+    schema: { response: { 200: dataResponseSchema }, security: [{ bearerAuth: [] }] },
+  }, async (request) => {
+    const favorites = await getUserFavorites(request.user.userId);
+    return { data: favorites };
+  });
+
+  // POST /:id/favorite - add the bot to favorites (idempotent).
+  zApp.post('/:id/favorite', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request) => {
+    const { id } = request.params;
+    const result = await addFavorite(request.user.userId, id);
+    return { data: result };
+  });
+
+  // DELETE /:id/favorite - remove the bot from favorites.
+  zApp.delete('/:id/favorite', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request) => {
+    const { id } = request.params;
+    const result = await removeFavorite(request.user.userId, id);
+    return { data: result };
+  });
+
+  // GET /:id/favorite - check whether this bot is in the user's favorites.
+  zApp.get('/:id/favorite', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request) => {
+    const { id } = request.params;
+    const result = await isFavorited(request.user.userId, id);
     return { data: result };
   });
 

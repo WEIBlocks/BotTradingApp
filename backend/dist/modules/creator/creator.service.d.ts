@@ -46,6 +46,7 @@ export declare function getCreatorBots(userId: string): Promise<{
     isPublished: boolean | null;
     avatarColor: string | null;
     avatarLetter: string | null;
+    avatarUrl: string | null;
     config: unknown;
     version: string | null;
     createdAt: Date | null;
@@ -73,6 +74,42 @@ export declare function publishBot(userId: string, botId: string): Promise<{
     tags: string[] | null;
     avatarColor: string | null;
     avatarLetter: string | null;
+    avatarUrl: string | null;
+    status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
+    isPublished: boolean | null;
+    config: unknown;
+    version: string | null;
+    createdAt: Date | null;
+    updatedAt: Date | null;
+}>;
+/**
+ * Hide a bot from the marketplace without deleting it.
+ *
+ * Sets `isPublished = false` so the bot disappears from `GET /marketplace/bots`
+ * listings (which filter `WHERE isPublished = true`) but stays editable in
+ * Creator Studio. Existing subscribers keep running unaffected — this is
+ * marketplace visibility only, not a bot lifecycle change.
+ *
+ * Status drops back to `'draft'` so a future re-publish goes through the
+ * normal publish flow.
+ */
+export declare function unpublishBot(userId: string, botId: string): Promise<{
+    id: string;
+    creatorId: string;
+    name: string;
+    subtitle: string | null;
+    description: string | null;
+    prompt: string | null;
+    strategy: string;
+    category: "Crypto" | "Stocks" | "Forex" | "Multi" | null;
+    riskLevel: "Very Low" | "Low" | "Med" | "High" | "Very High" | null;
+    priceMonthly: string | null;
+    creatorFeePercent: string | null;
+    platformFeePercent: string | null;
+    tags: string[] | null;
+    avatarColor: string | null;
+    avatarLetter: string | null;
+    avatarUrl: string | null;
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;

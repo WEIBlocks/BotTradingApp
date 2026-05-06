@@ -4,6 +4,10 @@ export const botIdParamsSchema = z.object({
 });
 export const createBotBodySchema = z.object({
     name: z.string().min(1),
+    subtitle: z.string().max(200).optional(),
+    description: z.string().max(2000).optional(),
+    tags: z.array(z.string().max(40)).max(10).optional(),
+    priceMonthly: z.number().min(0).max(1000).optional(),
     strategy: z.string().min(1),
     category: z.string().optional(),
     risk_level: z.string().optional(),
@@ -37,23 +41,34 @@ export const createBotBodySchema = z.object({
     tradingSchedule: z.enum(['24_7', 'us_hours', 'custom']).optional(),
 });
 export const updateBotBodySchema = z.object({
+    // Identity / marketplace metadata
     name: z.string().min(1).optional(),
+    subtitle: z.string().max(200).optional(),
+    description: z.string().max(2000).optional(),
+    tags: z.array(z.string().max(40)).max(10).optional(),
+    priceMonthly: z.number().min(0).max(1000).optional(),
+    creatorFeePercent: z.number().min(0).max(50).optional(),
+    // Strategy
     strategy: z.string().min(1).optional(),
     category: z.string().optional(),
     risk_level: z.string().optional(),
     pairs: z.array(z.string()).optional(),
+    prompt: z.string().max(5000).optional(),
+    // Risk / sizing
     stopLoss: z.number().optional(),
     takeProfit: z.number().optional(),
     maxPositionSize: z.number().optional(),
-    tradeDirection: z.enum(['buy', 'sell', 'both']).optional(),
     dailyLossLimit: z.number().min(0).max(100).optional(),
+    maxOpenPositions: z.number().int().min(1).max(5).optional(),
+    // Execution
+    tradeDirection: z.enum(['buy', 'sell', 'both']).optional(),
     orderType: z.enum(['market', 'limit']).optional(),
-    creatorFeePercent: z.number().min(0).max(50).optional(),
-    prompt: z.string().max(5000).optional(),
     tradingFrequency: z.enum(['conservative', 'balanced', 'aggressive', 'max']).optional(),
+    tradingSchedule: z.enum(['24_7', 'us_hours', 'custom']).optional(),
+    // AI
+    aiMode: z.enum(['rules_only', 'hybrid', 'full_ai']).optional(),
     maxHoldsBeforeAI: z.number().int().min(1).max(10).optional(),
     aiConfidenceThreshold: z.number().min(50).max(90).optional(),
-    aiMode: z.enum(['rules_only', 'hybrid', 'full_ai']).optional(),
     customEntryConditions: z.array(z.object({
         indicator: z.string(),
         operator: z.enum(['<', '>', '<=', '>=', 'crosses_above', 'crosses_below']),
@@ -66,8 +81,6 @@ export const updateBotBodySchema = z.object({
         value: z.number(),
         weight: z.number().min(0).max(1),
     })).max(5).optional(),
-    maxOpenPositions: z.number().int().min(1).max(5).optional(),
-    tradingSchedule: z.enum(['24_7', 'us_hours', 'custom']).optional(),
 });
 export const purchaseBotBodySchema = z.object({
     mode: z.enum(['live', 'paper']).default('live'),

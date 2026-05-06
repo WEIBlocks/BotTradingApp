@@ -142,7 +142,12 @@ async function processArenaTick() {
                     const equityArr = Array.isArray(gladiator.equityData) ? gladiator.equityData : [];
                     const startingAlloc = equityArr[0] ?? parseFloat(session.perBotAllocation ?? '10000');
                     const state = await getState(gladiator.id, startingAlloc);
-                    const pairs = config.pairs?.length ? config.pairs : (isStockBot ? ['AAPL', 'NVDA'] : ['BTC/USDT', 'ETH/USDT']);
+                    // Falls back to safe defaults for the bot's asset class when the bot
+                    // config doesn't specify pairs. Most seed bots ship with an empty
+                    // config, so this fallback is the normal path for them.
+                    const pairs = config.pairs?.length
+                        ? config.pairs
+                        : (isStockBot ? ['AAPL', 'NVDA'] : ['BTC/USDT', 'ETH/USDT']);
                     for (const symbol of pairs) {
                         // Skip stock symbols when market is closed (mixed bot)
                         const isStockSymbol = !symbol.includes('/');
@@ -238,15 +243,30 @@ async function processArenaTick() {
                                 }
                             }
                         }
+                        // Match the live-stats endpoint: total trades = closed + open. The
+                        // win rate is still based on closed only (open positions haven't
+                        // resolved yet). Without this, the persisted totalTrades column
+                        // (read by the final-results page) drops back to "closed only" and
+                        // disagrees with what the live UI was showing during the battle.
                         const closedPositions = arenaPositions.filter(p => p.status === 'closed');
-                        state.trades = closedPositions.length;
+                        const openPositions = arenaPositions.filter(p => p.status === 'open');
+                        state.trades = closedPositions.length + openPositions.length;
                         state.wins = closedPositions.filter(p => parseFloat(p.pnl ?? '0') > 0).length;
+                        // Stash for the win-rate calc below — keep tick fast (no extra query).
+                        state._closedCount = closedPositions.length;
                     }
                     catch (err) {
                         console.warn('[ArenaTick] Position query error:', err.message);
                     }
-                    // Equity relative to THIS bot's starting allocation
-                    const equity = startingAlloc + realizedPnl + unrealizedPnl;
+                    // Equity relative to THIS bot's starting allocation.
+                    // Guard against NaN/Infinity from a flaky price feed — we'd rather
+                    // hold the previous balance than corrupt the equity curve and the
+                    // chart. The next tick with a good price will resume normal updates.
+                    const rawEquity = startingAlloc + realizedPnl + unrealizedPnl;
+                    const equity = Number.isFinite(rawEquity) ? rawEquity : state.balance;
+                    if (!Number.isFinite(rawEquity)) {
+                        console.warn(`[ArenaTick] Non-finite equity for ${botName} (rawEquity=${rawEquity}, realized=${realizedPnl}, unrealized=${unrealizedPnl}); holding previous balance.`);
+                    }
                     state.balance = equity;
                     state.equityCurve.push(equity);
                     if (state.equityCurve.length > MAX_EQUITY_POINTS) {
@@ -260,7 +280,10 @@ async function processArenaTick() {
                         ? Math.max(-9999, Math.min(9999, ((equity - startingAlloc) / startingAlloc) * 100))
                         : 0;
                     const pnl = Math.max(-9999999999, Math.min(9999999999, equity - startingAlloc));
-                    const wr = state.trades > 0 ? Math.min(100, (state.wins / state.trades) * 100) : 0;
+                    // Win rate uses closed positions only (computed during the position
+                    // query above). state.trades includes opens for total_trades parity.
+                    const closedCount = state._closedCount ?? state.trades;
+                    const wr = closedCount > 0 ? Math.min(100, (state.wins / closedCount) * 100) : 0;
                     await db.update(arenaGladiators).set({
                         equityData: state.equityCurve,
                         finalReturn: returnPct.toFixed(4),
@@ -299,19 +322,30 @@ async function finalizeArenaSession(sessionId, userId) {
             return;
         const gladiators = await db.select().from(arenaGladiators).where(eq(arenaGladiators.sessionId, sessionId));
         const results = [];
+        // Lazy import — keeps top-level imports lean and consistent with the tick path.
+        const { botPositions } = await import('../db/schema/positions.js');
+        const isLiveMode = session.mode === 'live';
         for (const gladiator of gladiators) {
             const equityArr = Array.isArray(gladiator.equityData) ? gladiator.equityData : [];
             const startingAlloc = equityArr[0] ?? parseFloat(session.perBotAllocation ?? '10000');
             const state = await getState(gladiator.id, startingAlloc);
             state.equityCurve.push(state.balance);
+            // Re-query positions at finalize time so the persisted numbers match
+            // exactly what the live endpoint was computing (closed + open trades,
+            // win rate over closed only, pnl includes realized + unrealized).
+            const arenaPositions = await db.select().from(botPositions).where(and(eq(botPositions.botId, gladiator.botId), eq(botPositions.userId, userId), eq(botPositions.isPaper, !isLiveMode), eq(botPositions.shadowSessionId, gladiator.id)));
+            const closed = arenaPositions.filter(p => p.status === 'closed');
+            const open = arenaPositions.filter(p => p.status === 'open');
+            const trades = closed.length + open.length;
+            const wins = closed.filter(p => parseFloat(p.pnl ?? '0') > 0).length;
+            const winRate = closed.length > 0 ? (wins / closed.length) * 100 : 0;
             const finalReturn = startingAlloc > 0 ? ((state.balance - startingAlloc) / startingAlloc) * 100 : 0;
-            const winRate = state.trades > 0 ? (state.wins / state.trades) * 100 : 0;
             results.push({
                 gladiatorId: gladiator.id,
                 finalReturn,
                 winRate,
                 equity: state.equityCurve,
-                trades: state.trades,
+                trades,
                 pnl: state.balance - startingAlloc,
                 startingAlloc,
             });

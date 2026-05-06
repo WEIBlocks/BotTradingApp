@@ -8,7 +8,7 @@ import React, {
 } from 'react';
 import {GoogleSignin} from '@react-native-google-signin/google-signin';
 import {authApi, AuthUser} from '../services/auth';
-import {api, ApiError} from '../services/api';
+import {api, ApiError, registerSessionInvalidHandler} from '../services/api';
 import {storage} from '../services/storage';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -69,21 +69,41 @@ export function AuthProvider({children}: {children: React.ReactNode}) {
     return () => { mounted = false; };
   }, []);
 
+  // Register a handler the api layer can fire when the session is irrecoverably
+  // dead (refresh-token rejected, not a network blip). Flips the navigator to
+  // the auth flow without touching tokens (api.ts already cleared them).
+  useEffect(() => {
+    const handler = () => {
+      try { GoogleSignin.signOut(); } catch {}
+      setState({user: null, isLoading: false, isAuthReady: true, isOnboarding: false, isNewUser: false});
+    };
+    registerSessionInvalidHandler(handler);
+    return () => registerSessionInvalidHandler(null);
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
     const result = await authApi.login(email, password);
     const needsOnboarding = !result.onboardingComplete;
-    setState(prev => ({
-      ...prev,
+    // Replace state, don't merge — guarantees nothing leaks from a prior user.
+    setState({
       user: result.user,
+      isLoading: false,
+      isAuthReady: true,
       isOnboarding: needsOnboarding,
       isNewUser: false,
-    }));
+    });
   }, []);
 
   const register = useCallback(async (name: string, email: string, password: string) => {
     const result = await authApi.register(name, email, password);
     // Keep isOnboarding true so user stays in auth flow for quiz + connect capital
-    setState(prev => ({...prev, user: result.user, isOnboarding: true, isNewUser: true}));
+    setState({
+      user: result.user,
+      isLoading: false,
+      isAuthReady: true,
+      isOnboarding: true,
+      isNewUser: true,
+    });
   }, []);
 
   const googleSignIn = useCallback(async (idToken: string) => {

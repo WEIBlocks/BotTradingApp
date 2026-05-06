@@ -17,8 +17,14 @@ const envSchema = z.object({
 
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
-  JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),
-  JWT_REFRESH_EXPIRES_IN: z.string().default('7d'),
+  // Access token: short enough to limit blast-radius if leaked, long enough
+  // that a typical session never hits expiry mid-action. The mobile client
+  // proactively refreshes ~60s before expiry, so 30m means the user has a
+  // 29-minute window of friction-free use per refresh.
+  JWT_ACCESS_EXPIRES_IN: z.string().default('30m'),
+  // Refresh token: longest practical to minimize forced re-logins. 30 days
+  // matches the "weeks of usage without re-login" expectation.
+  JWT_REFRESH_EXPIRES_IN: z.string().default('30d'),
 
   // ── Google Play IAP (Android) ────────────────────────────────────────────────
   // Paste the entire service-account JSON key as a single-line string.

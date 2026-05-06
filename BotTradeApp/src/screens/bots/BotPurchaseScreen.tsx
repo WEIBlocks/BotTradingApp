@@ -124,8 +124,12 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const availableBalance = matchingExchange ? matchingExchange.totalBalance : 0;
   const parsedAmount = parseFloat(allocatedAmount) || 0;
 
-  const minFloor = requiredAssetClass === 'stocks' ? 1 : 10;
-  const parsedMinOrder = parseFloat(minOrderInput) || minFloor;
+  // Used only as a default in the placeholder when the user hasn't typed
+  // anything — we no longer enforce it as a floor. The user can set any
+  // positive minimum; the trading engine + exchange itself reject too-small
+  // orders separately at execution time.
+  const fallbackMin = requiredAssetClass === 'stocks' ? 1 : 10;
+  const parsedMinOrder = parseFloat(minOrderInput) || fallbackMin;
 
   const validateAmount = useCallback((val: string): string => {
     const num = parseFloat(val);
@@ -140,9 +144,8 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const validateMinOrder = useCallback((val: string): string => {
     const num = parseFloat(val);
     if (!val || isNaN(num) || num <= 0) return 'Enter a valid minimum order amount';
-    if (num < minFloor) return `Minimum must be at least $${minFloor} for ${requiredAssetClass}`;
     return '';
-  }, [minFloor, requiredAssetClass]);
+  }, []);
 
   const handleAmountChange = (val: string) => {
     // Only allow numbers and one decimal point
@@ -259,7 +262,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
   const assetLabel = isStockBot ? 'Stock' : 'Crypto';
   // Exchange connected but no funds = cannot activate (applies to all users including admin)
   const hasInsufficientBalance = !!matchingExchange && availableBalance <= 0;
-  const canActivate = !amountError && !minOrderError && parsedAmount > 0 && parsedMinOrder >= minFloor && !!matchingExchange && !hasInsufficientBalance;
+  const canActivate = !amountError && !minOrderError && parsedAmount > 0 && parsedMinOrder > 0 && !!matchingExchange && !hasInsufficientBalance;
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -438,7 +441,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
                 setMinOrderError(validateMinOrder(cleaned));
               }}
               keyboardType="decimal-pad"
-              placeholder={String(minFloor)}
+              placeholder={String(fallbackMin)}
               placeholderTextColor="rgba(255,255,255,0.2)"
             />
           </View>
@@ -446,7 +449,7 @@ export default function BotPurchaseScreen({navigation, route}: Props) {
             <Text style={styles.amountError}>{minOrderError}</Text>
           ) : (
             <Text style={styles.amountSub}>
-              Bot skips any trade below this amount · min ${minFloor} for {requiredAssetClass}
+              Bot skips any trade below this amount · any positive value works
             </Text>
           )}
         </View>

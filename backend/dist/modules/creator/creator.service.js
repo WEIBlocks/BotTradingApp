@@ -109,6 +109,7 @@ export async function getCreatorBots(userId) {
         isPublished: bots.isPublished,
         avatarColor: bots.avatarColor,
         avatarLetter: bots.avatarLetter,
+        avatarUrl: bots.avatarUrl,
         config: bots.config,
         version: bots.version,
         createdAt: bots.createdAt,
@@ -224,6 +225,28 @@ export async function publishBot(userId, botId) {
     const [updated] = await db
         .update(bots)
         .set({ status: 'approved', isPublished: true, updatedAt: new Date() })
+        .where(and(eq(bots.id, botId), eq(bots.creatorId, userId)))
+        .returning();
+    if (!updated) {
+        throw new NotFoundError('Bot');
+    }
+    return updated;
+}
+/**
+ * Hide a bot from the marketplace without deleting it.
+ *
+ * Sets `isPublished = false` so the bot disappears from `GET /marketplace/bots`
+ * listings (which filter `WHERE isPublished = true`) but stays editable in
+ * Creator Studio. Existing subscribers keep running unaffected — this is
+ * marketplace visibility only, not a bot lifecycle change.
+ *
+ * Status drops back to `'draft'` so a future re-publish goes through the
+ * normal publish flow.
+ */
+export async function unpublishBot(userId, botId) {
+    const [updated] = await db
+        .update(bots)
+        .set({ isPublished: false, status: 'draft', updatedAt: new Date() })
         .where(and(eq(bots.id, botId), eq(bots.creatorId, userId)))
         .returning();
     if (!updated) {

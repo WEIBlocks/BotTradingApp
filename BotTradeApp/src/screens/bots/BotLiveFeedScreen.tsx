@@ -211,6 +211,12 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
     }
   }, [botId, mode]);
 
+  // Cap on retained decisions in memory. Each decision is ~1 KB after parsing
+  // (symbol, reasoning, indicators), so 500 entries ≈ 500 KB on the JS heap.
+  // Beyond this, oldest entries are trimmed off — older history can still be
+  // fetched via the API with an offset query if needed.
+  const MAX_DECISIONS_IN_MEMORY = 500;
+
   // Load more decisions (pagination)
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
@@ -222,7 +228,14 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
         : Array.isArray(res?.data) ? res.data : [];
       const pagination = res?.data?.pagination;
       if (items.length > 0) {
-        setDecisions(prev => [...prev, ...items]);
+        setDecisions(prev => {
+          const merged = [...prev, ...items];
+          // Trim to the most recent MAX_DECISIONS to prevent OOM on long
+          // sessions where the user keeps tapping "Load more".
+          return merged.length > MAX_DECISIONS_IN_MEMORY
+            ? merged.slice(merged.length - MAX_DECISIONS_IN_MEMORY)
+            : merged;
+        });
       }
       if (pagination) {
         setHasMore(pagination.hasMore);

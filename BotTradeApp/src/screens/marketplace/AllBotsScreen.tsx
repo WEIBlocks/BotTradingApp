@@ -8,6 +8,8 @@ import {NativeStackNavigationProp} from '@react-navigation/native-stack';
 import Svg, {Path, Circle, Rect, Ellipse} from 'react-native-svg';
 import {RootStackParamList, Bot} from '../../types';
 import {marketplaceApi} from '../../services/marketplace';
+import FavoriteHeart from '../../components/common/FavoriteHeart';
+import BotAvatar from '../../components/common/BotAvatar';
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
 type Route = RouteProp<RootStackParamList, 'AllBots'>;
@@ -86,11 +88,23 @@ function BotListItem({bot, onPress}: {bot: Bot; onPress: () => void}) {
     <TouchableOpacity style={itemStyles.card} onPress={onPress} activeOpacity={0.8}>
       <View style={itemStyles.leftSection}>
         <View style={itemStyles.avatarWrap}>
-          <BotAvatarSvg size={28} />
+          {bot.avatarUrl ? (
+            <BotAvatar
+              size={40}
+              avatarUrl={bot.avatarUrl}
+              avatarColor={bot.avatarColor || '#10B981'}
+              avatarLetter={(bot.avatarLetter || bot.name?.charAt(0) || 'B').toUpperCase()}
+            />
+          ) : (
+            <BotAvatarSvg size={28} />
+          )}
         </View>
         <View style={itemStyles.info}>
           <Text style={itemStyles.name} numberOfLines={1}>{bot.name}</Text>
           <Text style={itemStyles.strategy} numberOfLines={1}>{bot.strategy}</Text>
+          {!!bot.subtitle && (
+            <Text style={itemStyles.subtitle} numberOfLines={1}>{bot.subtitle}</Text>
+          )}
           <View style={itemStyles.metaRow}>
             <View style={[itemStyles.riskBadge, {backgroundColor: riskColor + '20'}]}>
               <Text style={[itemStyles.riskText, {color: riskColor}]}>{bot.risk}</Text>
@@ -106,6 +120,7 @@ function BotListItem({bot, onPress}: {bot: Bot; onPress: () => void}) {
         </View>
       </View>
       <View style={itemStyles.rightSection}>
+        <FavoriteHeart botId={bot.id} bot={bot} size={20} style={itemStyles.heartBtn} />
         <Text style={[itemStyles.returnPct, {color: returnColor}]}>
           {returnSign}{bot.returnPercent.toFixed(1)}%
         </Text>
@@ -410,7 +425,8 @@ const itemStyles = StyleSheet.create({
   },
   info: {flex: 1},
   name: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', marginBottom: 2},
-  strategy: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 6},
+  strategy: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginBottom: 4},
+  subtitle: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.55)', marginBottom: 6},
   metaRow: {flexDirection: 'row', alignItems: 'center', gap: 8},
   riskBadge: {
     paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6,
@@ -419,7 +435,8 @@ const itemStyles = StyleSheet.create({
   category: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)'},
   ratingRow: {flexDirection: 'row', alignItems: 'center', gap: 3},
   ratingText: {fontFamily: 'Inter-Medium', fontSize: 10, color: '#F59E0B'},
-  rightSection: {alignItems: 'flex-end'},
+  rightSection: {alignItems: 'flex-end', justifyContent: 'center'},
+  heartBtn: {paddingHorizontal: 4, paddingBottom: 4},
   returnPct: {fontFamily: 'Inter-Bold', fontSize: 16, letterSpacing: -0.3},
   returnLabel: {fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5, marginBottom: 4},
   users: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)'},

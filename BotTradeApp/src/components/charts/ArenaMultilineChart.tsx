@@ -23,7 +23,11 @@ import {
   clamp,
 } from 'react-native-reanimated';
 import {Gesture, GestureDetector} from 'react-native-gesture-handler';
+import {getLineColor} from '../../utils/arenaColors';
 
+// Re-exported as a frozen 5-color array for any callers that import the
+// constant. New code should prefer getLineColor(index) so any number of
+// gladiators get distinct colors instead of cycling through 5.
 export const LINE_COLORS = ['#39FF14', '#A855F7', '#EC4899', '#22D3EE', '#EAB308'];
 
 const PAD_L = 4;
@@ -272,7 +276,7 @@ export default function ArenaMultilineChart({
                 strokeWidth={2.5}
                 strokeCap="round"
                 strokeJoin="round"
-                color={LINE_COLORS[i % LINE_COLORS.length]}
+                color={getLineColor(i)}
               />
             ))}
           </Group>
@@ -290,7 +294,7 @@ export default function ArenaMultilineChart({
                   cx={liveCross.sx}
                   cy={cy}
                   r={5}
-                  color={LINE_COLORS[i % LINE_COLORS.length]}
+                  color={getLineColor(i)}
                 />
               );
             })
@@ -302,7 +306,7 @@ export default function ArenaMultilineChart({
           <View style={[styles.crossLabel, {left: Math.min(liveCross.sx + 6, width - 100)}]}>
             {liveCross.values.map((val, i) => (
               <View key={i} style={styles.crossLabelRow}>
-                <View style={[styles.crossDot, {backgroundColor: LINE_COLORS[i % LINE_COLORS.length]}]} />
+                <View style={[styles.crossDot, {backgroundColor: getLineColor(i)}]} />
                 <Text style={styles.crossLabelTxt}>
                   {val >= 0 ? '+' : ''}{val.toFixed(2)}%
                 </Text>

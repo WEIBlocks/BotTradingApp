@@ -15,6 +15,7 @@ interface BackendBot {
   tags: string[];
   avatarColor: string;
   avatarLetter: string;
+  avatarUrl?: string | null;
   status: string;
   config: Record<string, unknown> | null;
   creatorId?: string;
@@ -65,6 +66,7 @@ function mapBot(b: BackendBot): Bot {
     creatorName: b.creatorName ?? '',
     avatarColor: b.avatarColor ?? '#6C63FF',
     avatarLetter: b.avatarLetter ?? (b.name?.[0] ?? 'B'),
+    avatarUrl: b.avatarUrl ?? null,
     returnPercent: Number(b.return30d) || 0,
     winRate: Number(b.winRate) || 0,
     maxDrawdown: Number(b.maxDrawdown) || 0,

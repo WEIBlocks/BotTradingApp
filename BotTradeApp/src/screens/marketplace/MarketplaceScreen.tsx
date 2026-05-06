@@ -10,10 +10,13 @@ import {RootStackParamList, Bot} from '../../types';
 import {marketplaceApi} from '../../services/marketplace';
 import {creatorApi} from '../../services/creator';
 import {botsService} from '../../services/bots';
+import {useFavorites} from '../../context/FavoritesContext';
 import {useToast} from '../../context/ToastContext';
 import {useAuth} from '../../context/AuthContext';
 import {configApi} from '../../services/config';
 import Badge from '../../components/common/Badge';
+import BotAvatar from '../../components/common/BotAvatar';
+import FavoriteHeart from '../../components/common/FavoriteHeart';
 
 type NavProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -156,6 +159,8 @@ function BotGridCard({
 
   return (
     <TouchableOpacity style={gridStyles.card} onPress={onPress} activeOpacity={0.85}>
+      {/* Heart toggle — absolute top-right so it never reflows the layout. */}
+      <FavoriteHeart botId={bot.id} bot={bot} style={gridStyles.heartCorner} />
       {/* Top row: bot SVG avatar + strategy tag */}
       <View style={gridStyles.topRow}>
         <View style={gridStyles.avatarWrap}>
@@ -241,12 +246,14 @@ function MyBotCard({
   onPress,
   onDelete,
   onPublish,
+  onUnpublish,
 }: {
   bot: any;
   onEdit: () => void;
   onPress: () => void;
   onDelete: () => void;
   onPublish: () => void;
+  onUnpublish: () => void;
 }) {
   const isPublished = bot.isPublished;
   const returnColor = (bot.returnPercent ?? 0) >= 0 ? '#10B981' : '#EF4444';
@@ -267,11 +274,22 @@ function MyBotCard({
           {isPublished ? 'Live' : 'Draft'}
         </Text>
       </View>
+      {/* Heart toggle — top-right corner. */}
+      <FavoriteHeart botId={bot.id} bot={bot as any} size={18} style={myBotStyles.heartCorner} />
 
       {/* Avatar + strategy */}
       <View style={myBotStyles.topRow}>
         <View style={myBotStyles.avatarWrap}>
-          <BotAvatarSvg size={28} />
+          {bot.avatarUrl ? (
+            <BotAvatar
+              size={40}
+              avatarUrl={bot.avatarUrl}
+              avatarColor={bot.avatarColor || '#10B981'}
+              avatarLetter={(bot.avatarLetter || bot.name?.charAt(0) || 'B').toUpperCase()}
+            />
+          ) : (
+            <BotAvatarSvg size={28} />
+          )}
         </View>
         <View style={[myBotStyles.strategyTag, {backgroundColor: tagBg + '22', borderColor: tagBg + '55'}]}>
           <Text style={[myBotStyles.strategyText, {color: tagBg}]} numberOfLines={1}>{bot.strategy}</Text>
@@ -320,7 +338,17 @@ function MyBotCard({
             </Svg>
             <Text style={myBotStyles.editBtnText}>Edit</Text>
           </TouchableOpacity>
-          {!isPublished && (
+          {isPublished ? (
+            <TouchableOpacity
+              style={myBotStyles.publishBtn}
+              onPress={onUnpublish}
+              activeOpacity={0.7}
+              hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+              <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                <Path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22" stroke="#F59E0B" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+              </Svg>
+            </TouchableOpacity>
+          ) : (
             <TouchableOpacity
               style={myBotStyles.publishBtn}
               onPress={onPublish}
@@ -358,7 +386,8 @@ export default function MarketplaceScreen() {
   const navigation = useNavigation<NavProp>();
   const {alert: showAlert, showConfirm} = useToast();
   const {user} = useAuth();
-  const [activeTab, setActiveTab] = useState<'marketplace' | 'mybots'>('marketplace');
+  const {favorites: favBots, refresh: refreshFavorites} = useFavorites();
+  const [activeTab, setActiveTab] = useState<'marketplace' | 'mybots' | 'favorites'>('marketplace');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All');
   const [sortDesc, setSortDesc] = useState(true);
@@ -398,9 +427,14 @@ export default function MarketplaceScreen() {
     }
   }, [isCreator]);
 
-  useFocusEffect(useCallback(() => { fetchData(); }, [fetchData]));
+  useFocusEffect(useCallback(() => {
+    fetchData();
+    refreshFavorites();
+  }, [fetchData, refreshFavorites]));
 
-  const showTabs = isCreator && myBots.length > 0;
+  // Tabs are visible when the user has at least one creator-owned bot OR has
+  // at least one favorite. With both, the strip shows all three tabs.
+  const showTabs = (isCreator && myBots.length > 0) || favBots.length > 0;
 
   const filteredBots = allBots
     .filter(b => {
@@ -461,7 +495,9 @@ export default function MarketplaceScreen() {
         </View>
       </View>
 
-      {/* Tabs — only visible when user has own bots */}
+      {/* Tabs — visible when user has own bots OR has favorites.
+          Each per-tab condition (myBots.length > 0, favBots.length > 0) keeps
+          the strip honest if the user only has one of the two collections. */}
       {showTabs && (
         <View style={styles.tabBar}>
           <TouchableOpacity
@@ -473,20 +509,34 @@ export default function MarketplaceScreen() {
             </Text>
             {activeTab === 'marketplace' && <View style={styles.tabIndicator} />}
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabItem, activeTab === 'mybots' && styles.tabItemActive]}
-            onPress={() => setActiveTab('mybots')}
-            activeOpacity={0.8}>
-            <Text style={[styles.tabText, activeTab === 'mybots' && styles.tabTextActive]}>
-              My Bots
-            </Text>
-            {activeTab === 'mybots' && <View style={styles.tabIndicator} />}
-            {myBots.length > 0 && (
+          {isCreator && myBots.length > 0 && (
+            <TouchableOpacity
+              style={[styles.tabItem, activeTab === 'mybots' && styles.tabItemActive]}
+              onPress={() => setActiveTab('mybots')}
+              activeOpacity={0.8}>
+              <Text style={[styles.tabText, activeTab === 'mybots' && styles.tabTextActive]}>
+                My Bots
+              </Text>
+              {activeTab === 'mybots' && <View style={styles.tabIndicator} />}
               <View style={styles.tabBadge}>
                 <Text style={styles.tabBadgeText}>{myBots.length}</Text>
               </View>
-            )}
-          </TouchableOpacity>
+            </TouchableOpacity>
+          )}
+          {favBots.length > 0 && (
+            <TouchableOpacity
+              style={[styles.tabItem, activeTab === 'favorites' && styles.tabItemActive]}
+              onPress={() => setActiveTab('favorites')}
+              activeOpacity={0.8}>
+              <Text style={[styles.tabText, activeTab === 'favorites' && styles.tabTextActive]}>
+                Favorites
+              </Text>
+              {activeTab === 'favorites' && <View style={styles.tabIndicator} />}
+              <View style={styles.tabBadge}>
+                <Text style={styles.tabBadgeText}>{favBots.length}</Text>
+              </View>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -503,8 +553,39 @@ export default function MarketplaceScreen() {
           />
         }>
 
-        {/* ── MY BOTS TAB ─────────────────────────────────────────── */}
-        {activeTab === 'mybots' && showTabs ? (
+        {/* ── FAVORITES TAB ───────────────────────────────────────── */}
+        {activeTab === 'favorites' && showTabs ? (
+          <>
+            <View style={[styles.sectionLabelRow, {marginTop: 8}]}>
+              <Text style={styles.sectionLabel}>YOUR FAVORITES ({favBots.length})</Text>
+            </View>
+            {favBots.length === 0 ? (
+              <View style={{paddingVertical: 60, alignItems: 'center'}}>
+                <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)'}}>
+                  Tap the heart on any bot to save it here.
+                </Text>
+              </View>
+            ) : (
+              <View style={styles.gridRow}>
+                {favBots.map(b => (
+                  <BotGridCard
+                    key={b.id}
+                    bot={b}
+                    onPress={() => navigation.navigate('BotDetails', {botId: b.id})}
+                    onShadowPress={() => handleShadowPress(b)}
+                  />
+                ))}
+              </View>
+            )}
+            <View style={{height: 32}} />
+          </>
+        ) : null}
+
+        {/* ── MY BOTS / MARKETPLACE TAB ───────────────────────────── */}
+        {/* When the favorites tab is active, render nothing in this branch
+            (the favorites block above already rendered). Otherwise pick
+            mybots vs marketplace as before. */}
+        {activeTab === 'favorites' && showTabs ? null : activeTab === 'mybots' && showTabs ? (
           <>
             {/* My Bots header row */}
             <View style={[styles.sectionLabelRow, {marginTop: 8}]}>
@@ -560,6 +641,22 @@ export default function MarketplaceScreen() {
                           fetchData();
                         } catch (e: any) {
                           showAlert('Error', e?.message || 'Failed to publish.');
+                        }
+                      },
+                    });
+                  }}
+                  onUnpublish={() => {
+                    showConfirm({
+                      title: 'Hide from Marketplace',
+                      message: `Hide "${bot.name}" from the marketplace? Existing subscribers will keep running. You can re-publish anytime.`,
+                      confirmText: 'Hide',
+                      onConfirm: async () => {
+                        try {
+                          await creatorApi.unpublishBot(bot.id);
+                          showAlert('Hidden', `${bot.name} is no longer visible in the marketplace.`);
+                          fetchData();
+                        } catch (e: any) {
+                          showAlert('Error', e?.message || 'Failed to hide bot.');
                         }
                       },
                     });
@@ -739,6 +836,14 @@ const gridStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     padding: 12,
+    position: 'relative',
+  },
+  heartCorner: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 2,
+    padding: 4,
   },
   topRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -818,6 +923,14 @@ const myBotStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     padding: 12,
+    position: 'relative',
+  },
+  heartCorner: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    zIndex: 2,
+    padding: 4,
   },
   statusPill: {
     flexDirection: 'row', alignItems: 'center', gap: 5,

@@ -19,6 +19,7 @@ export declare function listBots(filters: ListBotsFilters): Promise<{
         tags: string[] | null;
         avatarColor: string | null;
         avatarLetter: string | null;
+        avatarUrl: string | null;
         status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
         version: string | null;
         createdAt: Date | null;
@@ -51,6 +52,7 @@ export declare function getFeaturedBot(): Promise<{
     tags: string[] | null;
     avatarColor: string | null;
     avatarLetter: string | null;
+    avatarUrl: string | null;
     version: string | null;
     createdAt: Date | null;
     return30d: string | null;
@@ -72,6 +74,7 @@ export declare function getTrendingBots(limit?: number): Promise<{
     tags: string[] | null;
     avatarColor: string | null;
     avatarLetter: string | null;
+    avatarUrl: string | null;
     return30d: string | null;
     winRate: string | null;
     activeUsers: number | null;
@@ -120,6 +123,7 @@ export declare function getBotById(botId: string, userId?: string): Promise<{
     tags: string[] | null;
     avatarColor: string | null;
     avatarLetter: string | null;
+    avatarUrl: string | null;
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     config: unknown;
     version: string | null;

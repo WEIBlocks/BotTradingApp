@@ -31,6 +31,7 @@ interface CreatorBotRow {
   isPublished: boolean;
   avatarColor: string | null;
   avatarLetter: string | null;
+  avatarUrl: string | null;
   config: any;
   version: number | null;
   createdAt: string | null;
@@ -95,6 +96,7 @@ export interface CreatorBot {
   platformFeePercent: number;
   avatarColor: string;
   avatarLetter: string;
+  avatarUrl: string | null;
   // Per-bot monitoring stats
   totalUsers: number;
   totalPositions: number;
@@ -326,6 +328,7 @@ export const creatorApi = {
       platformFeePercent: parseFloat(b.platformFeePercent ?? '3'),
       avatarColor: b.avatarColor ?? '#8B5CF6',
       avatarLetter: b.avatarLetter ?? b.name?.charAt(0) ?? 'B',
+      avatarUrl: b.avatarUrl ?? null,
       totalUsers: Number(b.totalUsers) || 0,
       totalPositions: Number(b.totalPositions) || 0,
       openPositions: Number(b.openPositions) || 0,
@@ -376,6 +379,13 @@ export const creatorApi = {
 
   async publishBot(botId: string) {
     return api.post(`/creator/bots/${botId}/publish`, {});
+  },
+
+  /** Hide a bot from the marketplace without deleting it.
+   *  Sets isPublished=false; the bot stays editable in Creator Studio and
+   *  any active subscribers keep running. Reversible via publishBot. */
+  async unpublishBot(botId: string) {
+    return api.post(`/creator/bots/${botId}/unpublish`, {});
   },
 
   // ─── Analytics ──────────────────────────────────────────────────────────────

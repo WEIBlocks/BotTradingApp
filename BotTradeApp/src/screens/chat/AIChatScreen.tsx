@@ -10,6 +10,7 @@ import {launchImageLibrary} from 'react-native-image-picker';
 import {RootStackParamList, MainTabParamList} from '../../types';
 import {API_BASE_URL} from '../../config/api';
 import {storage} from '../../services/storage';
+import {uploadFormData} from '../../services/api';
 import {aiApi} from '../../services/ai';
 import {useIAP} from '../../context/IAPContext';
 import {useAuth} from '../../context/AuthContext';
@@ -171,13 +172,47 @@ const renameStyles = StyleSheet.create({
 
 // ─── Screen ────────────────────────────────────────────────────────────────────
 
+// Cap on retained chat messages. Beyond this, the oldest are trimmed off when
+// a new message is appended. Each message can hold base64-ish refs (for image
+// attachments) and arbitrary AI text, so unbounded growth is the easy way to
+// run out of JS heap during a long conversation. The user can always scroll
+// back into older history via the conversations list.
+const MAX_CHAT_MESSAGES_IN_MEMORY = 200;
+
 export default function AIChatScreen() {
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RouteProp<MainTabParamList, 'AIChat'>>();
   const {isPro, initialized: iapInitialized} = useIAP();
   const {user} = useAuth();
   const botId = (route.params as any)?.botId as string | undefined;
+
+  // Track whether the screen is still mounted. The chat fires several
+  // fire-and-forget API calls on focus, and a slow response landing after the
+  // user has navigated away would otherwise call setState on an unmounted
+  // component (warning in dev, hard crash on Hermes/release).
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
+
+  // Append helper that caps the message list at MAX_CHAT_MESSAGES_IN_MEMORY.
+  // Older messages are trimmed off the FRONT (preserving the latest context),
+  // but the very first INITIAL_MESSAGES greeting is kept anchored at index 0
+  // so the chat never visually loses its greeting bubble.
+  const appendMessage = useCallback((newMsgs: Message | Message[]) => {
+    const incoming = Array.isArray(newMsgs) ? newMsgs : [newMsgs];
+    setMessages(prev => {
+      const merged = [...prev, ...incoming];
+      if (merged.length <= MAX_CHAT_MESSAGES_IN_MEMORY) return merged;
+      // Keep first message (greeting) + latest (MAX-1) messages.
+      const head = merged[0];
+      const tail = merged.slice(merged.length - (MAX_CHAT_MESSAGES_IN_MEMORY - 1));
+      return [head, ...tail];
+    });
+  }, []);
   const [inputText, setInputText] = useState('');
   const [conversationId, setConversationId] = useState<string | undefined>();
   const [isTyping, setIsTyping] = useState(false);
@@ -238,34 +273,42 @@ export default function AIChatScreen() {
   // Load bot name on mount
   useEffect(() => {
     aiApi.getBotName().then(name => {
-      if (name) setBotNameState(name);
+      if (mountedRef.current && name) setBotNameState(name);
     }).catch(() => {});
   }, []);
 
   // Load previous conversation on mount
   useEffect(() => {
     (async () => {
-      setHistoryLoading(true);
+      if (mountedRef.current) setHistoryLoading(true);
       try {
         const history = await aiApi.getChatHistory();
+        if (!mountedRef.current) return;
         if (history.conversationId && history.messages.length > 0) {
           setConversationId(history.conversationId);
           // Try to get stored title from conversations list
           try {
             const convs = await aiApi.listConversations();
+            if (!mountedRef.current) return;
             const found = (convs as any[]).find((c: any) => c.id === history.conversationId);
             if (found?.title) setConversationTitle(found.title);
           } catch {}
+          if (!mountedRef.current) return;
           const loaded: Message[] = history.messages.map((m: any) => ({
             id: m.id,
             role: m.role === 'user' ? 'user' as const : 'ai' as const,
             text: (m.content || '').replace(/```strategy-json[\s\S]*?```/g, '').replace(/\[Image: [^\]]+\]\s*/g, '').trim(),
             imageUri: m.metadata?.attachmentUrl ? `${API_BASE_URL}${m.metadata.attachmentUrl}` : undefined,
           }));
-          setMessages([INITIAL_MESSAGES[0], ...loaded]);
+          // Trim restored history to the cap so we never start a session at >200 msgs.
+          const head = INITIAL_MESSAGES[0];
+          const tail = loaded.length > MAX_CHAT_MESSAGES_IN_MEMORY - 1
+            ? loaded.slice(loaded.length - (MAX_CHAT_MESSAGES_IN_MEMORY - 1))
+            : loaded;
+          setMessages([head, ...tail]);
         }
       } catch {}
-      setHistoryLoading(false);
+      if (mountedRef.current) setHistoryLoading(false);
     })();
   }, []);
 
@@ -285,29 +328,21 @@ export default function AIChatScreen() {
       setAttachedImageName(fname);
       setUploadedUrl(null);
 
-      // Pre-upload immediately
+      // Pre-upload immediately. uploadFormData refreshes the access token if
+      // it's about to expire and retries once on a 401, so a long-idle chat
+      // session won't drop attachments.
       setUploadProgress(5);
       try {
-        const token = await storage.getAccessToken();
         const formData = new FormData();
         formData.append('image', {uri, name: fname, type: mimeType} as any);
 
         setUploadProgress(30);
-        const res = await fetch(`${API_BASE_URL}/training/upload-image`, {
-          method: 'POST',
-          headers: {Authorization: `Bearer ${token}`},
-          body: formData,
-        });
+        const json: any = await uploadFormData(`/training/upload-image`, formData);
         setUploadProgress(80);
 
-        if (res.ok) {
-          const json = await res.json();
-          setUploadedUrl(json.data?.url || json.url || null);
-          setUploadProgress(100);
-          setTimeout(() => setUploadProgress(0), 500);
-        } else {
-          setUploadProgress(0);
-        }
+        setUploadedUrl(json.data?.url || json.url || null);
+        setUploadProgress(100);
+        setTimeout(() => setUploadProgress(0), 500);
       } catch {
         // Upload failed — will try again on send
         setUploadProgress(0);
@@ -318,12 +353,12 @@ export default function AIChatScreen() {
   const isUploading = uploadProgress > 0 && uploadProgress < 100;
 
   const loadConversations = useCallback(async () => {
-    setConvsLoading(true);
+    if (mountedRef.current) setConvsLoading(true);
     try {
       const convs = await aiApi.listConversations();
-      setConversations(convs);
+      if (mountedRef.current) setConversations(convs);
     } catch {}
-    setConvsLoading(false);
+    if (mountedRef.current) setConvsLoading(false);
   }, []);
 
   const handleNewConversation = useCallback(() => {
@@ -430,7 +465,7 @@ export default function AIChatScreen() {
     const text = inputText.trim();
     const imgUri = attachedImage;
     const userMsg: Message = {id: Date.now().toString(), role: 'user', text, imageUri: imgUri || undefined};
-    setMessages(prev => [...prev, userMsg]);
+    appendMessage(userMsg);
     setInputText('');
     setIsTyping(true);
     setStageText('');
@@ -464,16 +499,16 @@ export default function AIChatScreen() {
         }
         setConversationId(response.conversationId);
         const cleanReply = response.reply.replace(/```strategy-json[\s\S]*?```/g, '').trim();
-        setMessages(prev => [...prev, {
+        appendMessage({
           id: (Date.now() + 1).toString(),
           role: 'ai',
           text: cleanReply,
           cleanPrompt: response.cleanPrompt,
           hasStrategyCard: !!response.strategy,
           strategyData: response.strategy,
-        }]);
+        });
       } catch (e: any) {
-        setMessages(prev => [...prev, {id: (Date.now() + 1).toString(), role: 'ai', text: e?.message || 'Sorry, I encountered an error.'}]);
+        appendMessage({id: (Date.now() + 1).toString(), role: 'ai', text: e?.message || 'Sorry, I encountered an error.'});
       } finally {
         setIsTyping(false);
         setStageText('');
@@ -483,7 +518,7 @@ export default function AIChatScreen() {
 
     // Streaming path — insert placeholder bubble, fill it as tokens arrive
     const streamMsgId = (Date.now() + 1).toString();
-    setMessages(prev => [...prev, {id: streamMsgId, role: 'ai', text: ''}]);
+    appendMessage({id: streamMsgId, role: 'ai', text: ''});
 
     try {
       let accumulated = '';

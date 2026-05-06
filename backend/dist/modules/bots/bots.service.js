@@ -1,5 +1,5 @@
 import { db } from '../../config/database.js';
-import { bots, botStatistics, botSubscriptions, shadowSessions, reviews, botVersions, creatorEarnings, } from '../../db/schema/bots.js';
+import { bots, botStatistics, botSubscriptions, shadowSessions, reviews, botVersions, creatorEarnings, botFavorites, } from '../../db/schema/bots.js';
 import { trades } from '../../db/schema/trades.js';
 import { users } from '../../db/schema/users.js';
 import { activityLog, trainingUploads } from '../../db/schema/training.js';
@@ -44,6 +44,10 @@ export async function createBot(userId, data) {
         .values({
         creatorId: userId,
         name: data.name,
+        subtitle: data.subtitle,
+        description: data.description,
+        tags: data.tags,
+        priceMonthly: data.priceMonthly !== undefined ? String(data.priceMonthly) : undefined,
         strategy: data.strategy?.substring(0, 200),
         category: data.category,
         riskLevel: data.risk_level,
@@ -80,19 +84,29 @@ export async function updateBot(userId, botId, data) {
         throw new NotFoundError('Bot');
     }
     const updates = { updatedAt: new Date() };
+    // Identity / marketplace metadata
     if (data.name !== undefined)
         updates.name = data.name;
+    if (data.subtitle !== undefined)
+        updates.subtitle = data.subtitle;
+    if (data.description !== undefined)
+        updates.description = data.description;
+    if (data.tags !== undefined)
+        updates.tags = data.tags;
+    if (data.priceMonthly !== undefined)
+        updates.priceMonthly = String(data.priceMonthly);
+    if (data.creatorFeePercent !== undefined)
+        updates.creatorFeePercent = String(data.creatorFeePercent);
+    // Strategy core
     if (data.strategy !== undefined)
         updates.strategy = data.strategy;
     if (data.category !== undefined)
         updates.category = data.category;
     if (data.risk_level !== undefined)
         updates.riskLevel = data.risk_level;
-    if (data.creatorFeePercent !== undefined)
-        updates.creatorFeePercent = String(data.creatorFeePercent);
     if (data.prompt !== undefined)
         updates.prompt = data.prompt;
-    // Merge config fields
+    // Merge config (jsonb) fields. Every "execution" / "risk" knob lives here.
     const existingConfig = existing.config ?? {};
     const configUpdates = { ...existingConfig };
     if (data.pairs !== undefined)
@@ -103,22 +117,28 @@ export async function updateBot(userId, botId, data) {
         configUpdates.takeProfit = data.takeProfit;
     if (data.maxPositionSize !== undefined)
         configUpdates.maxPositionSize = data.maxPositionSize;
+    if (data.dailyLossLimit !== undefined)
+        configUpdates.dailyLossLimit = data.dailyLossLimit;
+    if (data.maxOpenPositions !== undefined)
+        configUpdates.maxOpenPositions = data.maxOpenPositions;
+    if (data.tradeDirection !== undefined)
+        configUpdates.tradeDirection = data.tradeDirection;
+    if (data.orderType !== undefined)
+        configUpdates.orderType = data.orderType;
     if (data.tradingFrequency !== undefined)
         configUpdates.tradingFrequency = data.tradingFrequency;
+    if (data.tradingSchedule !== undefined)
+        configUpdates.tradingSchedule = data.tradingSchedule;
+    if (data.aiMode !== undefined)
+        configUpdates.aiMode = data.aiMode;
     if (data.maxHoldsBeforeAI !== undefined)
         configUpdates.maxHoldsBeforeAI = data.maxHoldsBeforeAI;
     if (data.aiConfidenceThreshold !== undefined)
         configUpdates.aiConfidenceThreshold = data.aiConfidenceThreshold;
-    if (data.aiMode !== undefined)
-        configUpdates.aiMode = data.aiMode;
     if (data.customEntryConditions !== undefined)
         configUpdates.customEntryConditions = data.customEntryConditions;
     if (data.customExitConditions !== undefined)
         configUpdates.customExitConditions = data.customExitConditions;
-    if (data.maxOpenPositions !== undefined)
-        configUpdates.maxOpenPositions = data.maxOpenPositions;
-    if (data.tradingSchedule !== undefined)
-        configUpdates.tradingSchedule = data.tradingSchedule;
     updates.config = configUpdates;
     const [updated] = await db
         .update(bots)
@@ -239,13 +259,17 @@ export async function purchaseBot(userId, botId, mode, requestedAmount, minOrder
         allocatedAmount = String(requestedAmount);
         exchangeConnId = matchingConn.id;
     }
-    // Validate and determine minOrderValue — must be >= $1 for stocks, >= $10 for crypto
+    // No user-input floor on minOrderValue — accept whatever the user sets.
+    // The exchange will reject the order itself if below its minimum (e.g.
+    // Alpaca won't accept a $0.10 stock order); we surface those via the bot
+    // engine's per-trade skip log rather than blocking the subscription.
+    // We default to a sensible fallback only when the user supplied nothing.
     const assetClass = mode === 'live' ? (((await db.select().from(bots).where(eq(bots.id, botId)))[0]?.category ?? 'Crypto').toLowerCase() === 'stocks' ? 'stocks' : 'crypto') : 'crypto';
-    const minFloor = assetClass === 'stocks' ? 1 : 10;
-    if (minOrderValue !== undefined && minOrderValue < minFloor) {
-        throw new ValidationError(`Minimum order value must be at least $${minFloor} for ${assetClass} trading.`);
+    const fallbackMin = assetClass === 'stocks' ? 1 : 10;
+    if (minOrderValue !== undefined && minOrderValue <= 0) {
+        throw new ValidationError('Minimum order value must be greater than $0.');
     }
-    const resolvedMinOrder = minOrderValue ?? minFloor;
+    const resolvedMinOrder = minOrderValue ?? fallbackMin;
     const [subscription] = await db
         .insert(botSubscriptions)
         .values({
@@ -308,8 +332,11 @@ export async function startShadowMode(userId, botId, config) {
     }
     // Store durationDays — for minute-based durations store 1 as minimum display value
     const storedDays = durationDays > 0 ? durationDays : Math.max(1, Math.ceil(durationMinutes / 1440));
-    // Validate minOrderValue — shadow mode uses virtual funds, min $1 per trade
-    const resolvedMinOrder = config.minOrderValue && config.minOrderValue >= 1 ? config.minOrderValue : 10;
+    // No floor on user input — pass minOrderValue through verbatim. The bot
+    // engine will silently skip individual trades whose calculated size falls
+    // below the exchange's accepted minimum (separate concern, see bot-engine).
+    // We default to 10 only when the user didn't supply a value at all.
+    const resolvedMinOrder = config.minOrderValue && config.minOrderValue > 0 ? config.minOrderValue : 10;
     // Create shadow session
     const [session] = await db
         .insert(shadowSessions)
@@ -532,6 +559,7 @@ export async function getUserActiveBots(userId) {
         botRiskLevel: bots.riskLevel,
         botAvatarColor: bots.avatarColor,
         botAvatarLetter: bots.avatarLetter,
+        botAvatarUrl: bots.avatarUrl,
         winRate: botStatistics.winRate,
         activeUsers: botStatistics.activeUsers,
         avgRating: botStatistics.avgRating,
@@ -862,6 +890,7 @@ export async function getLeaderboard() {
         riskLevel: bots.riskLevel,
         avatarLetter: bots.avatarLetter,
         avatarColor: bots.avatarColor,
+        avatarUrl: bots.avatarUrl,
         creatorId: bots.creatorId,
         return30d: botStatistics.return30d,
         winRate: botStatistics.winRate,
@@ -1583,10 +1612,109 @@ export async function deleteBot(userId, botId) {
     await db.delete(creatorEarnings).where(eq(creatorEarnings.botId, botId));
     await db.delete(botStatistics).where(eq(botStatistics.botId, botId));
     await db.delete(botVersions).where(eq(botVersions.botId, botId));
+    await db.delete(botFavorites).where(eq(botFavorites.botId, botId));
     // knowledgeEmbeddings cascades automatically via onDelete: 'cascade'
     // Finally, the bot itself
     await db.delete(bots).where(eq(bots.id, botId));
     invalidateRulesCache(botId);
     // Note: activeBotsCache (in bots.routes.ts) has a 30s TTL, so it'll self-clear.
     return { deleted: true, botId, name: existing.name };
+}
+// ─── Bot Avatar Image (creator only) ───────────────────────────────────────
+//
+// The route handler writes the uploaded file to /uploads/ and calls this
+// function with the public URL. We verify ownership and persist the URL on
+// the bot row. Passing avatarUrl=null clears it (revert to letter+color).
+export async function setBotAvatar(userId, botId, avatarUrl) {
+    const [existing] = await db
+        .select({ id: bots.id, creatorId: bots.creatorId, avatarUrl: bots.avatarUrl })
+        .from(bots)
+        .where(eq(bots.id, botId));
+    if (!existing)
+        throw new NotFoundError('Bot');
+    if (existing.creatorId !== userId) {
+        throw new ForbiddenError('You can only change the avatar of bots you created');
+    }
+    const [updated] = await db
+        .update(bots)
+        .set({ avatarUrl, updatedAt: new Date() })
+        .where(eq(bots.id, botId))
+        .returning();
+    return updated;
+}
+// ─── Favorites ────────────────────────────────────────────────────────────
+//
+// Toggle / list. The unique (userId, botId) constraint makes addFavorite
+// idempotent — `ON CONFLICT DO NOTHING` returns the row whether or not it
+// already existed. The list returns the same enriched bot shape as the
+// marketplace endpoint so the mobile mapBot() helper works unchanged.
+export async function addFavorite(userId, botId) {
+    // Make sure the bot actually exists — avoids a confusing 500 on FK violation.
+    const [exists] = await db.select({ id: bots.id }).from(bots).where(eq(bots.id, botId));
+    if (!exists)
+        throw new NotFoundError('Bot');
+    await db.execute(sql `
+    INSERT INTO bot_favorites (user_id, bot_id)
+    VALUES (${userId}::uuid, ${botId}::uuid)
+    ON CONFLICT (user_id, bot_id) DO NOTHING
+  `);
+    return { favorited: true, botId };
+}
+export async function removeFavorite(userId, botId) {
+    await db
+        .delete(botFavorites)
+        .where(and(eq(botFavorites.userId, userId), eq(botFavorites.botId, botId)));
+    return { favorited: false, botId };
+}
+export async function isFavorited(userId, botId) {
+    const [row] = await db
+        .select({ id: botFavorites.id })
+        .from(botFavorites)
+        .where(and(eq(botFavorites.userId, userId), eq(botFavorites.botId, botId)))
+        .limit(1);
+    return { favorited: !!row, botId };
+}
+/**
+ * Returns the user's favorited bots, enriched with stats. Same shape as the
+ * marketplace bot listing so the mobile mapBot() helper consumes it directly.
+ */
+export async function getUserFavorites(userId) {
+    const rows = await db
+        .select({
+        id: bots.id,
+        name: bots.name,
+        subtitle: bots.subtitle,
+        strategy: bots.strategy,
+        category: bots.category,
+        riskLevel: bots.riskLevel,
+        priceMonthly: bots.priceMonthly,
+        tags: bots.tags,
+        avatarColor: bots.avatarColor,
+        avatarLetter: bots.avatarLetter,
+        avatarUrl: bots.avatarUrl,
+        status: bots.status,
+        isPublished: bots.isPublished,
+        creatorId: bots.creatorId,
+        config: bots.config,
+        version: bots.version,
+        createdAt: bots.createdAt,
+        favoritedAt: botFavorites.createdAt,
+        // Stats
+        return30d: botStatistics.return30d,
+        winRate: botStatistics.winRate,
+        maxDrawdown: botStatistics.maxDrawdown,
+        sharpeRatio: botStatistics.sharpeRatio,
+        activeUsers: botStatistics.activeUsers,
+        avgRating: botStatistics.avgRating,
+        reviewCount: botStatistics.reviewCount,
+        // Creator name
+        creatorName: users.name,
+    })
+        .from(botFavorites)
+        .innerJoin(bots, eq(botFavorites.botId, bots.id))
+        .leftJoin(botStatistics, eq(bots.id, botStatistics.botId))
+        .leftJoin(users, eq(bots.creatorId, users.id))
+        .where(eq(botFavorites.userId, userId))
+        .orderBy(desc(botFavorites.createdAt));
+    return rows;
 }

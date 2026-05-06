@@ -1,4 +1,4 @@
-import {api} from './api';
+import {api, uploadFormData} from './api';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -32,6 +32,49 @@ export type PurchaseBody = {
   allocatedAmount?: number;
   minOrderValue?: number;
   exchangeConnId?: string;
+};
+
+// All fields a creator can edit on their bot. Used by both `createBot` and
+// `updateBot` so the two endpoints stay in sync — if a field is editable
+// later, it must be editable now.
+export type BotCondition = {
+  indicator: string;
+  operator: '<' | '>' | '<=' | '>=' | 'crosses_above' | 'crosses_below';
+  value: number;
+  weight: number;
+};
+
+export type BotEditableFields = {
+  // Identity / marketplace
+  name?: string;
+  subtitle?: string;
+  description?: string;
+  tags?: string[];
+  priceMonthly?: number;
+  creatorFeePercent?: number;
+  // Strategy
+  strategy?: string;
+  category?: string;
+  risk_level?: string;
+  pairs?: string[];
+  prompt?: string;
+  // Risk / sizing
+  stopLoss?: number;
+  takeProfit?: number;
+  maxPositionSize?: number;
+  dailyLossLimit?: number;
+  maxOpenPositions?: number;
+  // Execution
+  tradeDirection?: 'buy' | 'sell' | 'both';
+  orderType?: 'market' | 'limit';
+  tradingFrequency?: 'conservative' | 'balanced' | 'aggressive' | 'max';
+  tradingSchedule?: '24_7' | 'us_hours' | 'custom';
+  // AI
+  aiMode?: 'rules_only' | 'hybrid' | 'full_ai';
+  maxHoldsBeforeAI?: number;
+  aiConfidenceThreshold?: number;
+  customEntryConditions?: BotCondition[];
+  customExitConditions?: BotCondition[];
 };
 
 // ─── API ─────────────────────────────────────────────────────────────────────
@@ -112,56 +155,15 @@ export const botsService = {
     return api.post(`/bots/${botId}/reviews`, data as Record<string, unknown>);
   },
 
-  /** Create a new bot */
-  createBot(data: {
-    name: string;
-    description?: string;
-    strategy?: string;
-    category?: string;
-    riskLevel?: string;
-    pairs?: string[];
-    priceMonthly?: number;
-    stopLoss?: number;
-    takeProfit?: number;
-    maxPosition?: number;
-    tradeDirection?: 'buy' | 'sell' | 'both';
-    dailyLossLimit?: number;
-    orderType?: 'market' | 'limit';
-    creatorFeePercent?: number;
-    prompt?: string;
-    tradingFrequency?: 'conservative' | 'balanced' | 'aggressive' | 'max';
-    maxHoldsBeforeAI?: number;
-    aiConfidenceThreshold?: number;
-    aiMode?: 'rules_only' | 'hybrid' | 'full_ai';
-    customEntryConditions?: {indicator: string; operator: string; value: number; weight: number}[];
-    customExitConditions?: {indicator: string; operator: string; value: number; weight: number}[];
-    maxOpenPositions?: number;
-    tradingSchedule?: '24_7' | 'us_hours' | 'custom';
-  }) {
+  /** Create a new bot. Mirrors `BotEditableFields` 1:1 plus the required name/strategy
+   *  for the initial insert. */
+  createBot(data: BotEditableFields & {name: string; strategy?: string}) {
     return api.post<{data: any}>('/bots/create', data as Record<string, unknown>);
   },
 
-  /** Update an existing bot */
-  updateBot(botId: string, data: {
-    name?: string;
-    strategy?: string;
-    category?: string;
-    risk_level?: string;
-    pairs?: string[];
-    stopLoss?: number;
-    takeProfit?: number;
-    maxPositionSize?: number;
-    creatorFeePercent?: number;
-    prompt?: string;
-    tradingFrequency?: 'conservative' | 'balanced' | 'aggressive' | 'max';
-    maxHoldsBeforeAI?: number;
-    aiConfidenceThreshold?: number;
-    aiMode?: 'rules_only' | 'hybrid' | 'full_ai';
-    customEntryConditions?: {indicator: string; operator: string; value: number; weight: number}[];
-    customExitConditions?: {indicator: string; operator: string; value: number; weight: number}[];
-    maxOpenPositions?: number;
-    tradingSchedule?: '24_7' | 'us_hours' | 'custom';
-  }) {
+  /** Update any subset of an existing bot's fields. Backend updateBot persists
+   *  every field listed in `BotEditableFields`. */
+  updateBot(botId: string, data: BotEditableFields) {
     return api.put<{data: any}>(`/bots/${botId}`, data as Record<string, unknown>);
   },
 
@@ -178,6 +180,29 @@ export const botsService = {
    */
   deleteBot(botId: string) {
     return api.delete<{data: {deleted: true; botId: string; name: string}}>(`/bots/${botId}`);
+  },
+
+  /**
+   * Upload (or replace) the bot's avatar image. Multipart form upload.
+   * `image.uri` is a content:// or file:// URI from react-native-image-picker.
+   * Returns the updated bot with `avatarUrl` set.
+   */
+  uploadAvatar(botId: string, image: {uri: string; name: string; type: string}) {
+    const formData = new FormData();
+    formData.append('file', {
+      uri: image.uri,
+      name: image.name,
+      type: image.type,
+    } as any);
+    return uploadFormData<{data: {id: string; avatarUrl: string | null}}>(
+      `/bots/${botId}/avatar`,
+      formData,
+    );
+  },
+
+  /** Remove the bot's avatar image and revert to letter+color fallback. */
+  removeAvatar(botId: string) {
+    return api.delete<{data: {id: string; avatarUrl: string | null}}>(`/bots/${botId}/avatar`);
   },
 
   /** Get a subscription by ID (includes userConfig overrides) */

@@ -22,12 +22,12 @@ import Svg, {Path, Line, Text as SvgText} from 'react-native-svg';
 import MiniLineChart from '../../components/charts/MiniLineChart';
 import TrophyIcon from '../../components/icons/TrophyIcon';
 import ChevronLeftIcon from '../../components/icons/ChevronLeftIcon';
+import {getLineColor, getLineColors} from '../../utils/arenaColors';
 
 const {width} = Dimensions.get('window');
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ArenaResults'>;
 
-const LINE_COLORS = ['#39FF14', '#A855F7', '#EC4899', '#22D3EE', '#EAB308'];
 const PODIUM_MEDALS = ['#EAB308', '#C0C0C0', '#CD7F32'];
 const PODIUM_LABELS = ['1ST', '2ND', '3RD'];
 
@@ -227,7 +227,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
               rank={2}
               color={PODIUM_MEDALS[1]}
               label={PODIUM_LABELS[1]}
-              lineColor={LINE_COLORS[1]}
+              lineColor={getLineColor(1)}
               height={80}
             />
             {/* 1st place (center, tallest) */}
@@ -236,7 +236,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
               rank={1}
               color={PODIUM_MEDALS[0]}
               label={PODIUM_LABELS[0]}
-              lineColor={LINE_COLORS[0]}
+              lineColor={getLineColor(0)}
               height={110}
               isFirst
             />
@@ -246,7 +246,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
               rank={3}
               color={PODIUM_MEDALS[2]}
               label={PODIUM_LABELS[2]}
-              lineColor={LINE_COLORS[2]}
+              lineColor={getLineColor(2)}
               height={60}
             />
           </View>
@@ -262,7 +262,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
               {podiumThree.map((g, i) => (
                 <Text
                   key={g.id}
-                  style={[styles.clashPlayerLabel, {color: LINE_COLORS[i]}]}
+                  style={[styles.clashPlayerLabel, {color: getLineColor(i)}]}
                   numberOfLines={1}>
                   {g.name.split(' ')[0]}
                 </Text>
@@ -271,13 +271,13 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
             <ClashRow
               metric="Return"
               values={podiumThree.map(g => `+${(g.currentReturn || 0).toFixed(1)}%`)}
-              colors={[LINE_COLORS[0], LINE_COLORS[1], LINE_COLORS[2]]}
+              colors={[getLineColor(0), getLineColor(1), getLineColor(2)]}
               winnerIdx={0}
             />
             <ClashRow
               metric="Win Rate"
               values={podiumThree.map(g => `${g.winRate}%`)}
-              colors={[LINE_COLORS[0], LINE_COLORS[1], LINE_COLORS[2]]}
+              colors={[getLineColor(0), getLineColor(1), getLineColor(2)]}
               winnerIdx={podiumThree.reduce(
                 (maxI, g, i, arr) =>
                   g.winRate > arr[maxI].winRate ? i : maxI,
@@ -287,7 +287,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
             <ClashRow
               metric="Level"
               values={podiumThree.map(g => `LVL ${g.level}`)}
-              colors={[LINE_COLORS[0], LINE_COLORS[1], LINE_COLORS[2]]}
+              colors={[getLineColor(0), getLineColor(1), getLineColor(2)]}
               winnerIdx={podiumThree.reduce(
                 (maxI, g, i, arr) =>
                   g.level > arr[maxI].level ? i : maxI,
@@ -297,7 +297,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
             <ClashRow
               metric="Trades"
               values={podiumThree.map(g => `${g.totalTrades ?? 0}`)}
-              colors={[LINE_COLORS[0], LINE_COLORS[1], LINE_COLORS[2]]}
+              colors={[getLineColor(0), getLineColor(1), getLineColor(2)]}
               winnerIdx={podiumThree.reduce(
                 (maxI, g, i, arr) => (g.totalTrades ?? 0) > (arr[maxI].totalTrades ?? 0) ? i : maxI, 0,
               )}
@@ -308,7 +308,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
                 const pnl = g.totalPnl ?? 0;
                 return `${pnl >= 0 ? '+' : ''}$${Math.abs(pnl).toFixed(0)}`;
               })}
-              colors={[LINE_COLORS[0], LINE_COLORS[1], LINE_COLORS[2]]}
+              colors={[getLineColor(0), getLineColor(1), getLineColor(2)]}
               winnerIdx={podiumThree.reduce(
                 (maxI, g, i, arr) => (g.totalPnl ?? 0) > (arr[maxI].totalPnl ?? 0) ? i : maxI, 0,
               )}
@@ -357,7 +357,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
                       data={g.equityData || []}
                       width={60}
                       height={28}
-                      color={LINE_COLORS[i] || '#10B981'}
+                      color={getLineColor(i)}
                     />
                   </View>
                   <Text style={[styles.gladReturn, {color: returnColor}]}>
@@ -446,12 +446,12 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
           <Text style={styles.sectionTitle}>BATTLE CHART</Text>
           <View style={{backgroundColor: '#161B22', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'}}>
             <View style={{height: 180, overflow: 'hidden'}}>
-              <MultiEquityChart gladiators={allGladiators} colors={LINE_COLORS} height={180} />
+              <MultiEquityChart gladiators={allGladiators} colors={getLineColors(allGladiators.length)} height={180} />
             </View>
             <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 12}}>
               {allGladiators.map((g, i) => (
                 <View key={g.id} style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                  <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: LINE_COLORS[i] || '#10B981'}} />
+                  <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: getLineColor(i)}} />
                   <Text style={{fontFamily: 'Inter-Medium', fontSize: 11, color: 'rgba(255,255,255,0.6)'}}>{g.name}</Text>
                 </View>
               ))}
@@ -482,8 +482,9 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
                     <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'}}>{g.name.charAt(0)}</Text>
                   </View>
                   <View style={{flex: 1, minWidth: 0, flexShrink: 1}}>
+                    {/* Full bot name — wraps to multiple lines for long names. */}
                     <View style={{flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap'}}>
-                      <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'}} numberOfLines={1}>{g.name}</Text>
+                      <Text style={{flexShrink: 1, fontFamily: 'Inter-SemiBold', fontSize: 13, lineHeight: 17, color: '#FFFFFF'}}>{g.name}</Text>
                       {g.category && (
                         <View style={{backgroundColor: g.category === 'Stocks' ? 'rgba(59,130,246,0.15)' : 'rgba(245,158,11,0.15)', paddingHorizontal: 5, paddingVertical: 1, borderRadius: 4, flexShrink: 0}}>
                           <Text style={{fontFamily: 'Inter-Bold', fontSize: 8, color: g.category === 'Stocks' ? '#3B82F6' : '#F59E0B', letterSpacing: 0.3}}>
@@ -492,7 +493,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
                         </View>
                       )}
                     </View>
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)'}} numberOfLines={1}>{g.strategy}</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)'}}>{g.strategy}</Text>
                   </View>
                   <View style={{alignItems: 'flex-end', flexShrink: 0, marginLeft: 8}}>
                     <Text style={{fontFamily: 'Inter-Bold', fontSize: 15, color: retColor}}>{ret >= 0 ? '+' : ''}{ret.toFixed(2)}%</Text>

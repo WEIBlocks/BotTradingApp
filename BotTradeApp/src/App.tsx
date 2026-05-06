@@ -4,6 +4,7 @@ import {NavigationContainer} from '@react-navigation/native';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {AuthProvider} from './context/AuthContext';
 import {ToastProvider, useToast} from './context/ToastContext';
+import {FavoritesProvider} from './context/FavoritesContext';
 import {NetworkProvider} from './context/NetworkContext';
 import {IAPProvider} from './context/IAPContext';
 import ErrorBoundary from './components/common/ErrorBoundary';
@@ -16,8 +17,7 @@ import {
   requestPermission,
   AuthorizationStatus,
 } from '@react-native-firebase/messaging';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import {API_BASE_URL} from './config/api';
+import {authedFetch} from './services/api';
 
 type PushKind = 'trade' | 'system' | 'alert' | 'unknown';
 type ToastKind = 'success' | 'error' | 'info' | 'warning';
@@ -72,15 +72,16 @@ function PushNotificationSetup() {
         console.log('[Push] FCM token:', token?.slice(0, 30));
 
         if (token) {
-          const accessToken = await AsyncStorage.getItem('@auth_access_token');
-          if (accessToken) {
-            await fetch(`${API_BASE_URL}/user/fcm-token`, {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}`},
-              body: JSON.stringify({token}),
-            });
-            console.log('[Push] Token registered with backend');
-          }
+          // authedFetch attaches the access token, refreshes once on 401, and
+          // does NOT log the user out on transient failures. If the user isn't
+          // logged in yet, the call hits the auth middleware and 401s — that's
+          // fine, the next call to setup() (after login) will succeed.
+          await authedFetch('/user/fcm-token', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({token}),
+          }).catch(() => {});
+          console.log('[Push] Token registered with backend');
         }
 
         // Foreground messages (modular API)
@@ -105,16 +106,13 @@ function PushNotificationSetup() {
           showAlert(String(title), String(body), toastType, duration);
         });
 
-        // Token refresh (modular API)
+        // Token refresh (modular API) — same auth-aware fetch.
         onTokenRefresh(msg, async newToken => {
-          const accessToken = await AsyncStorage.getItem('@auth_access_token');
-          if (accessToken) {
-            await fetch(`${API_BASE_URL}/user/fcm-token`, {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${accessToken}`},
-              body: JSON.stringify({token: newToken}),
-            }).catch(() => {});
-          }
+          await authedFetch('/user/fcm-token', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({token: newToken}),
+          }).catch(() => {});
         });
       } catch (err) {
         console.warn('[Push] Setup error:', err);
@@ -136,11 +134,13 @@ export default function App() {
           <AuthProvider>
             <ToastProvider>
               <IAPProvider>
-                <NavigationContainer>
-                  <StatusBar barStyle="light-content" backgroundColor="#0F1117" />
-                  <PushNotificationSetup />
-                  <AppNavigator />
-                </NavigationContainer>
+                <FavoritesProvider>
+                  <NavigationContainer>
+                    <StatusBar barStyle="light-content" backgroundColor="#0F1117" />
+                    <PushNotificationSetup />
+                    <AppNavigator />
+                  </NavigationContainer>
+                </FavoritesProvider>
               </IAPProvider>
             </ToastProvider>
           </AuthProvider>
