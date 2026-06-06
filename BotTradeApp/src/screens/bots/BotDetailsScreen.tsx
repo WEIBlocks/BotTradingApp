@@ -597,7 +597,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
           <ChevronLeftIcon size={22} color="#FFFFFF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>{bot.name}</Text>
+        <View style={{flex: 1}} />
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
           {isRunning && (
             <TouchableOpacity
@@ -683,31 +683,31 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             progressBackgroundColor="#161B22"
           />
         }>
-        {/* Bot hero — compact card style */}
+        {/* Bot hero — compact inline style */}
         <View style={styles.heroCard}>
           <View style={styles.heroTop}>
-            <View style={styles.botAvatarWrap}>
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10}}>
               <BotAvatar
-                size={72}
+                size={52}
                 avatarUrl={bot.avatarUrl}
                 avatarColor={bot.avatarColor}
                 avatarLetter={bot.avatarLetter}
-                borderRadius={20}
+                borderRadius={14}
               />
+              <View style={{flex: 1}}>
+                <Text style={styles.botCreator} numberOfLines={1}>{isCreator ? 'Created by you' : (bot.subtitle ? `by ${bot.subtitle}` : 'by Creator')}</Text>
+                <View style={styles.heroNameRow}>
+                  <Text style={styles.botName}>{bot.name}</Text>
+                  {isCreator && <Badge label="YOURS" variant="purple" size="sm" />}
+                </View>
+              </View>
             </View>
-            <View style={styles.heroInfo}>
-              <View style={styles.heroNameRow}>
-                <Text style={styles.botName}>{bot.name}</Text>
-                {isCreator && <Badge label="YOURS" variant="purple" size="sm" />}
-              </View>
-              <Text style={styles.botCreator} numberOfLines={1}>{isCreator ? 'Created by you' : bot.subtitle}</Text>
-              <View style={styles.ratingRow}>
-                {[1,2,3,4,5].map(i => (
-                  <StarIcon key={i} size={12} filled={i <= Math.round(bot.rating)} color="#EAB308" />
-                ))}
-                <Text style={styles.ratingText}> {bot.rating.toFixed(1)} ({bot.reviewCount})</Text>
-                <Text style={styles.activeUsers}>  •  {bot.activeUsers.toLocaleString()} traders</Text>
-              </View>
+            <View style={styles.ratingRow}>
+              {[1,2,3,4,5].map(i => (
+                <StarIcon key={i} size={11} filled={i <= Math.round(bot.rating)} color="#EAB308" />
+              ))}
+              <Text style={styles.ratingText}> {bot.rating.toFixed(1)} ({bot.reviewCount})</Text>
+              <Text style={styles.activeUsers}>  •  {bot.activeUsers.toLocaleString()} traders</Text>
             </View>
           </View>
 
@@ -723,14 +723,19 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
         {/* ══ PUBLIC LIVE TAB — complete screen ══ */}
         <View style={{display: (!hasPersonalTab || activeStatsTab === 'live') ? 'flex' : 'none'}}>
-            {/* Stats 2x2 grid */}
+            {/* Stats single-row grid */}
             <View style={styles.statsGrid}>
-              {statCells.map(cell => (
-                <View key={cell.label} style={styles.statCell}>
-                  <Text style={styles.statCellLabel}>{cell.label}</Text>
-                  <Text style={[styles.statCellValue, {color: cell.color}]}>{cell.value}</Text>
-                </View>
-              ))}
+              <View style={styles.statsGridInner}>
+                {statCells.map((cell, idx) => (
+                  <React.Fragment key={cell.label}>
+                    {idx > 0 && <View style={styles.statCellDivider} />}
+                    <View style={styles.statCell}>
+                      <Text style={styles.statCellLabel}>{cell.label}</Text>
+                      <Text style={[styles.statCellValue, {color: cell.color}]}>{cell.value}</Text>
+                    </View>
+                  </React.Fragment>
+                ))}
+              </View>
             </View>
 
             {/* Live community stats */}
@@ -1012,7 +1017,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               <View style={styles.metricsCard}>
                 <View style={[styles.metricRow, bot.strategy && bot.strategy.length > 18 ? {flexDirection: 'column', alignItems: 'flex-start', gap: 4} : {}]}>
                   <Text style={styles.metricLabel}>Strategy</Text>
-                  <Text style={[styles.metricValue, {color: '#8B5CF6', flexShrink: 1, flexWrap: 'wrap'}]}>{bot.strategy || 'N/A'}</Text>
+                  <Text style={[styles.metricValue, {color: '#3B82F6', flexShrink: 1, flexWrap: 'wrap'}]}>{bot.strategy || 'N/A'}</Text>
                 </View>
                 <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8}]}>
                   <Text style={styles.metricLabel}>Trading Pairs</Text>
@@ -1035,7 +1040,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                     </Text>
                   </View>
                 )}
-                {bot.config?.aiMode && <View style={styles.metricRow}><Text style={styles.metricLabel}>AI Mode</Text><Text style={[styles.metricValue, {color: '#8B5CF6'}]}>{bot.config.aiMode === 'rules_only' ? 'Rules Only' : bot.config.aiMode === 'full_ai' ? 'Full AI' : 'Hybrid'}</Text></View>}
+                {bot.config?.aiMode && <View style={styles.metricRow}><Text style={styles.metricLabel}>AI Mode</Text><Text style={[styles.metricValue, {color: '#10B981'}]}>{bot.config.aiMode === 'rules_only' ? 'Rules Only' : bot.config.aiMode === 'full_ai' ? 'Full AI' : 'Hybrid'}</Text></View>}
                 {bot.config?.maxOpenPositions !== undefined && <View style={styles.metricRow}><Text style={styles.metricLabel}>Max Open Positions</Text><Text style={styles.metricValue}>{bot.config.maxOpenPositions}</Text></View>}
                 {bot.config?.tradingSchedule && (
                   <View style={[styles.metricRow, {borderBottomWidth: 0}]}><Text style={styles.metricLabel}>Trading Schedule</Text>
@@ -1561,19 +1566,24 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         <View style={{display: activeStatsTab === 'my' ? 'flex' : 'none'}}>
             {myTabStats ? (
               <View>
-                {/* 2x2 stat grid */}
+                {/* Single-row stat grid */}
                 <View style={styles.statsGrid}>
-                  {[
-                    {label: 'RETURN', value: `${(myTabStats.totalReturn ?? 0) >= 0 ? '+' : ''}${(myTabStats.totalReturn ?? 0).toFixed(1)}%`, color: (myTabStats.totalReturn ?? 0) >= 0 ? '#10B981' : '#EF4444'},
-                    {label: 'WIN RATE', value: `${(myTabStats.winRate ?? 0).toFixed(0)}%`, color: isLiveActive ? '#10B981' : '#3B82F6'},
-                    {label: 'MAX DRAWDOWN', value: `-${(myTabStats.maxDrawdown ?? 0).toFixed(1)}%`, color: '#EF4444'},
-                    {label: 'TRADES', value: `${myTabStats.totalTrades ?? 0}`, color: '#FFFFFF'},
-                  ].map(cell => (
-                    <View key={cell.label} style={styles.statCell}>
-                      <Text style={styles.statCellLabel}>{cell.label}</Text>
-                      <Text style={[styles.statCellValue, {color: cell.color}]}>{cell.value}</Text>
-                    </View>
-                  ))}
+                  <View style={styles.statsGridInner}>
+                    {[
+                      {label: 'RETURN', value: `${(myTabStats.totalReturn ?? 0) >= 0 ? '+' : ''}${(myTabStats.totalReturn ?? 0).toFixed(1)}%`, color: (myTabStats.totalReturn ?? 0) >= 0 ? '#10B981' : '#EF4444'},
+                      {label: 'WIN RATE', value: `${(myTabStats.winRate ?? 0).toFixed(0)}%`, color: isLiveActive ? '#10B981' : '#3B82F6'},
+                      {label: 'DRAWDOWN', value: `-${(myTabStats.maxDrawdown ?? 0).toFixed(1)}%`, color: '#EF4444'},
+                      {label: 'TRADES', value: `${myTabStats.totalTrades ?? 0}`, color: '#FFFFFF'},
+                    ].map((cell, idx) => (
+                      <React.Fragment key={cell.label}>
+                        {idx > 0 && <View style={styles.statCellDivider} />}
+                        <View style={styles.statCell}>
+                          <Text style={styles.statCellLabel}>{cell.label}</Text>
+                          <Text style={[styles.statCellValue, {color: cell.color}]}>{cell.value}</Text>
+                        </View>
+                      </React.Fragment>
+                    ))}
+                  </View>
                 </View>
 
                 {/* Status row — shadow only */}
@@ -2108,44 +2118,50 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center', justifyContent: 'center',
   },
-  headerTitle: {flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 16, color: '#FFFFFF', textAlign: 'center', marginHorizontal: 8},
+  headerTitle: {flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 16, color: '#FFFFFF', textAlign: 'center', marginHorizontal: 8, display: 'none'},
   scroll: {paddingHorizontal: 20},
   headerLiveFeedBtn: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(16,185,129,0.1)', gap: 5},
   headerLiveDot: {width: 6, height: 6, borderRadius: 3},
   headerLiveFeedText: {fontFamily: 'Inter-SemiBold', fontSize: 12},
-  activeStatusBar: {flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginBottom: 4, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, borderWidth: 1, gap: 8},
+  activeStatusBar: {flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginBottom: 4, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10, borderWidth: 1, gap: 8},
   activeStatusDot: {width: 8, height: 8, borderRadius: 4},
   activeStatusText: {fontFamily: 'Inter-Medium', fontSize: 12, flex: 1},
   tabBarWrap: {flexDirection: 'row', backgroundColor: '#161B22', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 20, paddingVertical: 8, gap: 8},
-  tabBarBtn: {flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10},
+  tabBarBtn: {flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 7, borderRadius: 10},
   tabBarBtnLiveActive: {backgroundColor: 'rgba(16,185,129,0.12)', borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)'},
   tabBarBtnShadowActive: {backgroundColor: 'rgba(59,130,246,0.12)', borderWidth: 1, borderColor: 'rgba(59,130,246,0.3)'},
   tabBarDot: {width: 7, height: 7, borderRadius: 3.5},
-  tabBarBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5},
-  heroCard: {backgroundColor: '#161B22', borderRadius: 16, padding: 16, marginBottom: 16, marginTop:10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'},
-  heroTop: {flexDirection: 'row', alignItems: 'center', gap: 14},
+  tabBarBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5},
+  heroCard: {marginBottom: 12, marginTop: 8},
+  heroTop: {},
   heroInfo: {flex: 1},
   heroNameRow: {flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2},
   heroSection: {alignItems: 'center', paddingVertical: 16},
   botAvatar: {width: 72, height: 72, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 12},
-  botAvatarWrap: {marginBottom: 12},
+  botAvatarWrap: {marginBottom: 0},
   botAvatarText: {fontFamily: 'Inter-Bold', fontSize: 28, color: '#FFFFFF'},
   badgesRow: {flexDirection: 'row', gap: 6, marginTop: 10},
-  botName: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF', letterSpacing: -0.3, flexShrink: 1},
-  botCreator: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)', marginBottom: 4},
+  botName: {fontFamily: 'Inter-Bold', fontSize: 17, color: '#FFFFFF', letterSpacing: -0.4, flexShrink: 1},
+  botCreator: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 3},
   ratingRow: {flexDirection: 'row', alignItems: 'center'},
-  ratingText: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)'},
-  activeUsers: {fontFamily: 'Inter-Medium', fontSize: 11, color: 'rgba(255,255,255,0.35)'},
-  statsGrid: {flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16},
-  statCell: {
-    flex: 1, minWidth: '45%',
-    backgroundColor: '#161B22', borderRadius: 14, padding: 14,
+  ratingText: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)'},
+  activeUsers: {fontFamily: 'Inter-Medium', fontSize: 10, color: 'rgba(255,255,255,0.35)'},
+  statsGrid: {flexDirection: 'row', gap: 0, marginBottom: 14},
+  statsGridInner: {
+    flex: 1, flexDirection: 'row',
+    backgroundColor: '#161B22', borderRadius: 14,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+    overflow: 'hidden',
   },
-  statCellLabel: {fontFamily: 'Inter-Medium', fontSize: 9, letterSpacing: 0.8, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 6},
-  statCellValue: {fontFamily: 'Inter-Bold', fontSize: 22, letterSpacing: -0.5},
+  statCellDivider: {width: 1, backgroundColor: 'rgba(255,255,255,0.06)'},
+  statCell: {
+    flex: 1,
+    alignItems: 'center', paddingVertical: 10, paddingHorizontal: 4,
+  },
+  statCellLabel: {fontFamily: 'Inter-Medium', fontSize: 9, letterSpacing: 0.8, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 5, textAlign: 'center'},
+  statCellValue: {fontFamily: 'Inter-Bold', fontSize: 16, letterSpacing: -0.5, textAlign: 'center'},
   chartSection: {marginBottom: 16},
-  chartSectionLabel: {fontFamily: 'Inter-SemiBold', fontSize: 11, letterSpacing: 1.2, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' as const, marginBottom: 10},
+  chartSectionLabel: {fontFamily: 'Inter-SemiBold', fontSize: 9, letterSpacing: 1.2, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' as const, marginBottom: 10},
   pairChip: {paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'},
   pairChipActive: {backgroundColor: 'rgba(16,185,129,0.12)', borderColor: '#10B981'},
   pairChipText: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
@@ -2171,10 +2187,10 @@ const styles = StyleSheet.create({
   overviewItem: {flex: 1, alignItems: 'center'},
   overviewDivider: {width: 1, height: 32, backgroundColor: 'rgba(255,255,255,0.08)'},
   overviewLabel: {
-    fontFamily: 'Inter-Medium', fontSize: 9, letterSpacing: 0.8,
+    fontFamily: 'Inter-Medium', fontSize: 8, letterSpacing: 0.8,
     color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 4,
   },
-  overviewValue: {fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF'},
+  overviewValue: {fontFamily: 'Inter-Bold', fontSize: 13, color: '#FFFFFF'},
 
   // Key Metrics
   metricsCard: {
@@ -2183,10 +2199,10 @@ const styles = StyleSheet.create({
   },
   metricRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)',
+    paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.04)',
   },
-  metricLabel: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.5)'},
-  metricValue: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
+  metricLabel: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.5)'},
+  metricValue: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#FFFFFF'},
 
   // Creator
   creatorCard: {
@@ -2195,16 +2211,16 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
   },
   creatorAvatar: {
-    width: 44, height: 44, borderRadius: 14,
-    alignItems: 'center', justifyContent: 'center', marginRight: 12,
+    width: 36, height: 36, borderRadius: 11,
+    alignItems: 'center', justifyContent: 'center', marginRight: 10,
   },
-  creatorAvatarText: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF'},
+  creatorAvatarText: {fontFamily: 'Inter-Bold', fontSize: 15, color: '#FFFFFF'},
   creatorInfo: {flex: 1},
-  creatorName: {fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF'},
-  creatorSub: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 2},
+  creatorName: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
+  creatorSub: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2},
 
   section: {marginBottom: 20},
-  sectionLabel: {fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 10},
+  sectionLabel: {fontFamily: 'Inter-Medium', fontSize: 9, letterSpacing: 1, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 8},
   tagsRow: {flexDirection: 'row', flexWrap: 'wrap', gap: 6},
   tag: {marginBottom: 4},
   strategyHeader: {
@@ -2229,7 +2245,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.55)',
     flexShrink: 1,
   },
-  strategyText: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.65)', lineHeight: 22},
+  strategyText: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.65)', lineHeight: 19},
   readMoreBtn: {
     marginTop: 10, alignSelf: 'flex-start',
     backgroundColor: 'rgba(16,185,129,0.08)',
@@ -2297,7 +2313,7 @@ const styles = StyleSheet.create({
   // ─── Footer ──────────────────────────────────────────────────────────────
   footer: {
     flexDirection: 'column', gap: 8,
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 32,
+    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 26,
     backgroundColor: '#0F1117', borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)',
   },
   footerRow: {
