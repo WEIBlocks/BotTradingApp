@@ -4,6 +4,7 @@ export const createSessionBodySchema = z.object({
     // balance allocation scale linearly with the number of gladiators.
     botIds: z.array(z.string()).min(2),
     durationSeconds: z.number().int().min(60).max(86400).optional().default(180),
+    unlimited: z.boolean().optional().default(false),
     mode: z.enum(['shadow', 'live']).optional().default('shadow'),
     // Shadow mode: total virtual balance shared across all bots
     virtualBalance: z.number().min(100).max(10_000_000).optional().default(10000),
@@ -16,4 +17,10 @@ export const sessionIdParamsSchema = z.object({
 });
 export const dataResponseSchema = z.object({
     data: z.any(),
+});
+export const getBotsQuerySchema = z.object({
+    search: z.string().optional(),
+    page: z.coerce.number().int().min(1).optional().default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+    assetClass: z.enum(['crypto', 'stocks', 'all']).optional().default('all'),
 });

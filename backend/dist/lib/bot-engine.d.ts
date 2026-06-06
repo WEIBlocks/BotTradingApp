@@ -44,6 +44,35 @@ export interface EngineDecision {
     tradeAmount?: number;
     tradeValue?: number;
 }
+export interface CompoundingSettings {
+    enabled: boolean;
+    reinvestmentRate: number;
+    reinvestmentMode: 'free_balance' | 'total_balance' | 'fixed';
+    compoundFrequency: 'each_trade' | 'daily' | 'weekly' | 'manual';
+    maxPositionSizeUSD: number | null;
+    minProfitThresholdUSD: number;
+    maxCompoundMultiplier: number;
+    withdrawalReservePct: number;
+    riskReductionEnabled: boolean;
+    riskReductionRate: number;
+    totalCompounded: number;
+    lastCompoundAt: string | null;
+}
+export declare const DEFAULT_COMPOUNDING: CompoundingSettings;
+/**
+ * After a position closes profitably, compound the profit back into allocatedAmount.
+ * Returns the new allocatedAmount if compounding occurred, otherwise null.
+ */
+export declare function applyCompounding(opts: {
+    subscriptionId: string;
+    pnl: number;
+    currentAllocatedAmount: number;
+    initialAllocatedAmount: number;
+    settings: CompoundingSettings;
+}): Promise<{
+    newAllocatedAmount: number;
+    amountAdded: number;
+} | null>;
 export declare function generateRules(botPrompt: string, strategy: string | null | undefined, riskLevel: string, stopLoss?: number, takeProfit?: number, maxPosition?: number): Promise<TradingRules>;
 export declare function processSymbol(opts: {
     sessionKey: string;

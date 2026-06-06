@@ -48,3 +48,7 @@ desktop.ini
 # Logs
 *.log
 logs/
+
+# Root-level Python utility/deploy scripts (contain server credentials & API keys)
+/*.py
+/__pycache__/

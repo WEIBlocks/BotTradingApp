@@ -150,6 +150,30 @@ export interface SystemSettings {
   [key: string]: unknown;
 }
 
+// ── AI Config ──────────────────────────────────────────────────────
+
+export interface AiModelOption { id: string; label: string }
+
+export interface AiConfig {
+  provider: 'anthropic' | 'gemini' | 'openai' | 'auto';
+  model: string;
+  activeProvider: string | null;
+  activeModel: string | null;
+  availableProviders: Array<{ provider: string; model: string; isActive: boolean }>;
+  models: Record<string, AiModelOption[]>;
+  hasAnthropicKey: boolean;
+  hasOpenaiKey: boolean;
+  hasGeminiKey: boolean;
+}
+
+export interface UpdateAiConfigPayload {
+  provider: 'anthropic' | 'gemini' | 'openai' | 'auto';
+  model: string;
+  anthropicApiKey?: string;
+  openaiApiKey?: string;
+  geminiApiKey?: string;
+}
+
 // ── Notifications ──────────────────────────────────────────────────
 
 export interface SendNotificationPayload {
@@ -341,6 +365,17 @@ export const adminService = {
 
   async sendDirectNotification(userId: string, title: string, body: string) {
     const { data } = await api.post(`/admin/users/${userId}/notify`, { title, body });
+    return data.data ?? data;
+  },
+
+  // AI Config
+  async getAiConfig(): Promise<AiConfig> {
+    const { data } = await api.get('/admin/ai-config');
+    return data.data ?? data;
+  },
+
+  async updateAiConfig(payload: UpdateAiConfigPayload): Promise<AiConfig> {
+    const { data } = await api.patch('/admin/ai-config', payload);
     return data.data ?? data;
   },
 };

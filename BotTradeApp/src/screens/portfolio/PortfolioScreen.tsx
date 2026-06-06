@@ -541,15 +541,17 @@ export default function PortfolioScreen() {
                     style={styles.botAvatar}
                   />
                   <View style={styles.botInfo}>
-                    <View style={styles.botNameRow}>
-                      <Text style={styles.botName} numberOfLines={1}>{bot.name}</Text>
+                    {/* Name — full width, wraps */}
+                    <Text style={styles.botName}>{bot.name}</Text>
+                    {/* Status + pair + return in one compact row */}
+                    <View style={styles.botMetaRow}>
                       <View style={[styles.statusBadge, {backgroundColor: `${display.color}20`}]}>
                         {display.icon === 'completed' ? (
-                          <Svg width={10} height={10} viewBox="0 0 16 16" fill="none" style={{marginRight: 4}}>
+                          <Svg width={8} height={8} viewBox="0 0 16 16" fill="none" style={{marginRight: 3}}>
                             <Path d="M3 8.5L6.5 12L13 4" stroke={display.color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
                           </Svg>
                         ) : display.icon === 'paused' ? (
-                          <Svg width={10} height={10} viewBox="0 0 16 16" fill="none" style={{marginRight: 4}}>
+                          <Svg width={8} height={8} viewBox="0 0 16 16" fill="none" style={{marginRight: 3}}>
                             <Rect x={3} y={3} width={3.5} height={10} rx={1} fill={display.color} />
                             <Rect x={9.5} y={3} width={3.5} height={10} rx={1} fill={display.color} />
                           </Svg>
@@ -558,14 +560,11 @@ export default function PortfolioScreen() {
                         )}
                         <Text style={[styles.statusBadgeText, {color: display.color}]}>{display.label}</Text>
                       </View>
-                    </View>
-                    <Text style={styles.botPair} numberOfLines={1}>
-                      {bot.pair}
-                      {'  '}
-                      <Text style={{color: returnColor, fontFamily: 'Inter-SemiBold'}}>
-                        {returnSign}{displayReturn.toFixed(1)}%{isShadowMode ? ' SHADOW' : ' ROI'}
+                      {!!bot.pair && <Text style={styles.botPair}>{bot.pair}</Text>}
+                      <Text style={[styles.botReturn, {color: returnColor}]}>
+                        {returnSign}{displayReturn.toFixed(1)}%
                       </Text>
-                    </Text>
+                    </View>
                   </View>
                   {display.label === 'LIVE' && (
                     <TouchableOpacity
@@ -650,8 +649,8 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   appLabel: {
-    fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1.2,
-    color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase',
+    fontFamily: 'Inter-Medium', fontSize: 11, letterSpacing: 1.2,
+    color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase',
   },
   screenTitle: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF', letterSpacing: -0.3},
   iconBtn: {
@@ -659,7 +658,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center', justifyContent: 'center',
   },
-  scrollContent: {paddingHorizontal: 20},
+  scrollContent: {paddingHorizontal: 16},
 
   // Balance
   balanceSection: {marginBottom: 20},
@@ -700,7 +699,7 @@ const styles = StyleSheet.create({
   // Sections
   section: {marginBottom: 20},
   sectionHeaderRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10},
-  sectionTitle: {fontFamily: 'Inter-Bold', fontSize: 13, color: 'rgba(255,255,255,0.5)', letterSpacing: 1, marginBottom: 10},
+  sectionTitle: {fontFamily: 'Inter-Bold', fontSize: 13, color: 'rgba(255,255,255,0.6)', letterSpacing: 1, marginBottom: 10},
   sectionAction: {fontFamily: 'Inter-Medium', fontSize: 13, color: '#10B981'},
 
   // Assets header
@@ -775,10 +774,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12, paddingHorizontal: 14,
   },
   botAvatar: {width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12},
-  botInfo: {flex: 1},
-  botNameRow: {flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3},
-  botName: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', flexShrink: 1},
-  liveDot: {width: 7, height: 7, borderRadius: 4}, // kept for compat
+  botInfo: {flex: 1, marginRight: 8},
+  botName: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF', lineHeight: 18, marginBottom: 4},
+  botMetaRow: {flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap'},
+  botReturn: {fontFamily: 'Inter-SemiBold', fontSize: 11},
+  liveDot: {width: 7, height: 7, borderRadius: 4},
   botAvatarText: {fontFamily: 'Inter-Bold', fontSize: 16, color: '#FFFFFF'},
   statusBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -787,7 +787,7 @@ const styles = StyleSheet.create({
   },
   statusBadgeDot: {width: 5, height: 5, borderRadius: 3},
   statusBadgeText: {fontFamily: 'Inter-Bold', fontSize: 9, letterSpacing: 0.5},
-  botPair: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
+  botPair: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)'},
 
   // Connect Exchange Banner
   connectBanner: {

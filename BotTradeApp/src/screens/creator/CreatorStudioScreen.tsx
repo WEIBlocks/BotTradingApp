@@ -675,7 +675,7 @@ export default function CreatorStudioScreen() {
                   />
                   <View style={bm.headerInfo}>
                     <View style={bm.nameRow}>
-                      <Text style={bm.name} numberOfLines={1}>{bot.name}</Text>
+                      <Text style={bm.name}>{bot.name}</Text>
                       <View style={[bm.statusPill, bot.isPublished ? bm.statusLive : bm.statusDraft]}>
                         <Text style={[bm.statusText, bot.isPublished ? bm.statusLiveText : bm.statusDraftText]}>
                           {bot.isPublished ? 'LIVE' : 'DRAFT'}

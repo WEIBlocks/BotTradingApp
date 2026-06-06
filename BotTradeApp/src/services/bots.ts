@@ -254,4 +254,105 @@ export const botsService = {
   getShadowSessionLiveStats(sessionId: string) {
     return api.get<{data: any}>(`/bots/shadow-sessions/${sessionId}/live-stats`);
   },
+
+  // ─── Compounding ──────────────────────────────────────────────────────────
+
+  /** Get compounding settings for a subscription */
+  getCompounding(subscriptionId: string) {
+    return api.get<{data: {compounding: CompoundingSettings; allocatedAmount: number}}>(`/bots/subscriptions/${subscriptionId}/compounding`);
+  },
+
+  /** Update compounding settings for a subscription */
+  updateCompounding(subscriptionId: string, settings: Partial<CompoundingSettings>) {
+    return api.patch<{data: {compounding: CompoundingSettings}}>(`/bots/subscriptions/${subscriptionId}/compounding`, settings as Record<string, unknown>);
+  },
+
+  // ─── Trainer ─────────────────────────────────────────────────────────────
+
+  /** Get trainer status, performance snapshot, and config for a bot */
+  getTrainerStatus(botId: string) {
+    return api.get<{data: TrainerStatusResponse}>(`/bots/${botId}/trainer`);
+  },
+
+  /** Update trainer configuration (creator only) */
+  updateTrainerConfig(botId: string, config: Partial<TrainerConfig>) {
+    return api.patch<{data: {config: TrainerConfig}}>(`/bots/${botId}/trainer/config`, config as Record<string, unknown>);
+  },
+
+  /** Trigger a manual retrain (creator only) — runs trainer agent, stores pending improvements */
+  triggerRetrain(botId: string) {
+    return api.post<{data: {success: boolean; message: string; trainerResult?: any}}>(`/bots/${botId}/trainer/retrain`, {});
+  },
+
+  /** Promote pending trainer improvements to live bot */
+  promoteTrainerChanges(botId: string) {
+    return api.post<{data: {success: boolean; message: string}}>(`/bots/${botId}/trainer/promote`, {});
+  },
 };
+
+// ─── Trainer / Compounding Types for Mobile ───────────────────────────────────
+
+export interface CompoundingSettings {
+  enabled: boolean;
+  reinvestmentRate: number;
+  reinvestmentMode: 'free_balance' | 'total_balance' | 'fixed';
+  compoundFrequency: 'each_trade' | 'daily' | 'weekly' | 'manual';
+  maxPositionSizeUSD: number | null;
+  minProfitThresholdUSD: number;
+  maxCompoundMultiplier: number;
+  withdrawalReservePct: number;
+  riskReductionEnabled: boolean;
+  riskReductionRate: number;
+  totalCompounded: number;
+  lastCompoundAt: string | null;
+}
+
+export interface TrainerInsight {
+  ts: string;
+  type: 'info' | 'warning' | 'improvement' | 'retrain';
+  message: string;
+  action?: string;
+}
+
+export interface TrainerConfig {
+  trainingMode: 'auto' | 'suggestions' | 'off';
+  autoRetrain: boolean;
+  retrainMode: 'time' | 'performance' | 'combined';
+  retrainIntervalDays: number;
+  profitFactorFloor: number;
+  winRateDropThreshold: number;
+  consecutiveLossLimit: number;
+  shadowValidationHours: number;
+  lastRetrainAt: string | null;
+  trainerScore: number | null;
+  trainerStatus: 'idle' | 'monitoring' | 'retraining' | 'shadow_validating';
+  pendingPrompt: string | null;
+  pendingConfig: Record<string, any> | null;
+  lastInsightAt: string | null;
+  insights: TrainerInsight[];
+}
+
+export interface BotPerformanceSnapshot {
+  botId: string;
+  totalTrades: number;
+  wins: number;
+  losses: number;
+  winRate: number;
+  profitFactor: number;
+  avgWinPct: number;
+  avgLossPct: number;
+  maxDrawdown: number;
+  consecutiveLosses: number;
+  recentWinRate: number;
+  sharpeEstimate: number;
+  trainerScore: number;
+  needsRetrain: boolean;
+  retrainReason: string | null;
+}
+
+export interface TrainerStatusResponse {
+  config: TrainerConfig;
+  performance: BotPerformanceSnapshot;
+  redisStatus: string | null;
+  isCreator: boolean;
+}

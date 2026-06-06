@@ -208,17 +208,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   trustBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     backgroundColor: 'rgba(255,255,255,0.05)',
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: 'rgba(255,255,255,0.1)',
   },
   trustLabel: {
     fontFamily: 'Inter-Medium',
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.4)',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.55)',
   },
 });
         

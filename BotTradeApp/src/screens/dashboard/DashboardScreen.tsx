@@ -775,15 +775,17 @@ export default function DashboardScreen() {
                     style={styles.botAvatar}
                   />
                   <View style={styles.botInfo}>
-                    <View style={styles.botNameRow}>
-                      <Text style={styles.botName} numberOfLines={1}>{bot.name}</Text>
+                    {/* Name — full width, wraps freely */}
+                    <Text style={styles.botName}>{bot.name}</Text>
+                    {/* Status badge + pair + ROI in compact row below */}
+                    <View style={styles.botMetaRow}>
                       <View style={[styles.statusBadge, {backgroundColor: `${display.color}20`}]}>
                         {display.icon === 'completed' ? (
-                          <Svg width={10} height={10} viewBox="0 0 16 16" fill="none" style={{marginRight: 4}}>
+                          <Svg width={8} height={8} viewBox="0 0 16 16" fill="none" style={{marginRight: 3}}>
                             <Path d="M3 8.5L6.5 12L13 4" stroke={display.color} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
                           </Svg>
                         ) : display.icon === 'paused' ? (
-                          <Svg width={10} height={10} viewBox="0 0 16 16" fill="none" style={{marginRight: 4}}>
+                          <Svg width={8} height={8} viewBox="0 0 16 16" fill="none" style={{marginRight: 3}}>
                             <Rect x={3} y={3} width={3.5} height={10} rx={1} fill={display.color} />
                             <Rect x={9.5} y={3} width={3.5} height={10} rx={1} fill={display.color} />
                           </Svg>
@@ -792,23 +794,20 @@ export default function DashboardScreen() {
                         )}
                         <Text style={[styles.statusBadgeText, {color: display.color}]}>{display.label}</Text>
                       </View>
-                    </View>
-                    <Text style={styles.botPair} numberOfLines={1}>
-                      {bot.pair}
-                      {'  '}
-                      <Text style={{color: returnColor, fontFamily: 'Inter-SemiBold'}}>
-                        {returnSign}{displayReturn.toFixed(1)}%{isShadowMode ? ' SHADOW' : ' ROI'}
+                      {!!bot.pair && <Text style={styles.botPair}>{bot.pair}</Text>}
+                      <Text style={[styles.botReturn, {color: returnColor}]}>
+                        {returnSign}{displayReturn.toFixed(1)}%
                       </Text>
-                    </Text>
-                    {/* Min order value indicator */}
+                    </View>
+                    {/* Min order */}
                     {(isLiveRunning || isPaused) && bot.minOrderValue > 0 && (
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1}}>
-                        Min order: <Text style={{color: '#10B981', fontFamily: 'Inter-Medium'}}>${bot.minOrderValue.toLocaleString()}</Text>
+                      <Text style={styles.botMinOrder}>
+                        Min <Text style={{color: '#10B981'}}>${bot.minOrderValue.toLocaleString()}</Text>
                       </Text>
                     )}
                     {(isShadowRunning || isShadowPaused) && bot.shadowMinOrderValue > 0 && (
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 1}}>
-                        Min order: <Text style={{color: '#3B82F6', fontFamily: 'Inter-Medium'}}>${bot.shadowMinOrderValue.toLocaleString()}</Text>
+                      <Text style={styles.botMinOrder}>
+                        Min <Text style={{color: '#3B82F6'}}>${bot.shadowMinOrderValue.toLocaleString()}</Text>
                       </Text>
                     )}
                   </View>
@@ -974,18 +973,18 @@ export default function DashboardScreen() {
                       fallback="robot"
                     />
                     <View style={favStyles.info}>
-                      <Text style={favStyles.name} numberOfLines={1}>{bot.name}</Text>
-                      <Text style={favStyles.strategy} numberOfLines={1}>
-                        {bot.strategy}{bot.risk ? ` · ${bot.risk}` : ''}
-                      </Text>
+                      <Text style={favStyles.name}>{bot.name}</Text>
+                      <View style={favStyles.metaRow}>
+                        <Text style={[favStyles.returnVal, {color: returnColor}]}>
+                          {returnSign}{(bot.returnPercent || 0).toFixed(1)}%
+                        </Text>
+                        <Text style={favStyles.metaSep}>·</Text>
+                        <Text style={favStyles.strategy} numberOfLines={1}>
+                          {bot.strategy}{bot.risk ? ` · ${bot.risk}` : ''}
+                        </Text>
+                      </View>
                     </View>
-                    <View style={favStyles.rightCol}>
-                      <Text style={[favStyles.return, {color: returnColor}]}>
-                        {returnSign}{(bot.returnPercent || 0).toFixed(1)}%
-                      </Text>
-                      <Text style={favStyles.returnLbl}>30D</Text>
-                    </View>
-                    <FavoriteHeart botId={bot.id} bot={bot} size={20} style={favStyles.heart} />
+                    <FavoriteHeart botId={bot.id} bot={bot} size={18} style={favStyles.heart} />
                   </TouchableOpacity>
                 );
               })}
@@ -1151,8 +1150,8 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter-Bold', fontSize: 15, color: '#FFFFFF',
   },
   appLabel: {
-    fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1.2,
-    color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase',
+    fontFamily: 'Inter-Medium', fontSize: 11, letterSpacing: 1.2,
+    color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase',
   },
   screenTitle: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF', letterSpacing: -0.3},
   headerActions: {flexDirection: 'row', gap: 8},
@@ -1161,13 +1160,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center', justifyContent: 'center',
   },
-  scrollContent: {paddingHorizontal: 20},
+  scrollContent: {paddingHorizontal: 16},
 
   // Balance
-  balanceSection: {marginBottom: 16},
+  balanceSection: {marginBottom: 18},
   balanceLabel: {fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.45)', marginBottom: 6},
   balanceRow: {flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 4},
-  balanceValue: {fontFamily: 'Inter-Bold', fontSize: 36, color: '#FFFFFF', letterSpacing: -1.2},
+  balanceValue: {fontFamily: 'Inter-Bold', fontSize: 38, color: '#FFFFFF', letterSpacing: -1.5},
   pctBadge: {backgroundColor: 'rgba(16,185,129,0.18)', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 4},
   pctBadgeText: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#10B981'},
   todayProfit: {fontFamily: 'Inter-Medium', fontSize: 13},
@@ -1179,8 +1178,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
   },
   metricLabel: {
-    fontFamily: 'Inter-Medium', fontSize: 9, letterSpacing: 0.8,
-    color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 6,
+    fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 0.8,
+    color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: 6,
   },
   metricValue: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF'},
 
@@ -1197,7 +1196,7 @@ const styles = StyleSheet.create({
   },
   bpExHeader: {flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10},
   bpExBadge: {paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5},
-  bpExBadgeText: {fontFamily: 'Inter-Bold', fontSize: 9, letterSpacing: 0.5},
+  bpExBadgeText: {fontFamily: 'Inter-Bold', fontSize: 10, letterSpacing: 0.5},
   bpExName: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#FFFFFF', flex: 1},
   bpExSandbox: {fontFamily: 'Inter-Regular', fontSize: 9, color: '#F97316'},
   bpExStats: {flexDirection: 'row', gap: 6},
@@ -1207,7 +1206,7 @@ const styles = StyleSheet.create({
     paddingVertical: 7, paddingHorizontal: 8, alignItems: 'center',
   },
   bpExStatVal: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: '#FFFFFF'},
-  bpExStatLbl: {fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', marginTop: 2},
+  bpExStatLbl: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 2},
 
   // Chart card
   chartCard: {
@@ -1224,9 +1223,9 @@ const styles = StyleSheet.create({
   tfTextActive: {color: '#FFFFFF'},
 
   // Sections
-  section: {marginBottom: 16},
-  sectionHeaderRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10},
-  sectionTitle: {fontFamily: 'Inter-Bold', fontSize: 15, color: '#FFFFFF'},
+  section: {marginBottom: 20},
+  sectionHeaderRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12},
+  sectionTitle: {fontFamily: 'Inter-Bold', fontSize: 16, color: '#FFFFFF', letterSpacing: 0.2},
   sectionAction: {fontFamily: 'Inter-Medium', fontSize: 13, color: '#10B981'},
   sectionCard: {
     backgroundColor: '#161B22', borderRadius: 16,
@@ -1251,14 +1250,16 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(255,255,255,0.07)',
     borderRightColor: 'rgba(255,255,255,0.07)',
     borderLeftWidth: 3,
-    paddingVertical: 12, paddingHorizontal: 14,
+    paddingVertical: 14, paddingHorizontal: 14,
   },
   botAvatar: {width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginRight: 12},
   botInfo: {flex: 1, marginRight: 8},
-  botNameRow: {flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3},
-  botName: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', flexShrink: 1},
+  botName: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF', lineHeight: 18, marginBottom: 4},
+  botMetaRow: {flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap'},
   liveDot: {width: 7, height: 7, borderRadius: 4},
-  botPair: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
+  botPair: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)'},
+  botReturn: {fontFamily: 'Inter-SemiBold', fontSize: 11},
+  botMinOrder: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 2},
   botActions: {flexDirection: 'row', gap: 6},
   botActionBtn: {
     width: 30, height: 30, borderRadius: 8,
@@ -1292,10 +1293,10 @@ const styles = StyleSheet.create({
   buyText: {color: '#10B981'},
   sellText: {color: '#EF4444'},
   tradeSymbol: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
-  tradeMeta: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)'},
+  tradeMeta: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.45)'},
   tradeRight: {alignItems: 'flex-end'},
   tradeAmount: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
-  tradeQty: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2},
+  tradeQty: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.45)', marginTop: 2},
 
   // Live battle banner
   liveBattleBanner: {
@@ -1314,7 +1315,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EAB308',
   },
   liveBattleTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#EAB308'},
-  liveBattleSub: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2},
+  liveBattleSub: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2},
   liveBattleViewBtn: {
     backgroundColor: '#EAB308', borderRadius: 8,
     paddingHorizontal: 14, paddingVertical: 6,
@@ -1329,7 +1330,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(16,185,129,0.2)',
   },
   arenaBannerTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
-  arenaBannerSub: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2},
+  arenaBannerSub: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2},
 
   // Exchange banner
   exchangeBanner: {
@@ -1344,7 +1345,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   exchangeBannerTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'},
-  exchangeBannerSub: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2},
+  exchangeBannerSub: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.5)', marginTop: 2},
   exchangeConnectText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#10B981'},
 
   // FAB
@@ -1377,12 +1378,12 @@ const favStyles = StyleSheet.create({
     borderBottomColor: 'rgba(255,255,255,0.04)',
   },
   info: {flex: 1, minWidth: 0},
-  name: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
-  strategy: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2},
-  rightCol: {alignItems: 'flex-end', minWidth: 56},
-  return: {fontFamily: 'Inter-Bold', fontSize: 13},
-  returnLbl: {fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', marginTop: 1},
-  heart: {paddingLeft: 6, paddingVertical: 4},
+  name: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF', lineHeight: 18, marginBottom: 3},
+  metaRow: {flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap'},
+  returnVal: {fontFamily: 'Inter-Bold', fontSize: 12},
+  metaSep: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.2)'},
+  strategy: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', flexShrink: 1},
+  heart: {paddingLeft: 8, paddingVertical: 4, flexShrink: 0},
 });
 
 const pnlStyles = StyleSheet.create({

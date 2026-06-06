@@ -367,6 +367,23 @@ export declare const bots: import("drizzle-orm/pg-core").PgTableWithColumns<{
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        trainerConfig: import("drizzle-orm/pg-core").PgColumn<{
+            name: "trainer_config";
+            tableName: "bots";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         version: import("drizzle-orm/pg-core").PgColumn<{
             name: "version";
             tableName: "bots";
@@ -974,6 +991,23 @@ export declare const botSubscriptions: import("drizzle-orm/pg-core").PgTableWith
         }, {}, {}>;
         userConfig: import("drizzle-orm/pg-core").PgColumn<{
             name: "user_config";
+            tableName: "bot_subscriptions";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
+        compoundingSettings: import("drizzle-orm/pg-core").PgColumn<{
+            name: "compounding_settings";
             tableName: "bot_subscriptions";
             dataType: "json";
             columnType: "PgJsonb";

@@ -58,7 +58,21 @@ import {
   dataResponseSchema,
   updateUserConfigBodySchema,
   subscriptionIdParamsSchema,
+  trainerConfigBodySchema,
+  compoundingBodySchema,
 } from './bots.schema.js';
+import {
+  getTrainerStatus,
+  updateTrainerConfig,
+  triggerRetrain,
+  promotePendingChanges,
+  DEFAULT_TRAINER_CONFIG,
+  type TrainerConfig,
+} from '../trainer/trainer.service.js';
+import { db } from '../../config/database.js';
+import { botSubscriptions } from '../../db/schema/bots.js';
+import { eq, and } from 'drizzle-orm';
+import { DEFAULT_COMPOUNDING, type CompoundingSettings } from '../../lib/bot-engine.js';
 
 // ─── Uploads directory (shared with the training module) ───────────────────
 const __filename = fileURLToPath(import.meta.url);
@@ -629,6 +643,114 @@ export async function botsRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { subscriptionId } = request.params;
     const result = await updateUserConfig(request.user.userId, subscriptionId, request.body as Record<string, any>);
+    return { data: result };
+  });
+
+  // ─── Compounding Settings ────────────────────────────────────────────────────
+
+  // GET /subscriptions/:subscriptionId/compounding
+  zApp.get('/subscriptions/:subscriptionId/compounding', {
+    schema: {
+      params: subscriptionIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { subscriptionId } = request.params;
+    const [sub] = await db.select({
+      compoundingSettings: botSubscriptions.compoundingSettings,
+      allocatedAmount: botSubscriptions.allocatedAmount,
+    }).from(botSubscriptions)
+      .where(and(eq(botSubscriptions.id, subscriptionId), eq(botSubscriptions.userId, request.user.userId)))
+      .limit(1);
+    if (!sub) return reply.status(200).send({ data: null });
+    return {
+      data: {
+        compounding: (sub.compoundingSettings ?? DEFAULT_COMPOUNDING) as CompoundingSettings,
+        allocatedAmount: parseFloat(sub.allocatedAmount ?? '0'),
+      },
+    };
+  });
+
+  // PATCH /subscriptions/:subscriptionId/compounding
+  zApp.patch('/subscriptions/:subscriptionId/compounding', {
+    schema: {
+      params: subscriptionIdParamsSchema,
+      body: compoundingBodySchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { subscriptionId } = request.params;
+    const [sub] = await db.select({ compoundingSettings: botSubscriptions.compoundingSettings, userId: botSubscriptions.userId })
+      .from(botSubscriptions)
+      .where(and(eq(botSubscriptions.id, subscriptionId), eq(botSubscriptions.userId, request.user.userId)))
+      .limit(1);
+    if (!sub) return reply.status(200).send({ data: { error: 'Subscription not found' } });
+
+    const current = (sub.compoundingSettings ?? DEFAULT_COMPOUNDING) as CompoundingSettings;
+    const updated: CompoundingSettings = { ...current, ...(request.body as Partial<CompoundingSettings>) };
+
+    await db.update(botSubscriptions).set({
+      compoundingSettings: updated as any,
+      updatedAt: new Date(),
+    }).where(eq(botSubscriptions.id, subscriptionId));
+
+    return { data: { compounding: updated, message: 'Compounding settings saved.' } };
+  });
+
+  // ─── Trainer Routes ──────────────────────────────────────────────────────────
+
+  // GET /:id/trainer - Get trainer status and performance for a bot
+  zApp.get('/:id/trainer', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const status = await getTrainerStatus(id, request.user.userId);
+    return { data: status };
+  });
+
+  // PATCH /:id/trainer/config - Update trainer configuration (creator only)
+  zApp.patch('/:id/trainer/config', {
+    schema: {
+      params: botIdParamsSchema,
+      body: trainerConfigBodySchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const updated = await updateTrainerConfig(id, request.user.userId, request.body as Partial<TrainerConfig>);
+    return { data: { config: updated, message: 'Trainer config updated.' } };
+  });
+
+  // POST /:id/trainer/retrain - Trigger manual retrain (creator only)
+  zApp.post('/:id/trainer/retrain', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await triggerRetrain(id, request.user.userId);
+    return { data: result };
+  });
+
+  // POST /:id/trainer/promote - Promote pending trainer improvements to live
+  zApp.post('/:id/trainer/promote', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await promotePendingChanges(id, request.user.userId);
     return { data: result };
   });
 }

@@ -100,8 +100,8 @@ function BotListItem({bot, onPress}: {bot: Bot; onPress: () => void}) {
           )}
         </View>
         <View style={itemStyles.info}>
-          <Text style={itemStyles.name} numberOfLines={1}>{bot.name}</Text>
-          <Text style={itemStyles.strategy} numberOfLines={1}>{bot.strategy}</Text>
+          <Text style={itemStyles.name}>{bot.name}</Text>
+          <Text style={itemStyles.strategy}>{bot.strategy}</Text>
           {!!bot.subtitle && (
             <Text style={itemStyles.subtitle} numberOfLines={1}>{bot.subtitle}</Text>
           )}

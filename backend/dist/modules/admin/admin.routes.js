@@ -1,7 +1,7 @@
 import { authenticate } from '../../middleware/authenticate.js';
 import { authorize } from '../../middleware/authorize.js';
 import * as adminService from './admin.service.js';
-import { paginationQuerySchema, usersQuerySchema, botsQuerySchema, userIdParamsSchema, botIdParamsSchema, updateUserBodySchema, rejectBotBodySchema, updateSettingsBodySchema, sendNotificationBodySchema, dataResponseSchema, tradesQuerySchema, chatsQuerySchema, reviewIdParamsSchema, grantSubscriptionBodySchema, } from './admin.schema.js';
+import { paginationQuerySchema, usersQuerySchema, botsQuerySchema, userIdParamsSchema, botIdParamsSchema, updateUserBodySchema, rejectBotBodySchema, updateSettingsBodySchema, sendNotificationBodySchema, dataResponseSchema, tradesQuerySchema, chatsQuerySchema, reviewIdParamsSchema, grantSubscriptionBodySchema, updateAiConfigBodySchema, } from './admin.schema.js';
 export async function adminRoutes(app) {
     const zApp = app.withTypeProvider();
     // All routes require admin auth
@@ -326,5 +326,39 @@ export async function adminRoutes(app) {
     }, async (_request, _reply) => {
         const health = await adminService.getSystemHealth();
         return { data: health };
+    });
+    // ---- AI Config ----
+    // GET /ai-config
+    zApp.get('/ai-config', {
+        schema: {
+            response: { 200: dataResponseSchema },
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (_request, _reply) => {
+        const config = await adminService.getAiConfig();
+        return { data: config };
+    });
+    // PATCH /ai-config
+    zApp.patch('/ai-config', {
+        schema: {
+            body: updateAiConfigBodySchema,
+            response: { 200: dataResponseSchema },
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (request, _reply) => {
+        const config = await adminService.updateAiConfig(request.body);
+        return { data: config };
+    });
+    // ---- Trainer Overview ----
+    // GET /trainer/statuses — all approved bots with trainer health scores
+    zApp.get('/trainer/statuses', {
+        schema: {
+            response: { 200: dataResponseSchema },
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (_request, _reply) => {
+        const { getAllTrainerStatuses } = await import('../trainer/trainer.service.js');
+        const statuses = await getAllTrainerStatuses();
+        return { data: statuses };
     });
 }

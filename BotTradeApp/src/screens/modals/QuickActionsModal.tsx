@@ -255,14 +255,14 @@ export default function QuickActionsModal({navigation}: Props) {
   const ACTIONS: Action[] = [
     {
       id: 'shadow', label: 'Shadow Mode', subtitle: 'Test bots risk-free',
-      tag: 'Free', Icon: IconShadow, color: '#A78BFA',
-      bg: 'rgba(167,139,250,0.07)', border: 'rgba(167,139,250,0.18)',
+      tag: 'Free', Icon: IconShadow, color: '#10B981',
+      bg: 'rgba(16,185,129,0.07)', border: 'rgba(16,185,129,0.18)',
       onPress: () => goTo('ShadowMode'),
     },
     {
       id: 'arena', label: 'Bot Arena', subtitle: 'Battle bots head-to-head',
-      tag: 'Live', Icon: IconArena, color: '#F59E0B',
-      bg: 'rgba(245,158,11,0.07)', border: 'rgba(245,158,11,0.18)',
+      tag: 'Live', Icon: IconArena, color: '#3B82F6',
+      bg: 'rgba(59,130,246,0.07)', border: 'rgba(59,130,246,0.18)',
       onPress: () => goTo('ArenaSetup'),
     },
     {
@@ -273,20 +273,20 @@ export default function QuickActionsModal({navigation}: Props) {
     },
     {
       id: 'trades', label: 'Trade History', subtitle: 'Review all past trades',
-      Icon: IconTrades, color: '#38BDF8',
-      bg: 'rgba(56,189,248,0.07)', border: 'rgba(56,189,248,0.18)',
+      Icon: IconTrades, color: '#3B82F6',
+      bg: 'rgba(59,130,246,0.07)', border: 'rgba(59,130,246,0.18)',
       onPress: () => goTo('TradeHistory'),
     },
     {
       id: 'bots', label: 'My Bots', subtitle: 'View & manage bots',
-      Icon: IconBots, color: '#F472B6',
-      bg: 'rgba(244,114,182,0.07)', border: 'rgba(244,114,182,0.18)',
+      Icon: IconBots, color: '#10B981',
+      bg: 'rgba(16,185,129,0.07)', border: 'rgba(16,185,129,0.18)',
       onPress: () => goTo('AllBots'),
     },
     {
       id: 'create', label: 'Create Bot', subtitle: 'Build your own strategy',
-      tag: 'New', Icon: IconCreateBot, color: '#22D3EE',
-      bg: 'rgba(34,211,238,0.07)', border: 'rgba(34,211,238,0.18)',
+      tag: 'New', Icon: IconCreateBot, color: '#3B82F6',
+      bg: 'rgba(59,130,246,0.07)', border: 'rgba(59,130,246,0.18)',
       onPress: () => goTo('BotBuilder'),
     },
     {
@@ -296,8 +296,8 @@ export default function QuickActionsModal({navigation}: Props) {
       Icon: pausing
         ? (({color}) => <ActivityIndicator size={22} color={color} />)
         : IconPause,
-      color: '#F97316',
-      bg: 'rgba(249,115,22,0.07)', border: 'rgba(249,115,22,0.18)',
+      color: 'rgba(255,255,255,0.6)',
+      bg: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.1)',
       onPress: handlePauseAll,
     },
   ];
@@ -448,7 +448,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.9, shadowRadius: 6,
   },
   title:    {fontFamily: 'Inter-Bold',    fontSize: 19, color: '#FFFFFF', letterSpacing: -0.2},
-  subtitle: {fontFamily: 'Inter-Regular', fontSize: 12.5, color: 'rgba(255,255,255,0.35)', marginTop: 1},
+  subtitle: {fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.5)', marginTop: 1},
 
   closeBtn: {
     width: 36, height: 36, borderRadius: 18,
@@ -494,7 +494,7 @@ const styles = StyleSheet.create({
   tagTxt: {fontFamily: 'Inter-SemiBold', fontSize: 10, letterSpacing: 0.3},
 
   cardLabel: {fontFamily: 'Inter-SemiBold', fontSize: 15, letterSpacing: -0.1, marginBottom: 4},
-  cardSub:   {fontFamily: 'Inter-Regular',  fontSize: 11.5, color: 'rgba(255,255,255,0.38)', lineHeight: 16},
+  cardSub:   {fontFamily: 'Inter-Regular',  fontSize: 11.5, color: 'rgba(255,255,255,0.5)', lineHeight: 16},
 
   cardArrow: {marginTop: 10, alignSelf: 'flex-start'},
 
@@ -531,5 +531,5 @@ const styles = StyleSheet.create({
 
   // Dismiss
   dismissWrap: {alignItems: 'center', paddingVertical: 4},
-  dismissTxt: {fontFamily: 'Inter-Medium', fontSize: 13.5, color: 'rgba(255,255,255,0.25)'},
+  dismissTxt: {fontFamily: 'Inter-Medium', fontSize: 13.5, color: 'rgba(255,255,255,0.4)'},
 });

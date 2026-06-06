@@ -20,7 +20,6 @@ import { db } from '../config/database.js';
 import { redisConnection } from '../config/queue.js';
 import { llmChat, type LLMMessage, type LLMOptions } from '../config/ai.js';
 import { env } from '../config/env.js';
-import OpenAI from 'openai';
 import { retrieveKnowledge } from './rag.js';
 import { computeIndicators, hasSignificantChange, type IndicatorSnapshot } from './indicators.js';
 import { getPrice } from '../jobs/price-sync.job.js';
@@ -33,34 +32,9 @@ import { decrypt } from './encryption.js';
 import { createAdapter } from '../modules/exchange/adapters/adapter.factory.js';
 import { eq, and, sql, desc, isNull } from 'drizzle-orm';
 
-// ─── OpenAI Direct Client (better JSON reliability) ────────────────────────
-
-let _engineOpenAI: OpenAI | null = null;
+// Routes all bot-engine AI calls through the unified llmChat abstraction
+// so provider/model is controlled by AI_PROVIDER + AI_MODEL env vars
 async function engineLLMChat(messages: LLMMessage[], opts: LLMOptions) {
-  if (env.OPENAI_API_KEY) {
-    if (!_engineOpenAI) _engineOpenAI = new OpenAI({ apiKey: env.OPENAI_API_KEY });
-    try {
-      const apiMessages: any[] = [];
-      if (opts.system) apiMessages.push({ role: 'system', content: opts.system });
-      for (const m of messages) {
-        if (m.role !== 'system') apiMessages.push({ role: m.role, content: m.content });
-      }
-      const response = await _engineOpenAI.chat.completions.create({
-        model: 'gpt-5.4-mini',
-        messages: apiMessages,
-        max_completion_tokens: opts.maxTokens ?? 1024,
-        temperature: opts.temperature ?? 0.2,
-      });
-      return {
-        text: response.choices[0]?.message?.content ?? '',
-        provider: 'openai' as const,
-        model: 'gpt-5.4-mini',
-        usage: { inputTokens: response.usage?.prompt_tokens, outputTokens: response.usage?.completion_tokens },
-      };
-    } catch (err) {
-      console.warn('[BotEngine] OpenAI failed, falling back:', (err as Error).message);
-    }
-  }
   return llmChat(messages, opts);
 }
 
@@ -276,6 +250,101 @@ async function closePosition(positionId: string, exitPrice: number, reasoning: s
   return { ...updated, pnlNum: pnl, pnlPercentNum: pnlPercent };
 }
 
+// ─── Compounding Engine ──────────────────────────────────────────────────────
+
+export interface CompoundingSettings {
+  enabled: boolean;
+  reinvestmentRate: number;           // 0-100 (% of profit to reinvest)
+  reinvestmentMode: 'free_balance' | 'total_balance' | 'fixed';
+  compoundFrequency: 'each_trade' | 'daily' | 'weekly' | 'manual';
+  maxPositionSizeUSD: number | null;
+  minProfitThresholdUSD: number;
+  maxCompoundMultiplier: number;
+  withdrawalReservePct: number;
+  riskReductionEnabled: boolean;
+  riskReductionRate: number;
+  totalCompounded: number;
+  lastCompoundAt: string | null;
+}
+
+export const DEFAULT_COMPOUNDING: CompoundingSettings = {
+  enabled: false,
+  reinvestmentRate: 50,
+  reinvestmentMode: 'free_balance',
+  compoundFrequency: 'each_trade',
+  maxPositionSizeUSD: null,
+  minProfitThresholdUSD: 5,
+  maxCompoundMultiplier: 3,
+  withdrawalReservePct: 20,
+  riskReductionEnabled: false,
+  riskReductionRate: 50,
+  totalCompounded: 0,
+  lastCompoundAt: null,
+};
+
+/**
+ * After a position closes profitably, compound the profit back into allocatedAmount.
+ * Returns the new allocatedAmount if compounding occurred, otherwise null.
+ */
+export async function applyCompounding(opts: {
+  subscriptionId: string;
+  pnl: number;
+  currentAllocatedAmount: number;
+  initialAllocatedAmount: number;
+  settings: CompoundingSettings;
+}): Promise<{ newAllocatedAmount: number; amountAdded: number } | null> {
+  const { settings, pnl, currentAllocatedAmount, initialAllocatedAmount } = opts;
+
+  if (!settings.enabled || pnl <= 0) return null;
+
+  // Check frequency — skip if not yet time
+  if (settings.compoundFrequency !== 'each_trade' && settings.lastCompoundAt) {
+    const last = new Date(settings.lastCompoundAt).getTime();
+    const now = Date.now();
+    const hoursSince = (now - last) / (1000 * 60 * 60);
+    if (settings.compoundFrequency === 'daily' && hoursSince < 24) return null;
+    if (settings.compoundFrequency === 'weekly' && hoursSince < 168) return null;
+  }
+
+  // Check minimum profit threshold
+  if (pnl < settings.minProfitThresholdUSD) return null;
+
+  // Withdrawal reserve: only reinvest (1 - withdrawalReservePct/100) of profit
+  const reinvestibleProfit = pnl * (1 - settings.withdrawalReservePct / 100);
+  const amountToAdd = reinvestibleProfit * (settings.reinvestmentRate / 100);
+
+  if (amountToAdd <= 0) return null;
+
+  // Enforce max multiplier cap: never grow beyond X times initial
+  const maxAllowed = initialAllocatedAmount * settings.maxCompoundMultiplier;
+  const cappedAmount = Math.min(amountToAdd, maxAllowed - currentAllocatedAmount);
+  if (cappedAmount <= 0) return null;
+
+  // Enforce max absolute position size if set
+  const newAllocated = settings.maxPositionSizeUSD
+    ? Math.min(currentAllocatedAmount + cappedAmount, settings.maxPositionSizeUSD)
+    : currentAllocatedAmount + cappedAmount;
+
+  const amountAdded = newAllocated - currentAllocatedAmount;
+  if (amountAdded <= 0) return null;
+
+  // Persist updated allocatedAmount + settings back to subscription
+  const updatedSettings: CompoundingSettings = {
+    ...settings,
+    totalCompounded: (settings.totalCompounded || 0) + amountAdded,
+    lastCompoundAt: new Date().toISOString(),
+  };
+
+  await db.update(botSubscriptions).set({
+    allocatedAmount: newAllocated.toFixed(2),
+    compoundingSettings: updatedSettings as any,
+    updatedAt: new Date(),
+  }).where(eq(botSubscriptions.id, opts.subscriptionId));
+
+  console.log(`[Compound] Sub ${opts.subscriptionId}: +$${amountAdded.toFixed(2)} (profit $${pnl.toFixed(2)}) → allocated $${newAllocated.toFixed(2)}`);
+  return { newAllocatedAmount: newAllocated, amountAdded };
+}
+
 // ─── Acquire/Release Redis Lock ─────────────────────────────────────────────
 
 async function acquireLock(key: string, ttlMs = 30000): Promise<boolean> {
@@ -337,7 +406,7 @@ Generate trading rules JSON.`;
   try {
     const response = await engineLLMChat(
       [{ role: 'user', content: prompt }],
-      { system: RULE_GENERATION_SYSTEM, maxTokens: 1024, temperature: 0.1 },
+      { system: RULE_GENERATION_SYSTEM, maxTokens: 1024, temperature: 0.1, cacheSystem: true },
     );
 
     let jsonText = response.text;
@@ -522,7 +591,7 @@ ${recentDecisions ? `Recent: ${recentDecisions.slice(0, 300)}` : ''}`;
   try {
     const response = await engineLLMChat(
       [{ role: 'user', content: prompt }],
-      { system: AI_DECISION_SYSTEM, maxTokens: 400, temperature: 0.2 },
+      { system: AI_DECISION_SYSTEM, maxTokens: 400, temperature: 0.2, cacheSystem: true },
     );
     let text = response.text;
     const cb = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -973,15 +1042,39 @@ export async function processSymbol(opts: {
     // Execute SELL — close position in DB with real P&L
     if (decision.action === 'SELL' && existingPos) {
       const posAmount = parseFloat(existingPos.amount);
-      const posEntryValue = parseFloat(existingPos.entryValue ?? '0') || posAmount * parseFloat(existingPos.entryPrice);
       const closed = await closePosition(existingPos.id, priceData.price, decision.reasoning, undefined, opts.feeRate ?? 0);
       if (closed) {
         decision.pnl = closed.pnlNum;
         decision.pnlPercent = closed.pnlPercentNum;
-        // Expose exact position amount/value so trade record matches position exactly
         decision.tradeAmount = posAmount;
         decision.tradeValue = posAmount * priceData.price;
         decision.reasoning += ` | P&L: ${closed.pnlPercentNum >= 0 ? '+' : ''}${closed.pnlPercentNum.toFixed(2)}% ($${closed.pnlNum.toFixed(2)})`;
+
+        // Apply compounding if subscription has it enabled
+        if (opts.subscriptionId && closed.pnlNum > 0) {
+          try {
+            const [sub] = await db.select({ allocatedAmount: botSubscriptions.allocatedAmount, compoundingSettings: botSubscriptions.compoundingSettings })
+              .from(botSubscriptions).where(eq(botSubscriptions.id, opts.subscriptionId)).limit(1);
+            if (sub) {
+              const cs = (sub.compoundingSettings ?? DEFAULT_COMPOUNDING) as CompoundingSettings;
+              const initialAlloc = parseFloat(sub.allocatedAmount ?? '0');
+              if (cs.enabled) {
+                const result = await applyCompounding({
+                  subscriptionId: opts.subscriptionId,
+                  pnl: closed.pnlNum,
+                  currentAllocatedAmount: initialAlloc,
+                  initialAllocatedAmount: initialAlloc,
+                  settings: cs,
+                });
+                if (result) {
+                  decision.reasoning += ` | Compounded +$${result.amountAdded.toFixed(2)} → balance $${result.newAllocatedAmount.toFixed(2)}`;
+                }
+              }
+            }
+          } catch (err) {
+            console.warn('[BotEngine] Compounding check failed:', (err as Error).message);
+          }
+        }
       }
     }
 

@@ -503,7 +503,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
     letterSpacing: 1,
     marginBottom: 10,
     marginLeft: 4,
@@ -514,7 +514,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#161B22',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(255,255,255,0.09)',
     overflow: 'hidden',
   },
 
@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
   rowValue: {
     fontFamily: 'Inter-Regular',
     fontSize: 14,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
   },
   proChip: {
     backgroundColor: 'rgba(16,185,129,0.15)',
@@ -554,7 +554,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginRight: 6,
   },
-  proChipText: {fontFamily: 'Inter-Bold', fontSize: 10, color: '#10B981', letterSpacing: 0.5},
+  proChipText: {fontFamily: 'Inter-Bold', fontSize: 11, color: '#10B981', letterSpacing: 0.5},
   upgradeChip: {
     backgroundColor: 'rgba(16,185,129,0.1)',
     borderWidth: 1,
@@ -564,7 +564,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginRight: 6,
   },
-  upgradeChipText: {fontFamily: 'Inter-SemiBold', fontSize: 10, color: '#10B981'},
+  upgradeChipText: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: '#10B981'},
   rowDivider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.06)',

@@ -226,9 +226,9 @@ const styles = StyleSheet.create({
   container: {flex: 1, backgroundColor: '#0F1117'},
   header: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12},
   iconBtn: {width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center'},
-  headerTitle: {fontFamily: 'Inter-Bold', fontSize: 18, marginLeft: 18, color: '#FFFFFF'},
-  tabsRow: {flexDirection: 'row', paddingHorizontal: 20, marginBottom: 8, gap: 4},
-  listContent: {paddingHorizontal: 20, paddingTop: 8, paddingBottom: 32},
+  headerTitle: {fontFamily: 'Inter-Bold', fontSize: 20, marginLeft: 16, color: '#FFFFFF'},
+  tabsRow: {flexDirection: 'row', paddingHorizontal: 16, marginBottom: 8, gap: 4},
+  listContent: {paddingHorizontal: 16, paddingTop: 8, paddingBottom: 32},
   notifCard: {
     backgroundColor: '#161B22', borderRadius: 16, padding: 14, marginBottom: 8,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', position: 'relative',

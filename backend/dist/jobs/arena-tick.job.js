@@ -82,7 +82,8 @@ async function processArenaTick() {
                 const pausedSecs = session.pausedDurationSeconds ?? 0;
                 const elapsed = (Date.now() - startedAt) / 1000 - pausedSecs;
                 const duration = session.durationSeconds ?? 180;
-                if (elapsed >= duration) {
+                // Unlimited sessions never auto-complete — they run until the user stops them
+                if (!session.unlimited && elapsed >= duration) {
                     await finalizeArenaSession(session.id, session.userId);
                     continue;
                 }

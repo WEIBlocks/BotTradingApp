@@ -1,8 +1,19 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Settings2, RefreshCw, Activity, Lock, Mail } from 'lucide-react';
-import { adminService, type SystemSettings, type SystemHealth } from '../services/admin';
+import { Settings2, RefreshCw, Activity, Lock, Mail, Brain, Eye, EyeOff, CheckCircle, Zap, AlertTriangle } from 'lucide-react';
+import { adminService, type SystemSettings, type SystemHealth, type AiConfig } from '../services/admin';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
+
+interface TrainerBotStatus {
+  botId: string;
+  botName: string;
+  trainerScore: number | null;
+  trainerStatus: string;
+  lastRetrainAt: string | null;
+  totalTrades: number;
+  winRate: number;
+  needsAttention: boolean;
+}
 
 function Toggle({
   checked,
@@ -41,8 +52,112 @@ function HealthDot({ status }: { status: string }) {
   );
 }
 
+const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: 'Anthropic (Claude)',
+  openai: 'OpenAI (GPT)',
+  gemini: 'Google (Gemini)',
+  auto: 'Auto (first available key)',
+};
+
+// Local model list — mirrors backend AI_MODELS, latest as of June 2025
+const MODELS_MAP: Record<string, { id: string; label: string }[]> = {
+  anthropic: [
+    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 — Recommended (latest)' },
+    { id: 'claude-opus-4-8',   label: 'Claude Opus 4.8 — Most capable, complex reasoning' },
+    { id: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5 — Fastest & cheapest' },
+  ],
+  openai: [
+    { id: 'gpt-4.1',      label: 'GPT-4.1 — Most capable' },
+    { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini — Recommended ⭐' },
+    { id: 'gpt-4o',       label: 'GPT-4o — Multimodal flagship' },
+    { id: 'gpt-4o-mini',  label: 'GPT-4o Mini — Fastest & cheapest' },
+    { id: 'o3',           label: 'o3 — Advanced reasoning' },
+    { id: 'o4-mini',      label: 'o4-mini — Fast reasoning' },
+  ],
+  gemini: [
+    { id: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro — Most capable' },
+    { id: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash — Recommended ⭐' },
+    { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite — Fastest & cheapest' },
+  ],
+};
+
+const PROVIDER_COLORS: Record<string, string> = {
+  anthropic: 'text-orange-400',
+  openai: 'text-green-400',
+  gemini: 'text-blue-400',
+  auto: 'text-white/50',
+};
+
 export default function Settings() {
   const { user } = useAuth();
+
+  // AI Config state
+  const [aiConfig, setAiConfig] = useState<AiConfig | null>(null);
+  const [aiLoading, setAiLoading] = useState(true);
+  const [aiSaving, setAiSaving] = useState(false);
+  const [aiFeedback, setAiFeedback] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [aiProvider, setAiProvider] = useState<'anthropic' | 'gemini' | 'openai' | 'auto'>('anthropic');
+  const [aiModel, setAiModel] = useState('');
+  const [anthropicKey, setAnthropicKey] = useState('');
+  const [openaiKey, setOpenaiKey] = useState('');
+  const [geminiKey, setGeminiKey] = useState('');
+  const [showAnthropicKey, setShowAnthropicKey] = useState(false);
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
+  const [showGeminiKey, setShowGeminiKey] = useState(false);
+
+  const loadAiConfig = useCallback(async () => {
+    setAiLoading(true);
+    try {
+      const cfg = await adminService.getAiConfig();
+      setAiConfig(cfg);
+      setAiProvider(cfg.provider as any);
+      setAiModel(cfg.model || '');
+    } catch (err) {
+      console.error('Failed to load AI config:', err);
+    } finally {
+      setAiLoading(false);
+    }
+  }, []);
+
+  const handleSaveAiConfig = async () => {
+    setAiSaving(true);
+    setAiFeedback(null);
+    try {
+      const payload: any = { provider: aiProvider, model: aiModel };
+      if (anthropicKey.trim()) payload.anthropicApiKey = anthropicKey.trim();
+      if (openaiKey.trim()) payload.openaiApiKey = openaiKey.trim();
+      if (geminiKey.trim()) payload.geminiApiKey = geminiKey.trim();
+      const updated = await adminService.updateAiConfig(payload);
+      setAiConfig(updated);
+      setAiFeedback({ type: 'success', text: `Switched to ${PROVIDER_LABELS[aiProvider]} — active immediately.` });
+      setAnthropicKey('');
+      setOpenaiKey('');
+      setGeminiKey('');
+    } catch (err: any) {
+      setAiFeedback({ type: 'error', text: err?.response?.data?.message || 'Failed to save AI config.' });
+    } finally {
+      setAiSaving(false);
+    }
+  };
+
+  // Trainer overview state
+  const [trainerBots, setTrainerBots] = useState<TrainerBotStatus[]>([]);
+  const [trainerLoading, setTrainerLoading] = useState(false);
+  const [retrainingBotId, setRetrainingBotId] = useState<string | null>(null);
+
+  const loadTrainerStatuses = useCallback(async () => {
+    setTrainerLoading(true);
+    try {
+      const res = await api.get('/admin/trainer/statuses');
+      setTrainerBots((res.data as any)?.data ?? []);
+    } catch {
+      // trainer endpoint may not exist yet — silently ignore
+    } finally {
+      setTrainerLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadTrainerStatuses(); }, [loadTrainerStatuses]);
 
   // Account state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -175,7 +290,8 @@ export default function Settings() {
   useEffect(() => {
     loadSettings();
     loadHealth();
-  }, [loadSettings, loadHealth]);
+    loadAiConfig();
+  }, [loadSettings, loadHealth, loadAiConfig]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -440,6 +556,173 @@ export default function Settings() {
         ) : null}
       </div>
 
+      {/* AI Configuration */}
+      <div className="bg-[#161B22] border border-white/[0.06] rounded-2xl p-6">
+        <div className="flex items-center gap-2.5 mb-5">
+          <Brain size={18} className="text-[#10B981]" />
+          <h2 className="text-lg font-semibold text-white">AI Model Configuration</h2>
+        </div>
+
+        {/* Active status badge */}
+        {aiConfig && (
+          <div className="flex items-center gap-2.5 mb-5 p-3 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+            <CheckCircle size={15} className="text-[#10B981] shrink-0" />
+            <span className="text-sm text-white/60">
+              Currently active: <span className={`font-semibold ${PROVIDER_COLORS[aiConfig.activeProvider ?? 'auto']}`}>
+                {PROVIDER_LABELS[aiConfig.activeProvider ?? 'auto']}
+              </span>
+              {aiConfig.activeModel && (
+                <span className="text-white/40 ml-2">— {aiConfig.activeModel}</span>
+              )}
+            </span>
+          </div>
+        )}
+
+        {aiFeedback && (
+          <div className={`text-sm rounded-lg px-4 py-3 mb-5 ${aiFeedback.type === 'success' ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border border-red-500/20 text-red-400'}`}>
+            {aiFeedback.text}
+          </div>
+        )}
+
+        {aiLoading ? (
+          <div className="space-y-3">
+            {[1,2,3].map(i => <div key={i} className="h-10 bg-white/5 rounded-lg animate-pulse" />)}
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {/* Provider selector */}
+            <div>
+              <label className="text-white/40 text-xs font-medium block mb-2">Primary AI Provider</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {(['anthropic', 'openai', 'gemini', 'auto'] as const).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => { setAiProvider(p); setAiModel(''); }}
+                    className={`py-2.5 px-3 rounded-xl text-sm font-medium border transition-all text-left ${
+                      aiProvider === p
+                        ? 'border-[#10B981]/50 bg-[#10B981]/10 text-white'
+                        : 'border-white/10 bg-white/[0.03] text-white/50 hover:text-white hover:border-white/20'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {aiProvider === p && <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] shrink-0" />}
+                      <span>{p === 'anthropic' ? 'Claude' : p === 'openai' ? 'OpenAI' : p === 'gemini' ? 'Gemini' : 'Auto'}</span>
+                    </div>
+                    {aiConfig && (
+                      <div className={`text-[10px] mt-0.5 ${
+                        (p === 'anthropic' && aiConfig.hasAnthropicKey) ||
+                        (p === 'openai' && aiConfig.hasOpenaiKey) ||
+                        (p === 'gemini' && aiConfig.hasGeminiKey) ||
+                        p === 'auto'
+                          ? 'text-[#10B981]/70' : 'text-red-400/70'
+                      }`}>
+                        {p === 'auto' ? 'picks first key'
+                          : p === 'anthropic' ? (aiConfig.hasAnthropicKey ? 'key configured' : 'no key')
+                          : p === 'openai' ? (aiConfig.hasOpenaiKey ? 'key configured' : 'no key')
+                          : (aiConfig.hasGeminiKey ? 'key configured' : 'no key')}
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Model selector — always visible for specific providers */}
+            {aiProvider !== 'auto' && MODELS_MAP[aiProvider] && (
+              <div>
+                <label className="text-white/40 text-xs font-medium block mb-2">Model</label>
+                <select
+                  value={aiModel}
+                  onChange={e => setAiModel(e.target.value)}
+                  className="w-full bg-[#0A0E14] border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-[#10B981]/50 focus:ring-1 focus:ring-[#10B981]/30 transition-colors"
+                >
+                  <option value="">— Use default for {aiProvider} —</option>
+                  {MODELS_MAP[aiProvider].map(m => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* API Key fields */}
+            <div className="border-t border-white/[0.06] pt-5">
+              <p className="text-white/40 text-xs font-medium mb-3">Update API Keys (leave blank to keep existing)</p>
+              <div className="space-y-3">
+                {/* Anthropic */}
+                <div>
+                  <label className="text-white/40 text-xs flex items-center gap-1.5 mb-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${aiConfig?.hasAnthropicKey ? 'bg-[#10B981]' : 'bg-red-400'}`} />
+                    Anthropic API Key {aiConfig?.hasAnthropicKey ? '(configured)' : '(not set)'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showAnthropicKey ? 'text' : 'password'}
+                      value={anthropicKey}
+                      onChange={e => setAnthropicKey(e.target.value)}
+                      placeholder="sk-ant-api03-..."
+                      className="w-full bg-[#0A0E14] border border-white/10 rounded-xl px-4 py-2.5 pr-10 text-white text-sm placeholder-white/20 focus:outline-none focus:border-[#10B981]/50 focus:ring-1 focus:ring-[#10B981]/30 transition-colors"
+                    />
+                    <button onClick={() => setShowAnthropicKey(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">
+                      {showAnthropicKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* OpenAI */}
+                <div>
+                  <label className="text-white/40 text-xs flex items-center gap-1.5 mb-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${aiConfig?.hasOpenaiKey ? 'bg-[#10B981]' : 'bg-red-400'}`} />
+                    OpenAI API Key {aiConfig?.hasOpenaiKey ? '(configured)' : '(not set)'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showOpenaiKey ? 'text' : 'password'}
+                      value={openaiKey}
+                      onChange={e => setOpenaiKey(e.target.value)}
+                      placeholder="sk-..."
+                      className="w-full bg-[#0A0E14] border border-white/10 rounded-xl px-4 py-2.5 pr-10 text-white text-sm placeholder-white/20 focus:outline-none focus:border-[#10B981]/50 focus:ring-1 focus:ring-[#10B981]/30 transition-colors"
+                    />
+                    <button onClick={() => setShowOpenaiKey(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">
+                      {showOpenaiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Gemini */}
+                <div>
+                  <label className="text-white/40 text-xs flex items-center gap-1.5 mb-1.5">
+                    <span className={`w-1.5 h-1.5 rounded-full ${aiConfig?.hasGeminiKey ? 'bg-[#10B981]' : 'bg-red-400'}`} />
+                    Google Gemini API Key {aiConfig?.hasGeminiKey ? '(configured)' : '(not set)'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showGeminiKey ? 'text' : 'password'}
+                      value={geminiKey}
+                      onChange={e => setGeminiKey(e.target.value)}
+                      placeholder="AIza..."
+                      className="w-full bg-[#0A0E14] border border-white/10 rounded-xl px-4 py-2.5 pr-10 text-white text-sm placeholder-white/20 focus:outline-none focus:border-[#10B981]/50 focus:ring-1 focus:ring-[#10B981]/30 transition-colors"
+                    />
+                    <button onClick={() => setShowGeminiKey(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/70">
+                      {showGeminiKey ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-2">
+              <button
+                onClick={handleSaveAiConfig}
+                disabled={aiSaving}
+                className="px-5 py-2.5 text-sm rounded-lg bg-[#10B981] hover:bg-[#0EA472] text-white font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {aiSaving ? 'Applying...' : 'Apply AI Config'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* System Health */}
       <div className="bg-[#161B22] border border-white/[0.06] rounded-2xl p-6">
         <div className="flex items-center justify-between mb-5">
@@ -510,6 +793,56 @@ export default function Settings() {
             </div>
           </div>
         ) : null}
+      </div>
+      {/* ── AI Trainer Overview ── */}
+      <div className="bg-[#161B22] border border-white/[0.06] rounded-2xl p-6">
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <Zap size={16} className="text-violet-400" />
+            <h2 className="text-lg font-semibold text-white">AI Trainer Overview</h2>
+          </div>
+          <button onClick={loadTrainerStatuses} disabled={trainerLoading} className="text-white/40 hover:text-white/70 transition-colors">
+            <RefreshCw size={15} className={trainerLoading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+
+        {trainerLoading ? (
+          <p className="text-white/40 text-sm">Loading trainer statuses…</p>
+        ) : trainerBots.length === 0 ? (
+          <p className="text-white/30 text-sm">No approved bots found — trainer activates after bots are approved.</p>
+        ) : (
+          <div className="space-y-2">
+            {trainerBots.map((b: TrainerBotStatus) => {
+              const scoreColor = (b.trainerScore ?? 0) >= 70 ? 'text-emerald-400' : (b.trainerScore ?? 0) >= 50 ? 'text-yellow-400' : 'text-red-400';
+              const statusBadge = b.trainerStatus === 'retraining' ? 'bg-yellow-500/15 text-yellow-400' :
+                b.trainerStatus === 'shadow_validating' ? 'bg-blue-500/15 text-blue-400' :
+                b.trainerStatus === 'monitoring' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/5 text-white/40';
+              return (
+                <div key={b.botId} className={`flex items-center gap-4 p-3 rounded-xl border ${b.needsAttention ? 'border-red-500/20 bg-red-500/5' : 'border-white/[0.05] bg-white/[0.02]'}`}>
+                  {b.needsAttention && <AlertTriangle size={14} className="text-red-400 shrink-0" />}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-medium truncate">{b.botName}</p>
+                    <p className="text-white/30 text-xs mt-0.5">{b.totalTrades} trades · WR {b.winRate.toFixed(0)}%{b.lastRetrainAt ? ` · retrained ${new Date(b.lastRetrainAt).toLocaleDateString()}` : ''}</p>
+                  </div>
+                  <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${statusBadge}`}>{b.trainerStatus}</span>
+                  <span className={`text-sm font-bold w-12 text-right ${scoreColor}`}>{b.trainerScore ?? '—'}/100</span>
+                  <button
+                    disabled={!!retrainingBotId || b.trainerStatus === 'retraining'}
+                    onClick={async () => {
+                      setRetrainingBotId(b.botId);
+                      try { await api.post(`/bots/${b.botId}/trainer/retrain`, {}); await loadTrainerStatuses(); }
+                      catch { /* ignore */ }
+                      finally { setRetrainingBotId(null); }
+                    }}
+                    className="text-xs text-violet-400 border border-violet-400/30 rounded-lg px-3 py-1.5 hover:bg-violet-400/10 transition-colors disabled:opacity-40 shrink-0"
+                  >
+                    {retrainingBotId === b.botId ? '…' : 'Retrain'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

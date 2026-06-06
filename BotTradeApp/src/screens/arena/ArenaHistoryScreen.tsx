@@ -118,7 +118,7 @@ export default function ArenaHistoryScreen() {
 
         {/* Chevron */}
         <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-          <Path d="M9 5l7 7-7 7" stroke="rgba(255,255,255,0.3)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+          <Path d="M9 5l7 7-7 7" stroke="rgba(255,255,255,0.45)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
         </Svg>
       </TouchableOpacity>
     );
@@ -166,11 +166,11 @@ export default function ArenaHistoryScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: '#0A0E14'},
+  container: {flex: 1, backgroundColor: '#0F1117'},
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingTop: 54, paddingBottom: 14,
-    backgroundColor: '#0A0E14',
+    backgroundColor: '#0F1117',
   },
   headerBtn: {width: 38, height: 38, alignItems: 'center', justifyContent: 'center'},
   headerTitle: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF'},
@@ -209,16 +209,16 @@ const styles = StyleSheet.create({
   statusRunning: {backgroundColor: 'rgba(16,185,129,0.15)'},
   statusCompleted: {backgroundColor: 'rgba(255,255,255,0.06)'},
   statusKilled: {backgroundColor: 'rgba(239,68,68,0.12)'},
-  statusText: {fontFamily: 'Inter-Bold', fontSize: 9, letterSpacing: 0.5},
+  statusText: {fontFamily: 'Inter-Bold', fontSize: 10, letterSpacing: 0.5},
   statusRunningText: {color: '#10B981'},
-  statusCompletedText: {color: 'rgba(255,255,255,0.4)'},
+  statusCompletedText: {color: 'rgba(255,255,255,0.5)'},
   statusKilledText: {color: '#EF4444'},
   cardMetaRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     marginBottom: 2,
   },
-  cardMeta: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)'},
-  cardDate: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.25)'},
+  cardMeta: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.5)'},
+  cardDate: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.45)'},
   returnRow: {marginTop: 4},
   returnValue: {fontFamily: 'Inter-SemiBold', fontSize: 13},
 
@@ -230,7 +230,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   emptyTitle: {fontFamily: 'Inter-Bold', fontSize: 18, color: '#FFFFFF', marginBottom: 8},
-  emptyDesc: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginBottom: 24},
+  emptyDesc: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginBottom: 24},
   emptyBtn: {
     backgroundColor: '#10B981', borderRadius: 12,
     paddingHorizontal: 24, paddingVertical: 12,

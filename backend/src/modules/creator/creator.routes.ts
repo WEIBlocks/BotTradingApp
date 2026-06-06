@@ -261,4 +261,44 @@ export async function creatorRoutes(app: FastifyInstance) {
     const data = await creatorService.stopExperiment(id, request.user.userId);
     return { data };
   });
+
+  // GET /trainer-overview — all creator's bots with trainer health scores
+  zApp.get('/trainer-overview', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const { analyzeBotPerformance, DEFAULT_TRAINER_CONFIG } = await import('../trainer/trainer.service.js');
+    const { bots: botsTable } = await import('../../db/schema/bots.js');
+    const { db: database } = await import('../../config/database.js');
+    const { eq, and } = await import('drizzle-orm');
+
+    const myBots = await database.select({
+      id: botsTable.id, name: botsTable.name, trainerConfig: botsTable.trainerConfig,
+    }).from(botsTable).where(eq(botsTable.creatorId, request.user.userId));
+
+    const results = await Promise.all(myBots.map(async (bot) => {
+      const config = ((bot.trainerConfig as any) ?? DEFAULT_TRAINER_CONFIG);
+      const perf = await analyzeBotPerformance(bot.id);
+      return {
+        botId: bot.id,
+        botName: bot.name,
+        trainerScore: perf.trainerScore,
+        trainerStatus: config.trainerStatus ?? 'idle',
+        autoRetrain: config.autoRetrain ?? false,
+        lastRetrainAt: config.lastRetrainAt ?? null,
+        pendingImprovements: !!(config.pendingPrompt || config.pendingConfig),
+        totalTrades: perf.totalTrades,
+        winRate: perf.winRate,
+        profitFactor: perf.profitFactor,
+        maxDrawdown: perf.maxDrawdown,
+        needsRetrain: perf.needsRetrain,
+        retrainReason: perf.retrainReason,
+        latestInsight: (config.insights ?? [])[0] ?? null,
+      };
+    }));
+
+    return { data: results.sort((a, b) => a.trainerScore - b.trainerScore) };
+  });
 }

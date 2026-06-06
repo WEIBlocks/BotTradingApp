@@ -65,6 +65,8 @@ export const bots = pgTable("bots", {
     status: botStatusEnum("status").default("draft"),
     isPublished: boolean("is_published").default(false),
     config: jsonb("config"),
+    // Trainer config: auto-retrain triggers, health score, insights, pending improved prompt
+    trainerConfig: jsonb("trainer_config"),
     version: varchar("version", { length: 20 }).default("1.0.0"),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -81,6 +83,24 @@ export const botVersions = pgTable("bot_versions", {
     isActive: boolean("is_active").default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
+// ─── Trainer config stored on each bot (creator-level settings) ────────────
+// trainerConfig JSONB shape:
+// {
+//   autoRetrain: boolean,
+//   retrainMode: 'time' | 'performance' | 'combined',
+//   retrainIntervalDays: number,
+//   profitFactorFloor: number,          // retrain if PF drops below (default 1.2)
+//   winRateDropThreshold: number,       // retrain if win rate drops >X% from 90d avg
+//   consecutiveLossLimit: number,       // retrain after N consecutive losses
+//   shadowValidationHours: number,      // paper-trade before promoting (default 24)
+//   lastRetrainAt: string | null,       // ISO date
+//   trainerScore: number | null,        // 0-100 health score
+//   trainerStatus: 'idle' | 'monitoring' | 'retraining' | 'shadow_validating',
+//   pendingPrompt: string | null,       // improved prompt awaiting validation
+//   pendingConfig: object | null,       // improved config awaiting validation
+//   lastInsightAt: string | null,
+//   insights: Array<{ts, type, message, action}>
+// }
 export const botStatistics = pgTable("bot_statistics", {
     id: uuid("id")
         .primaryKey()
@@ -127,6 +147,22 @@ export const botSubscriptions = pgTable("bot_subscriptions", {
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     userConfig: jsonb("user_config"),
+    // Compounding settings per-subscription:
+    // {
+    //   enabled: boolean,
+    //   reinvestmentRate: number,       // 0-100 (% of profit to reinvest)
+    //   reinvestmentMode: 'free_balance' | 'total_balance' | 'fixed',
+    //   compoundFrequency: 'each_trade' | 'daily' | 'weekly' | 'manual',
+    //   maxPositionSizeUSD: number | null,
+    //   minProfitThresholdUSD: number,
+    //   maxCompoundMultiplier: number,  // e.g. 3 = never grow beyond 3x initial
+    //   withdrawalReservePct: number,   // % of profit to keep as cash, not reinvest
+    //   riskReductionEnabled: boolean,
+    //   riskReductionRate: number,
+    //   totalCompounded: number,        // running total reinvested
+    //   lastCompoundAt: string | null,
+    // }
+    compoundingSettings: jsonb("compounding_settings"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 }, (t) => ({
     userBotUnique: unique("bot_subscriptions_user_bot_unique").on(t.userId, t.botId),

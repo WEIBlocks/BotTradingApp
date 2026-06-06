@@ -5,7 +5,7 @@ import {useFocusEffect} from '@react-navigation/native';
 import Svg, {Circle as SvgCircle, Path} from 'react-native-svg';
 import {RootStackParamList, Bot} from '../../types';
 import {marketplaceApi} from '../../services/marketplace';
-import {botsService} from '../../services/bots';
+import {botsService, type CompoundingSettings, type TrainerConfig, type BotPerformanceSnapshot} from '../../services/bots';
 import {api} from '../../services/api';
 import {useAuth} from '../../context/AuthContext';
 import {useIAP} from '../../context/IAPContext';
@@ -54,7 +54,7 @@ interface UserBotState {
 
 export default function BotDetailsScreen({navigation, route}: Props) {
   const {user} = useAuth();
-  const {alert: showAlert, showConfirm} = useToast();
+  const {alert: showAlert, showConfirm, showToast} = useToast();
   const {isPro} = useIAP();
   const {isFavorite, toggle: toggleFavorite} = useFavorites();
 
@@ -104,7 +104,19 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   }>({riskMultiplier: 1, notificationLevel: 'all'});
   const [savingConfig, setSavingConfig] = useState(false);
   const [configPanelExpanded, setConfigPanelExpanded] = useState(false);
+  const [settingsModalVisible, setSettingsModalVisible] = useState(false);
   const [strategyExpanded, setStrategyExpanded] = useState(false);
+
+  // Compounding settings (per subscription)
+  const [compounding, setCompounding] = useState<CompoundingSettings | null>(null);
+  const [compoundingExpanded, setCompoundingExpanded] = useState(false);
+  const [savingCompounding, setSavingCompounding] = useState(false);
+
+  // Trainer state (visible to all, creator-controls gated on isCreator)
+  const [trainerStatus, setTrainerStatus] = useState<{config: TrainerConfig; performance: BotPerformanceSnapshot; isCreator?: boolean} | null>(null);
+  const [trainerExpanded, setTrainerExpanded] = useState(false);
+  const [retraining, setRetraining] = useState(false);
+  const [promoting, setPromoting] = useState(false);
 
   // Candlestick per trading pair
   const [selectedPair, setSelectedPair] = useState<string | null>(null);
@@ -216,8 +228,19 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             compoundProfits: uc.compoundProfits ?? false,
             notificationLevel: uc.notificationLevel ?? 'all',
           });
+          // Also load compounding settings for this subscription
+          botsService.getCompounding(subId).then((cr: any) => {
+            if (!mountedRef.current) return;
+            if (cr?.data?.compounding) setCompounding(cr.data.compounding);
+          }).catch(() => {});
         }).catch(() => {});
       }
+
+      // Load trainer status (visible to creator + all subscribers)
+      botsService.getTrainerStatus(botId).then((tr: any) => {
+        if (!mountedRef.current) return;
+        if (tr?.data) setTrainerStatus(tr.data);
+      }).catch(() => {});
 
       if (sub && (sub.subscriptionStatus === 'active' || sub.status === 'active')) {
         setUserBotState({status: 'active', subscriptionId: sub.subscriptionId || sub.id, mode: sub.subscriptionMode || sub.mode});
@@ -587,6 +610,18 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </Text>
             </TouchableOpacity>
           )}
+          {(userBotState.status === 'active' || userBotState.status === 'paused') && (
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => setSettingsModalVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Bot Settings">
+              <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+                <Path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke="rgba(255,255,255,0.75)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                <Path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="rgba(255,255,255,0.75)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={styles.iconBtn}
             onPress={() => bot && toggleFavorite(bot.id, bot).catch(() => {})}
@@ -662,7 +697,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             </View>
             <View style={styles.heroInfo}>
               <View style={styles.heroNameRow}>
-                <Text style={styles.botName} numberOfLines={1}>{bot.name}</Text>
+                <Text style={styles.botName}>{bot.name}</Text>
                 {isCreator && <Badge label="YOURS" variant="purple" size="sm" />}
               </View>
               <Text style={styles.botCreator} numberOfLines={1}>{isCreator ? 'Created by you' : bot.subtitle}</Text>
@@ -1010,78 +1045,397 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </View>
             </View>
 
-            {/* Subscriber Customization */}
-            {(userBotState.status === 'active' || userBotState.status === 'paused') && (
-              <View style={styles.section}>
-                <TouchableOpacity style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: configPanelExpanded ? 14 : 0}} activeOpacity={0.7} onPress={() => setConfigPanelExpanded(v => !v)}>
-                  <Text style={styles.sectionLabel}>MY SETTINGS</Text>
-                  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
-                    <Path d={configPanelExpanded ? 'M18 15l-6-6-6 6' : 'M6 9l6 6 6-6'} stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                  </Svg>
-                </TouchableOpacity>
-                {configPanelExpanded && (
-                  <View style={styles.metricsCard}>
-                    <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
-                      <Text style={styles.metricLabel}>RISK MULTIPLIER</Text>
-                      <View style={{flexDirection: 'row', gap: 8}}>
-                        {([0.5, 1, 1.5, 2] as const).map(v => (
-                          <TouchableOpacity key={v} activeOpacity={0.7} style={{paddingHorizontal: 16, paddingVertical: 8, borderRadius: 10, backgroundColor: subUserConfig.riskMultiplier === v ? 'rgba(16,185,129,0.18)' : '#1C2333', borderWidth: 1, borderColor: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.08)'}} onPress={() => setSubUserConfig(c => ({...c, riskMultiplier: v}))}>
-                            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{v}x</Text>
-                          </TouchableOpacity>
-                        ))}
+            {/* Subscriber Settings — now accessed via gear icon in header */}
+
+            {/* ── Compounding Settings Card ── */}
+              {compounding !== null && (
+                <View style={[styles.section, {marginTop: 12}]}>
+                  <TouchableOpacity style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: compoundingExpanded ? 14 : 0}} activeOpacity={0.7} onPress={() => setCompoundingExpanded(v => !v)}>
+                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+                      <View style={{width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(16,185,129,0.15)', alignItems: 'center', justifyContent: 'center'}}>
+                        <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                          <Path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                        </Svg>
+                      </View>
+                      <View>
+                        <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'}}>Compounding Settings</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1}}>
+                          {compounding.enabled ? `${compounding.reinvestmentRate}% reinvest · ${compounding.compoundFrequency.replace('_', ' ')}` : 'Off — tap to configure'}
+                        </Text>
                       </View>
                     </View>
-                    <View style={[styles.metricRow, {flexDirection: 'column', alignItems: 'flex-start', gap: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
-                      <Text style={styles.metricLabel}>NOTIFICATIONS</Text>
-                      <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
-                        {(['all', 'wins_only', 'losses_only', 'summary'] as const).map(n => (
-                          <TouchableOpacity key={n} activeOpacity={0.7} style={{paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10, backgroundColor: subUserConfig.notificationLevel === n ? 'rgba(59,130,246,0.18)' : '#1C2333', borderWidth: 1, borderColor: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.08)'}} onPress={() => setSubUserConfig(c => ({...c, notificationLevel: n}))}>
-                            <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.5)'}}>{n === 'all' ? 'All' : n === 'wins_only' ? 'Wins Only' : n === 'losses_only' ? 'Losses Only' : 'Summary'}</Text>
-                          </TouchableOpacity>
-                        ))}
+                    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                      <Path d={compoundingExpanded ? 'M18 15l-6-6-6 6' : 'M6 9l6 6 6-6'} stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                    </Svg>
+                  </TouchableOpacity>
+
+                  {compoundingExpanded && (
+                    <View style={{gap: 14}}>
+                      {/* Enable/Disable */}
+                      <View style={[styles.metricRow, {alignItems: 'center', paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)'}]}>
+                        <View style={{flex: 1}}>
+                          <Text style={styles.metricLabel}>AUTO-COMPOUND</Text>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2}}>Reinvest profits automatically</Text>
+                        </View>
+                        <TouchableOpacity activeOpacity={0.7} style={{width: 48, height: 26, borderRadius: 13, backgroundColor: compounding.enabled ? '#10B981' : '#2D3748', justifyContent: 'center', paddingHorizontal: 3}} onPress={() => setCompounding(c => c ? {...c, enabled: !c.enabled} : c)}>
+                          <View style={{width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF', alignSelf: compounding.enabled ? 'flex-end' : 'flex-start'}} />
+                        </TouchableOpacity>
                       </View>
-                    </View>
-                    <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
-                      <View style={{flex: 1}}><Text style={styles.metricLabel}>MAX DAILY LOSS</Text></View>
-                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
-                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.maxDailyLoss ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, maxDailyLoss: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 2}}>%</Text>
-                      </View>
-                    </View>
-                    <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
-                      <View style={{flex: 1}}><Text style={styles.metricLabel}>AUTO-STOP LOSS %</Text></View>
-                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
-                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopLossPercent ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopLossPercent: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 2}}>%</Text>
-                      </View>
-                    </View>
-                    <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
-                      <View style={{flex: 1}}><Text style={styles.metricLabel}>AUTO-STOP BALANCE</Text></View>
-                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
-                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginRight: 2}}>$</Text>
-                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopBalance ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopBalance: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                      </View>
-                    </View>
-                    <View style={[styles.metricRow, {alignItems: 'center', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)', paddingBottom: 14}]}>
-                      <View style={{flex: 1}}><Text style={styles.metricLabel}>AUTO-STOP DAYS</Text></View>
-                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: '#1C2333', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8, minWidth: 80}}>
-                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF', minWidth: 40, textAlign: 'right'}} keyboardType="number-pad" value={subUserConfig.autoStopDays ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopDays: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>days</Text>
-                      </View>
-                    </View>
-                    <View style={[styles.metricRow, {alignItems: 'center', paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)'}]}>
-                      <View style={{flex: 1}}><Text style={styles.metricLabel}>COMPOUND PROFITS</Text></View>
-                      <TouchableOpacity activeOpacity={0.7} style={{width: 48, height: 26, borderRadius: 13, backgroundColor: subUserConfig.compoundProfits ? '#10B981' : '#2D3748', justifyContent: 'center', paddingHorizontal: 3}} onPress={() => setSubUserConfig(c => ({...c, compoundProfits: !c.compoundProfits}))}>
-                        <View style={{width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF', alignSelf: subUserConfig.compoundProfits ? 'flex-end' : 'flex-start'}} />
+
+                      {compounding.enabled && (<>
+                        {/* Reinvestment Rate */}
+                        <View style={[styles.metricRow, {alignItems: 'center', paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)'}]}>
+                          <View style={{flex: 1}}>
+                            <Text style={styles.metricLabel}>REINVESTMENT RATE</Text>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2}}>% of profit to reinvest</Text>
+                          </View>
+                          <View style={{flexDirection: 'row', gap: 6}}>
+                            {([25, 50, 75, 100] as const).map(v => (
+                              <TouchableOpacity key={v} activeOpacity={0.7} style={{paddingHorizontal: 12, paddingVertical: 7, borderRadius: 9, backgroundColor: compounding.reinvestmentRate === v ? 'rgba(16,185,129,0.18)' : '#1C2333', borderWidth: 1, borderColor: compounding.reinvestmentRate === v ? '#10B981' : 'rgba(255,255,255,0.08)'}} onPress={() => setCompounding(c => c ? {...c, reinvestmentRate: v} : c)}>
+                                <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: compounding.reinvestmentRate === v ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{v}%</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+
+                        {/* Compound Frequency */}
+                        <View style={[styles.metricRow, {flexDirection: 'column', gap: 10, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)'}]}>
+                          <Text style={styles.metricLabel}>COMPOUND FREQUENCY</Text>
+                          <View style={{flexDirection: 'row', gap: 8, flexWrap: 'wrap'}}>
+                            {(['each_trade', 'daily', 'weekly'] as const).map(f => (
+                              <TouchableOpacity key={f} activeOpacity={0.7} style={{paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: compounding.compoundFrequency === f ? 'rgba(16,185,129,0.18)' : '#1C2333', borderWidth: 1, borderColor: compounding.compoundFrequency === f ? '#10B981' : 'rgba(255,255,255,0.08)'}} onPress={() => setCompounding(c => c ? {...c, compoundFrequency: f} : c)}>
+                                <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: compounding.compoundFrequency === f ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{f.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+
+                        {/* Max Multiplier + Withdrawal Reserve */}
+                        <View style={{flexDirection: 'row', gap: 10}}>
+                          <View style={{flex: 1, backgroundColor: '#1C2333', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)'}}>
+                            <Text style={[styles.metricLabel, {marginBottom: 8}]}>MAX GROWTH</Text>
+                            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                              <TextInput style={{flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 16, color: '#10B981', textAlign: 'center'}} keyboardType="decimal-pad" value={String(compounding.maxCompoundMultiplier)} onChangeText={v => setCompounding(c => c ? {...c, maxCompoundMultiplier: parseFloat(v) || 3} : c)} />
+                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)'}}>×</Text>
+                            </View>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4, textAlign: 'center'}}>max multiplier</Text>
+                          </View>
+                          <View style={{flex: 1, backgroundColor: '#1C2333', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)'}}>
+                            <Text style={[styles.metricLabel, {marginBottom: 8}]}>KEEP AS CASH</Text>
+                            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
+                              <TextInput style={{flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 16, color: '#F59E0B', textAlign: 'center'}} keyboardType="number-pad" value={String(compounding.withdrawalReservePct)} onChangeText={v => setCompounding(c => c ? {...c, withdrawalReservePct: parseInt(v, 10) || 20} : c)} />
+                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)'}}>%</Text>
+                            </View>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4, textAlign: 'center'}}>of profit reserved</Text>
+                          </View>
+                        </View>
+
+                        {/* Stats */}
+                        {(compounding.totalCompounded ?? 0) > 0 && (
+                          <View style={{backgroundColor: 'rgba(16,185,129,0.07)', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(16,185,129,0.15)'}}>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.5)'}}>Total compounded to date</Text>
+                            <Text style={{fontFamily: 'Inter-Bold', fontSize: 20, color: '#10B981', marginTop: 4}}>${(compounding.totalCompounded ?? 0).toFixed(2)}</Text>
+                          </View>
+                        )}
+                      </>)}
+
+                      <TouchableOpacity style={{backgroundColor: '#10B981', borderRadius: 14, paddingVertical: 13, alignItems: 'center', opacity: savingCompounding ? 0.6 : 1}} activeOpacity={0.8} disabled={savingCompounding} onPress={async () => {
+                        const sub = userBotState.subscriptionId;
+                        if (!sub || !compounding) return;
+                        setSavingCompounding(true);
+                        try {
+                          await botsService.updateCompounding(sub, compounding);
+                          showToast('success', 'Compounding settings saved!');
+                        } catch { showToast('error', 'Failed to save compounding settings'); }
+                        finally { setSavingCompounding(false); }
+                      }}>
+                        {savingCompounding ? <ActivityIndicator size="small" color="#FFF" /> : <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF'}}>Save Compounding</Text>}
                       </TouchableOpacity>
                     </View>
-                    <TouchableOpacity style={{marginTop: 14, backgroundColor: '#10B981', borderRadius: 14, paddingVertical: 14, alignItems: 'center', opacity: savingConfig ? 0.6 : 1}} activeOpacity={0.8} disabled={savingConfig} onPress={handleSaveUserConfig}>
-                      {savingConfig ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF'}}>Save My Settings</Text>}
-                    </TouchableOpacity>
-                  </View>
-                )}
-              </View>
-            )}
+                  )}
+                </View>
+              )}
+
+            {/* ── AI Trainer Panel ── */}
+            {trainerStatus && (() => {
+              const tCfg = trainerStatus.config;
+              const tPerf = trainerStatus.performance;
+              const tIsCreator = isCreator || !!trainerStatus.isCreator;
+              const effectiveMode: 'auto' | 'suggestions' | 'off' = tCfg.trainingMode ?? (tCfg.autoRetrain ? 'suggestions' : 'off');
+
+              const modeOptions: {key: 'auto' | 'suggestions' | 'off'; label: string; sub: string; accent: string; bg: string}[] = [
+                {
+                  key: 'auto',
+                  label: 'Auto',
+                  sub: 'Trains & applies improvements automatically',
+                  accent: '#10B981',
+                  bg: 'rgba(16,185,129,0.12)',
+                },
+                {
+                  key: 'suggestions',
+                  label: 'Suggestions',
+                  sub: 'Trains automatically, you confirm before applying',
+                  accent: '#8B5CF6',
+                  bg: 'rgba(139,92,246,0.12)',
+                },
+                {
+                  key: 'off',
+                  label: 'Off',
+                  sub: 'Trainer disabled — manual only',
+                  accent: 'rgba(255,255,255,0.3)',
+                  bg: 'rgba(255,255,255,0.04)',
+                },
+              ];
+
+              const activeModeOpt = modeOptions.find(m => m.key === effectiveMode) ?? modeOptions[2];
+
+              const statusBadgeColor =
+                tCfg.trainerStatus === 'retraining' ? '#F59E0B' :
+                tCfg.trainerStatus === 'shadow_validating' ? '#3B82F6' :
+                effectiveMode === 'off' ? 'rgba(255,255,255,0.3)' :
+                tPerf.trainerScore >= 70 ? '#10B981' : tPerf.trainerScore >= 50 ? '#F59E0B' : '#EF4444';
+
+              const statusBadgeBg =
+                tCfg.trainerStatus === 'retraining' ? 'rgba(245,158,11,0.2)' :
+                tCfg.trainerStatus === 'shadow_validating' ? 'rgba(59,130,246,0.2)' :
+                effectiveMode === 'off' ? 'rgba(255,255,255,0.06)' :
+                tPerf.trainerScore >= 70 ? 'rgba(16,185,129,0.2)' : tPerf.trainerScore >= 50 ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.2)';
+
+              const statusBadgeLabel =
+                tCfg.trainerStatus === 'retraining' ? 'TRAINING' :
+                tCfg.trainerStatus === 'shadow_validating' ? 'VALIDATING' :
+                effectiveMode === 'off' ? 'OFF' :
+                `${tPerf.trainerScore ?? '—'}/100`;
+
+              return (
+                <View style={[styles.section, {marginTop: 8}]}>
+                  {/* Header row */}
+                  <TouchableOpacity
+                    style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: trainerExpanded ? 16 : 0}}
+                    activeOpacity={0.7}
+                    onPress={() => setTrainerExpanded(v => !v)}
+                  >
+                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                      <View style={{width: 30, height: 30, borderRadius: 9, backgroundColor: activeModeOpt.bg, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: `${activeModeOpt.accent}40`}}>
+                        <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                          <Path d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" stroke={activeModeOpt.accent} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                        </Svg>
+                      </View>
+                      <View>
+                        <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+                          <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'}}>AI Trainer</Text>
+                          <View style={{paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, backgroundColor: statusBadgeBg}}>
+                            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 10, color: statusBadgeColor}}>{statusBadgeLabel}</Text>
+                          </View>
+                          {effectiveMode !== 'off' && (
+                            <View style={{paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, backgroundColor: activeModeOpt.bg}}>
+                              <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 9, color: activeModeOpt.accent}}>{activeModeOpt.label.toUpperCase()}</Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1}}>
+                          {tPerf.totalTrades} trades · WR {tPerf.winRate.toFixed(0)}% · PF {tPerf.profitFactor.toFixed(2)}
+                        </Text>
+                      </View>
+                    </View>
+                    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                      <Path d={trainerExpanded ? 'M18 15l-6-6-6 6' : 'M6 9l6 6 6-6'} stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                    </Svg>
+                  </TouchableOpacity>
+
+                  {trainerExpanded && (
+                    <View style={{gap: 14}}>
+
+                      {/* ── Training Mode Selector (creator only) ── */}
+                      {tIsCreator && (
+                        <View style={{gap: 8}}>
+                          <Text style={[styles.metricLabel, {marginBottom: 2}]}>TRAINING MODE</Text>
+                          {modeOptions.map(opt => {
+                            const active = effectiveMode === opt.key;
+                            return (
+                              <TouchableOpacity
+                                key={opt.key}
+                                activeOpacity={0.7}
+                                style={{
+                                  flexDirection: 'row', alignItems: 'center', padding: 12,
+                                  borderRadius: 12, gap: 12,
+                                  backgroundColor: active ? opt.bg : '#1C2333',
+                                  borderWidth: 1.5,
+                                  borderColor: active ? opt.accent : 'rgba(255,255,255,0.07)',
+                                }}
+                                onPress={async () => {
+                                  if (active) return;
+                                  try {
+                                    const res: any = await botsService.updateTrainerConfig(bot.id, { trainingMode: opt.key });
+                                    const newCfg = res?.data?.config;
+                                    if (newCfg) setTrainerStatus(s => s ? {...s, config: {...s.config, ...newCfg}} : s);
+                                    showToast('success', `Trainer set to ${opt.label}`);
+                                  } catch { showToast('error', 'Failed to update trainer mode'); }
+                                }}
+                              >
+                                {/* Radio dot */}
+                                <View style={{width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: active ? opt.accent : 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center'}}>
+                                  {active && <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: opt.accent}} />}
+                                </View>
+                                <View style={{flex: 1}}>
+                                  <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: active ? opt.accent : '#FFFFFF'}}>{opt.label}</Text>
+                                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2}}>{opt.sub}</Text>
+                                </View>
+                                {active && opt.key !== 'off' && (
+                                  <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: opt.accent}} />
+                                )}
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      )}
+
+                      {/* Divider before metrics */}
+                      {tIsCreator && effectiveMode !== 'off' && (
+                        <View style={{height: 1, backgroundColor: 'rgba(255,255,255,0.06)'}} />
+                      )}
+
+                      {/* Performance meters */}
+                      {effectiveMode !== 'off' && (
+                        <View style={{flexDirection: 'row', gap: 8}}>
+                          {[
+                            {label: 'WIN RATE', value: `${tPerf.winRate.toFixed(0)}%`,         color: tPerf.winRate >= 55 ? '#10B981' : tPerf.winRate >= 45 ? '#F59E0B' : '#EF4444'},
+                            {label: 'PROFIT FACTOR', value: tPerf.profitFactor.toFixed(2),     color: tPerf.profitFactor >= 1.5 ? '#10B981' : tPerf.profitFactor >= 1.0 ? '#F59E0B' : '#EF4444'},
+                            {label: 'DRAWDOWN', value: `${tPerf.maxDrawdown.toFixed(1)}%`,     color: tPerf.maxDrawdown <= 10 ? '#10B981' : tPerf.maxDrawdown <= 25 ? '#F59E0B' : '#EF4444'},
+                          ].map(m => (
+                            <View key={m.label} style={{flex: 1, backgroundColor: '#1C2333', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', alignItems: 'center'}}>
+                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)', marginBottom: 4}}>{m.label}</Text>
+                              <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: m.color}}>{m.value}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+
+                      {/* Pending improvement banner — SUGGESTIONS mode only, creator only */}
+                      {tCfg.pendingPrompt && tIsCreator && (
+                        <View style={{backgroundColor: 'rgba(139,92,246,0.1)', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: 'rgba(139,92,246,0.3)', gap: 12}}>
+                          <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+                            <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                              <Path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" stroke="#8B5CF6" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                            </Svg>
+                            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#8B5CF6'}}>Trainer suggestion ready — review &amp; confirm</Text>
+                          </View>
+                          {/* Improved prompt preview */}
+                          <View style={{backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: 10}}>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 4}}>SUGGESTED STRATEGY</Text>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 18}}>
+                              {tCfg.pendingPrompt.slice(0, 160)}{tCfg.pendingPrompt.length > 160 ? '...' : ''}
+                            </Text>
+                          </View>
+                          {/* Confirm + Dismiss row */}
+                          <View style={{flexDirection: 'row', gap: 10}}>
+                            <TouchableOpacity
+                              style={{flex: 1, backgroundColor: '#8B5CF6', borderRadius: 10, paddingVertical: 11, alignItems: 'center', opacity: promoting ? 0.6 : 1}}
+                              activeOpacity={0.8}
+                              disabled={promoting}
+                              onPress={async () => {
+                                setPromoting(true);
+                                try {
+                                  await botsService.promoteTrainerChanges(bot.id);
+                                  showToast('success', 'Strategy improvement applied!');
+                                  const tr: any = await botsService.getTrainerStatus(bot.id);
+                                  if (tr?.data) setTrainerStatus(tr.data);
+                                } catch { showToast('error', 'Failed to apply changes'); }
+                                finally { setPromoting(false); }
+                              }}
+                            >
+                              {promoting
+                                ? <ActivityIndicator size="small" color="#FFF" />
+                                : <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'}}>Confirm &amp; Apply</Text>
+                              }
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={{paddingHorizontal: 16, paddingVertical: 11, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center'}}
+                              activeOpacity={0.7}
+                              onPress={async () => {
+                                // Dismiss pending — clear pendingPrompt/Config without promoting
+                                try {
+                                  await botsService.updateTrainerConfig(bot.id, {pendingPrompt: null, pendingConfig: null} as any);
+                                  setTrainerStatus(s => s ? {...s, config: {...s.config, pendingPrompt: null, pendingConfig: null}} : s);
+                                  showToast('info', 'Suggestion dismissed');
+                                } catch {}
+                              }}
+                            >
+                              <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: 'rgba(255,255,255,0.4)'}}>Dismiss</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      )}
+
+                      {/* Recent insights log */}
+                      {tCfg.insights?.length > 0 && effectiveMode !== 'off' && (
+                        <View style={{gap: 0}}>
+                          <Text style={[styles.metricLabel, {marginBottom: 8}]}>TRAINER LOG</Text>
+                          {tCfg.insights.slice(0, 4).map((ins, i) => (
+                            <View
+                              key={i}
+                              style={{flexDirection: 'row', gap: 10, paddingVertical: 10,
+                                borderBottomWidth: i < Math.min(tCfg.insights.length, 4) - 1 ? 1 : 0,
+                                borderBottomColor: 'rgba(255,255,255,0.05)'}}
+                            >
+                              <View style={{
+                                width: 6, height: 6, borderRadius: 3, marginTop: 6,
+                                backgroundColor:
+                                  ins.type === 'retrain' ? '#EF4444' :
+                                  ins.type === 'improvement' ? '#10B981' :
+                                  ins.type === 'warning' ? '#F59E0B' : 'rgba(255,255,255,0.25)',
+                              }} />
+                              <View style={{flex: 1}}>
+                                <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.7)', lineHeight: 18}}>{ins.message}</Text>
+                                <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>{new Date(ins.ts).toLocaleDateString()}</Text>
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+
+                      {/* Manual retrain — creator only, any mode except off */}
+                      {tIsCreator && effectiveMode !== 'off' && (
+                        <TouchableOpacity
+                          style={{
+                            backgroundColor: 'rgba(139,92,246,0.1)', borderRadius: 14,
+                            paddingVertical: 13, alignItems: 'center',
+                            borderWidth: 1, borderColor: 'rgba(139,92,246,0.25)',
+                            opacity: (retraining || tCfg.trainerStatus === 'retraining') ? 0.5 : 1,
+                          }}
+                          activeOpacity={0.8}
+                          disabled={retraining || tCfg.trainerStatus === 'retraining'}
+                          onPress={async () => {
+                            setRetraining(true);
+                            try {
+                              const res: any = await botsService.triggerRetrain(bot.id);
+                              showToast('success', res?.data?.message ?? 'Trainer running…');
+                              const tr: any = await botsService.getTrainerStatus(bot.id);
+                              if (tr?.data) setTrainerStatus(tr.data);
+                            } catch { showToast('error', 'Retrain failed — AI credits needed'); }
+                            finally { setRetraining(false); }
+                          }}
+                        >
+                          {retraining
+                            ? <ActivityIndicator size="small" color="#8B5CF6" />
+                            : <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#8B5CF6'}}>
+                                Run AI Trainer Now
+                              </Text>
+                          }
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Off state message */}
+                      {effectiveMode === 'off' && !tIsCreator && (
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)', textAlign: 'center', paddingVertical: 8}}>
+                          AI Trainer is disabled for this bot.
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
 
             {/* Bot DNA */}
             {bot.tags && bot.tags.length > 0 && (
@@ -1391,6 +1745,132 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
         <View style={{height: 120}} />
       </ScrollView>
+
+      {/* ─── Bot Settings Modal (gear icon) ──────────────────────────── */}
+      <Modal
+        visible={settingsModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSettingsModalVisible(false)}>
+        <KeyboardAvoidingView
+          style={modalStyles.overlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <View style={[modalStyles.sheet, {maxHeight: '90%'}]}>
+            <View style={modalStyles.handle} />
+            <View style={modalStyles.headerRow}>
+              <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                <View style={{width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(139,92,246,0.15)', alignItems: 'center', justifyContent: 'center'}}>
+                  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                    <Path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke="#8B5CF6" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                    <Path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="#8B5CF6" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                  </Svg>
+                </View>
+                <Text style={modalStyles.title}>Bot Settings</Text>
+              </View>
+              <TouchableOpacity onPress={() => setSettingsModalVisible(false)} style={modalStyles.closeBtn}>
+                <XIcon size={18} color="rgba(255,255,255,0.5)" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={modalStyles.body}
+              contentContainerStyle={[modalStyles.bodyContent, {gap: 20}]}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator={false}>
+
+              {/* Risk Multiplier */}
+              <View>
+                <Text style={[modalStyles.label, {marginBottom: 10}]}>RISK MULTIPLIER</Text>
+                <View style={{flexDirection: 'row', gap: 8}}>
+                  {([0.5, 1, 1.5, 2] as const).map(v => (
+                    <TouchableOpacity key={v} activeOpacity={0.7}
+                      style={{flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: subUserConfig.riskMultiplier === v ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.08)', alignItems: 'center'}}
+                      onPress={() => setSubUserConfig(c => ({...c, riskMultiplier: v}))}>
+                      <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{v}x</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Notifications */}
+              <View>
+                <Text style={[modalStyles.label, {marginBottom: 10}]}>NOTIFICATIONS</Text>
+                <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+                  {(['all', 'wins_only', 'losses_only', 'summary'] as const).map(n => (
+                    <TouchableOpacity key={n} activeOpacity={0.7}
+                      style={{paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, backgroundColor: subUserConfig.notificationLevel === n ? 'rgba(59,130,246,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.08)'}}
+                      onPress={() => setSubUserConfig(c => ({...c, notificationLevel: n}))}>
+                      <Text style={{fontFamily: 'Inter-Medium', fontSize: 13, color: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.5)'}}>{n === 'all' ? 'All Trades' : n === 'wins_only' ? 'Wins Only' : n === 'losses_only' ? 'Losses Only' : 'Summary'}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Max Daily Loss */}
+              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                <View style={{flex: 1}}>
+                  <Text style={modalStyles.label}>MAX DAILY LOSS</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop trading if this % is lost in a day</Text>
+                </View>
+                <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                  <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.maxDailyLoss ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, maxDailyLoss: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
+                </View>
+              </View>
+
+              {/* Auto-Stop Loss */}
+              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                <View style={{flex: 1}}>
+                  <Text style={modalStyles.label}>AUTO-STOP LOSS %</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop bot if portfolio drops this %</Text>
+                </View>
+                <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                  <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopLossPercent ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopLossPercent: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
+                </View>
+              </View>
+
+              {/* Auto-Stop Balance */}
+              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                <View style={{flex: 1}}>
+                  <Text style={modalStyles.label}>AUTO-STOP BALANCE</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop if balance falls below $</Text>
+                </View>
+                <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
+                  <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopBalance ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopBalance: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                </View>
+              </View>
+
+              {/* Auto-Stop Days */}
+              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                <View style={{flex: 1}}>
+                  <Text style={modalStyles.label}>AUTO-STOP DAYS</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Automatically stop bot after N days</Text>
+                </View>
+                <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                  <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="number-pad" value={subUserConfig.autoStopDays ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopDays: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 6}}>days</Text>
+                </View>
+              </View>
+
+            </ScrollView>
+
+            <View style={modalStyles.footer}>
+              <TouchableOpacity
+                style={[modalStyles.confirmBtn, {opacity: savingConfig ? 0.6 : 1}]}
+                activeOpacity={0.85}
+                disabled={savingConfig}
+                onPress={async () => { await handleSaveUserConfig(); setSettingsModalVisible(false); }}>
+                {savingConfig
+                  ? <ActivityIndicator size="small" color="#FFFFFF" />
+                  : <Text style={modalStyles.confirmText}>Save Settings</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* ─── Shadow Mode Confirmation Modal ─────────────────────────── */}
       <Modal

@@ -150,3 +150,22 @@ export declare const grantSubscriptionBodySchema: z.ZodObject<{
     durationDays?: number | undefined;
     tier?: string | undefined;
 }>;
+export declare const updateAiConfigBodySchema: z.ZodObject<{
+    provider: z.ZodEnum<["anthropic", "gemini", "openai", "auto"]>;
+    model: z.ZodDefault<z.ZodString>;
+    anthropicApiKey: z.ZodOptional<z.ZodString>;
+    openaiApiKey: z.ZodOptional<z.ZodString>;
+    geminiApiKey: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    provider: "anthropic" | "gemini" | "openai" | "auto";
+    model: string;
+    anthropicApiKey?: string | undefined;
+    openaiApiKey?: string | undefined;
+    geminiApiKey?: string | undefined;
+}, {
+    provider: "anthropic" | "gemini" | "openai" | "auto";
+    model?: string | undefined;
+    anthropicApiKey?: string | undefined;
+    openaiApiKey?: string | undefined;
+    geminiApiKey?: string | undefined;
+}>;

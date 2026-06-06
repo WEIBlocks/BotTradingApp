@@ -297,7 +297,7 @@ function parseJsonResponse(rawText: string): Record<string, unknown> {
 async function analyzeImage(fileUrl: string): Promise<Record<string, unknown>> {
   const response = await llmChat(
     [{ role: 'user', content: 'Is this a trading or financial chart? If yes, analyze it. If no, reject it.' }],
-    { system: CHART_ANALYSIS_SYSTEM, maxTokens: 1500, imageUrl: fileUrl },
+    { system: CHART_ANALYSIS_SYSTEM, maxTokens: 1500, imageUrl: fileUrl, cacheSystem: true },
   );
   const result = parseJsonResponse(response.text);
 
@@ -336,7 +336,7 @@ async function analyzeDocument(
         content: `Analyze this trading strategy document titled "${name}":\n\n${fileContent}\n\nExtract the strategy details and parameters for bot training.`,
       },
     ],
-    { system: DOCUMENT_ANALYSIS_SYSTEM, maxTokens: 1500 },
+    { system: DOCUMENT_ANALYSIS_SYSTEM, maxTokens: 1500, cacheSystem: true },
   );
 
   return parseJsonResponse(response.text);

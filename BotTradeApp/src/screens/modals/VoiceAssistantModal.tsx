@@ -146,7 +146,7 @@ export default function VoiceAssistantModal({navigation}: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: '#0A0E1A', paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center'},
+  container: {flex: 1, backgroundColor: '#0F1117', paddingHorizontal: 24, alignItems: 'center', justifyContent: 'center'},
   closeBtn: {
     position: 'absolute', top: 56, right: 20,
     width: 40, height: 40, borderRadius: 20,
@@ -162,19 +162,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', height: 80, gap: 5, marginBottom: 16,
   },
   waveBar: {
-    width: 5, backgroundColor: '#0D7FF2', borderRadius: 3,
-    minHeight: 8, alignSelf: 'center',
+    width: 6, backgroundColor: '#10B981', borderRadius: 3,
+    minHeight: 10, alignSelf: 'center',
   },
   listeningText: {
-    fontFamily: 'Inter-Bold', fontSize: 11, letterSpacing: 3,
-    color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 48,
+    fontFamily: 'Inter-Bold', fontSize: 12, letterSpacing: 3,
+    color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: 48,
   },
   suggestionsContainer: {width: '100%', gap: 10},
   suggestionPill: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: 'rgba(13,127,242,0.08)',
+    backgroundColor: 'rgba(16,185,129,0.07)',
     borderRadius: 16, paddingHorizontal: 18, paddingVertical: 14,
-    borderWidth: 1, borderColor: 'rgba(13,127,242,0.25)',
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.2)',
   },
   suggestionIcon: {fontSize: 18},
   suggestionText: {fontFamily: 'Inter-Medium', fontSize: 15, color: 'rgba(255,255,255,0.7)'},

@@ -144,72 +144,45 @@ function BotGridCard({
     : bot.risk === 'High' || bot.risk === 'Very High' ? '#EF4444'
     : '#F59E0B';
 
-  // Strategy tag color per design
-  const tagColors: Record<string, string> = {
-    'Scalping': '#A855F7',
-    'High Frequency': '#EC4899',
-    'HFT': '#EC4899',
-    'Trend Following': '#10B981',
-    'AI Momentum': '#3B82F6',
-    'Arbitrage': '#06B6D4',
-    'DCA': '#06B6D4',
-    'Conservative': '#22D3EE',
-  };
-  const tagBg = tagColors[bot.strategy] || '#10B981';
-
   return (
     <TouchableOpacity style={gridStyles.card} onPress={onPress} activeOpacity={0.85}>
-      {/* Heart toggle — absolute top-right so it never reflows the layout. */}
-      <FavoriteHeart botId={bot.id} bot={bot} style={gridStyles.heartCorner} />
-      {/* Top row: bot SVG avatar + strategy tag */}
+
+      {/* ── Row 1: avatar + heart (no overlap) ── */}
       <View style={gridStyles.topRow}>
         <View style={gridStyles.avatarWrap}>
-          <BotAvatarSvg size={32} />
+          <BotAvatarSvg size={28} />
         </View>
-        <View style={[gridStyles.strategyTag, {backgroundColor: tagBg + '33', borderColor: tagBg + '66'}]}>
-          <Text style={[gridStyles.strategyText, {color: tagBg}]} numberOfLines={1}>
-            {bot.strategy}
-          </Text>
+        <FavoriteHeart botId={bot.id} bot={bot} size={17} style={gridStyles.heartBtn} />
+      </View>
+
+      {/* ── Name — full width, wraps freely ── */}
+      <Text style={gridStyles.botName}>{bot.name}</Text>
+      {!!bot.creatorName && (
+        <Text style={gridStyles.creator} numberOfLines={1}>by {bot.creatorName}</Text>
+      )}
+
+      {/* ── Stats pills row ── */}
+      <View style={gridStyles.statsPills}>
+        <View style={[gridStyles.pill, {backgroundColor: returnColor + '18'}]}>
+          <Text style={[gridStyles.pillVal, {color: returnColor}]}>{returnSign}{bot.returnPercent.toFixed(1)}%</Text>
+          <Text style={gridStyles.pillLbl}>30D</Text>
+        </View>
+        <View style={gridStyles.pill}>
+          <Text style={gridStyles.pillVal}>{bot.winRate}%</Text>
+          <Text style={gridStyles.pillLbl}>Win</Text>
+        </View>
+        <View style={[gridStyles.pill, {backgroundColor: riskColor + '18'}]}>
+          <Text style={[gridStyles.pillVal, {color: riskColor, fontSize: 10}]}>{bot.risk}</Text>
+          <Text style={gridStyles.pillLbl}>Risk</Text>
         </View>
       </View>
 
-      {/* Name + creator */}
-      <Text style={gridStyles.botName} numberOfLines={1}>{bot.name}</Text>
-      <Text style={gridStyles.creator} numberOfLines={1}>by {bot.creatorName}</Text>
-
-      {/* Stats — each on its own row */}
-      <View style={gridStyles.statsBlock}>
-        <View style={gridStyles.statRow}>
-          <Text style={gridStyles.statLabel}>30D</Text>
-          <Text style={[gridStyles.statValue, {color: returnColor}]}>
-            {returnSign}{bot.returnPercent.toFixed(1)}%
-          </Text>
-        </View>
-        <View style={gridStyles.statRow}>
-          <Text style={gridStyles.statLabel}>Win Rate</Text>
-          <Text style={gridStyles.statValueWhite}>{bot.winRate}%</Text>
-        </View>
-        <View style={gridStyles.statRow}>
-          <Text style={gridStyles.statLabel}>Risk</Text>
-          <Text style={[gridStyles.statValue, {color: riskColor}]}>{bot.risk}</Text>
-        </View>
-      </View>
-
-      {/* Divider */}
-      <View style={gridStyles.divider} />
-
-      {/* Buttons */}
+      {/* ── Buttons ── */}
       <View style={gridStyles.btnRow}>
-        <TouchableOpacity
-          style={gridStyles.paperBtn}
-          onPress={onShadowPress}
-          activeOpacity={0.7}>
+        <TouchableOpacity style={gridStyles.paperBtn} onPress={onShadowPress} activeOpacity={0.7}>
           <Text style={gridStyles.paperBtnText}>Shadow</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          style={gridStyles.liveBtn}
-          onPress={onPress}
-          activeOpacity={0.7}>
+        <TouchableOpacity style={gridStyles.liveBtn} onPress={onPress} activeOpacity={0.7}>
           <Text style={gridStyles.liveBtnText}>Live</Text>
         </TouchableOpacity>
       </View>
@@ -228,7 +201,7 @@ function TrendingCard({bot, onPress}: {bot: Bot; onPress: () => void}) {
         <View style={trendStyles.avatarWrap}>
           <BotAvatarSvg size={22} />
         </View>
-        <Text style={trendStyles.name} numberOfLines={1}>{bot.name}</Text>
+        <Text style={trendStyles.name} numberOfLines={2}>{bot.name}</Text>
       </View>
       <Text style={[trendStyles.pct, {color: returnColor}]}>
         {returnSign}{bot.returnPercent.toFixed(1)}%
@@ -267,36 +240,33 @@ function MyBotCard({
 
   return (
     <TouchableOpacity style={myBotStyles.card} onPress={onPress} activeOpacity={0.85}>
-      {/* Status pill */}
-      <View style={[myBotStyles.statusPill, {backgroundColor: isPublished ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)'}]}>
-        <View style={[myBotStyles.statusDot, {backgroundColor: isPublished ? '#10B981' : '#F59E0B'}]} />
-        <Text style={[myBotStyles.statusText, {color: isPublished ? '#10B981' : '#F59E0B'}]}>
-          {isPublished ? 'Live' : 'Draft'}
-        </Text>
-      </View>
-      {/* Heart toggle — top-right corner. */}
-      <FavoriteHeart botId={bot.id} bot={bot as any} size={18} style={myBotStyles.heartCorner} />
 
-      {/* Avatar + strategy */}
+      {/* ── Row 1: status pill + heart (in-flow, no overlap) ── */}
       <View style={myBotStyles.topRow}>
-        <View style={myBotStyles.avatarWrap}>
-          {bot.avatarUrl ? (
-            <BotAvatar
-              size={40}
-              avatarUrl={bot.avatarUrl}
-              avatarColor={bot.avatarColor || '#10B981'}
-              avatarLetter={(bot.avatarLetter || bot.name?.charAt(0) || 'B').toUpperCase()}
-            />
-          ) : (
-            <BotAvatarSvg size={28} />
-          )}
+        <View style={[myBotStyles.statusPill, {backgroundColor: isPublished ? 'rgba(16,185,129,0.15)' : 'rgba(245,158,11,0.15)'}]}>
+          <View style={[myBotStyles.statusDot, {backgroundColor: isPublished ? '#10B981' : '#F59E0B'}]} />
+          <Text style={[myBotStyles.statusText, {color: isPublished ? '#10B981' : '#F59E0B'}]}>
+            {isPublished ? 'Live' : 'Draft'}
+          </Text>
         </View>
-        <View style={[myBotStyles.strategyTag, {backgroundColor: tagBg + '22', borderColor: tagBg + '55'}]}>
-          <Text style={[myBotStyles.strategyText, {color: tagBg}]} numberOfLines={1}>{bot.strategy}</Text>
-        </View>
+        <FavoriteHeart botId={bot.id} bot={bot as any} size={16} style={myBotStyles.heartBtn} />
       </View>
 
-      {/* Full bot name — wraps to multiple lines instead of truncating */}
+      {/* ── Avatar ── */}
+      <View style={myBotStyles.avatarWrap}>
+        {bot.avatarUrl ? (
+          <BotAvatar
+            size={36}
+            avatarUrl={bot.avatarUrl}
+            avatarColor={bot.avatarColor || '#10B981'}
+            avatarLetter={(bot.avatarLetter || bot.name?.charAt(0) || 'B').toUpperCase()}
+          />
+        ) : (
+          <BotAvatarSvg size={22} />
+        )}
+      </View>
+
+      {/* ── Name — full-width, wraps freely ── */}
       <Text style={myBotStyles.botName}>{bot.name}</Text>
 
       {/* Stats */}
@@ -836,57 +806,42 @@ const gridStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     padding: 12,
-    position: 'relative',
-  },
-  heartCorner: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 2,
-    padding: 4,
   },
   topRow: {
     flexDirection: 'row', alignItems: 'center',
     justifyContent: 'space-between', marginBottom: 10,
   },
   avatarWrap: {
-    width: 44, height: 44, borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.12)',
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center', justifyContent: 'center',
-    padding: 4,
   },
-  strategyTag: {
-    borderRadius: 8, borderWidth: 1,
-    paddingHorizontal: 7, paddingVertical: 3,
-    maxWidth: 82,
+  heartBtn: {padding: 4},
+  botName: {fontFamily: 'Inter-Bold', fontSize: 13, color: '#FFFFFF', lineHeight: 18, marginBottom: 2},
+  creator: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginBottom: 10},
+  statsPills: {flexDirection: 'row', gap: 4, marginBottom: 10},
+  pill: {
+    flex: 1, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 8, paddingVertical: 5,
   },
-  strategyText: {fontFamily: 'Inter-SemiBold', fontSize: 9},
-  botName: {fontFamily: 'Inter-Bold', fontSize: 13, color: '#FFFFFF', marginBottom: 2},
-  creator: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 12},
-  statsBlock: {marginBottom: 12},
-  statRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: 5,
-  },
-  statLabel: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)'},
-  statValue: {fontFamily: 'Inter-SemiBold', fontSize: 12},
-  statValueWhite: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#FFFFFF'},
-  divider: {height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginBottom: 10},
+  pillVal: {fontFamily: 'Inter-Bold', fontSize: 11, color: '#FFFFFF', marginBottom: 1},
+  pillLbl: {fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)'},
   btnRow: {flexDirection: 'row', gap: 6},
   paperBtn: {
-    flex: 1, height: 30, borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    flex: 1, height: 28, borderRadius: 7,
+    backgroundColor: 'rgba(255,255,255,0.07)',
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center', justifyContent: 'center',
   },
-  paperBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.7)'},
+  paperBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: 'rgba(255,255,255,0.6)'},
   liveBtn: {
-    flex: 1, height: 30, borderRadius: 8,
+    flex: 1, height: 28, borderRadius: 7,
     backgroundColor: '#10B981',
     alignItems: 'center', justifyContent: 'center',
   },
-  liveBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: '#FFFFFF'},
+  liveBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: '#FFFFFF'},
 });
 
 // ─── Trending card styles ─────────────────────────────────────────────────────
@@ -908,9 +863,9 @@ const trendStyles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     padding: 3,
   },
-  name: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF', flex: 1},
+  name: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF', flexShrink: 1},
   pct: {fontFamily: 'Inter-Bold', fontSize: 22, letterSpacing: -0.5, marginBottom: 2},
-  label: {fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.8},
+  label: {fontFamily: 'Inter-Medium', fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 0.8},
 });
 
 // ─── My Bot card styles ───────────────────────────────────────────────────────
@@ -923,44 +878,31 @@ const myBotStyles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.08)',
     padding: 12,
-    position: 'relative',
   },
-  heartCorner: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    zIndex: 2,
-    padding: 4,
-  },
-  statusPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    alignSelf: 'flex-start', borderRadius: 20,
-    paddingHorizontal: 8, paddingVertical: 3, marginBottom: 10,
-  },
-  statusDot: {width: 6, height: 6, borderRadius: 3},
-  statusText: {fontFamily: 'Inter-SemiBold', fontSize: 10},
   topRow: {
     flexDirection: 'row', alignItems: 'center',
-    justifyContent: 'space-between', marginBottom: 8,
+    justifyContent: 'space-between', marginBottom: 10,
   },
+  statusPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderRadius: 20, paddingHorizontal: 7, paddingVertical: 3,
+  },
+  statusDot: {width: 5, height: 5, borderRadius: 3},
+  statusText: {fontFamily: 'Inter-SemiBold', fontSize: 10},
+  heartBtn: {padding: 4},
   avatarWrap: {
-    width: 40, height: 40, borderRadius: 20,
+    width: 36, height: 36, borderRadius: 18,
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.1)',
     alignItems: 'center', justifyContent: 'center',
+    marginBottom: 8,
   },
-  strategyTag: {
-    borderRadius: 8, borderWidth: 1,
-    paddingHorizontal: 7, paddingVertical: 3, maxWidth: 80,
-  },
-  strategyText: {fontFamily: 'Inter-SemiBold', fontSize: 9},
   botName: {
     fontFamily: 'Inter-Bold',
     fontSize: 13,
-    lineHeight: 17,
+    lineHeight: 18,
     color: '#FFFFFF',
-    marginBottom: 12,
-    flexWrap: 'wrap',
+    marginBottom: 10,
   },
   statsRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -969,7 +911,7 @@ const myBotStyles = StyleSheet.create({
   },
   statItem: {flex: 1, alignItems: 'center'},
   statVal: {fontFamily: 'Inter-Bold', fontSize: 13, color: '#FFFFFF', marginBottom: 2},
-  statLbl: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.35)'},
+  statLbl: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.5)'},
   statDivider: {width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.08)'},
   actionsCol: {
     flexDirection: 'column',
@@ -1087,7 +1029,7 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     fontFamily: 'Inter-SemiBold', fontSize: 11, letterSpacing: 1.2,
-    color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase',
   },
   sortRow: {flexDirection: 'row', alignItems: 'center'},
   sortText: {fontFamily: 'Inter-Medium', fontSize: 12, color: '#10B981'},
@@ -1109,8 +1051,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between', marginBottom: 16,
   },
   featuredReturnLabel: {
-    fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 0.8,
-    color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 4,
+    fontFamily: 'Inter-Medium', fontSize: 11, letterSpacing: 0.8,
+    color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', marginBottom: 4,
   },
   featuredReturn: {fontFamily: 'Inter-Bold', fontSize: 34, color: '#10B981', letterSpacing: -1.2},
   activateNowBtn: {

@@ -23,6 +23,7 @@ export const arenaSessions = pgTable("arena_sessions", {
     status: arenaStatusEnum("status").default("setup"),
     mode: arenaModeEnum("mode").default("shadow"),
     durationSeconds: integer("duration_seconds").default(180),
+    unlimited: boolean("unlimited").default(false),
     // Shared balance pool — all bots compete within this total pool
     virtualBalance: numeric("virtual_balance", { precision: 14, scale: 2 }).default("10000"),
     // For mixed (crypto+stock) sessions, store balances separately

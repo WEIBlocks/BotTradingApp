@@ -251,12 +251,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12, gap: 6,
     borderBottomWidth: 2, borderBottomColor: 'transparent',
   },
-  tabLabel: {fontFamily: 'Inter-SemiBold', fontSize: 12, color: 'rgba(255,255,255,0.35)'},
+  tabLabel: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: 'rgba(255,255,255,0.45)'},
   tabBadge: {
-    paddingHorizontal: 5, paddingVertical: 1, borderRadius: 5,
+    paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5,
     backgroundColor: 'rgba(255,255,255,0.08)',
   },
-  tabBadgeText: {fontFamily: 'Inter-Bold', fontSize: 9, color: 'rgba(255,255,255,0.4)'},
+  tabBadgeText: {fontFamily: 'Inter-Bold', fontSize: 10, color: 'rgba(255,255,255,0.5)'},
 
   // Summary card
   summaryCard: {
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
   },
   summaryItem: {flex: 1, alignItems: 'center'},
   summaryValue: {fontFamily: 'Inter-Bold', fontSize: 17, color: '#FFFFFF', marginBottom: 2},
-  summaryLabel: {fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', letterSpacing: 0.5},
+  summaryLabel: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: 0.5},
   summaryDivider: {width: 1, height: 28, backgroundColor: 'rgba(255,255,255,0.07)', marginHorizontal: 4},
 
   // List

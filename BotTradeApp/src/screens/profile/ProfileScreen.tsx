@@ -416,7 +416,7 @@ const styles = StyleSheet.create({
   header: {paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12},
   headerTitle: {fontFamily: 'Inter-Bold', fontSize: 24, color: '#FFFFFF'},
   profileCard: {
-    marginHorizontal: 20, marginBottom: 8,
+    marginHorizontal: 16, marginBottom: 10,
     backgroundColor: '#161B22', borderRadius: 20, padding: 20,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
@@ -469,10 +469,10 @@ const styles = StyleSheet.create({
   },
   upgradeBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
 
-  section: {paddingHorizontal: 20, marginBottom: 8},
+  section: {paddingHorizontal: 16, marginBottom: 10},
   card: {
     backgroundColor: '#161B22', borderRadius: 16,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
     paddingHorizontal: 16,
   },
   emptyRow: {paddingVertical: 24, alignItems: 'center'},

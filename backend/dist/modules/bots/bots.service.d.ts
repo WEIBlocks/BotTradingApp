@@ -49,6 +49,7 @@ export declare function createBot(userId: string, data: CreateBotData): Promise<
     avatarLetter: string | null;
     avatarUrl: string | null;
     isPublished: boolean | null;
+    trainerConfig: unknown;
 }>;
 interface UpdateBotData {
     name?: string;
@@ -97,6 +98,7 @@ export declare function updateBot(userId: string, botId: string, data: UpdateBot
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
+    trainerConfig: unknown;
     version: string | null;
     createdAt: Date | null;
     updatedAt: Date | null;
@@ -121,6 +123,7 @@ export declare function getBotForEdit(userId: string, botId: string): Promise<{
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
+    trainerConfig: unknown;
     version: string | null;
     createdAt: Date | null;
     updatedAt: Date | null;
@@ -140,6 +143,7 @@ export declare function pauseBot(userId: string, botSubId: string): Promise<{
     expiresAt: Date | null;
     createdAt: Date | null;
     userConfig: unknown;
+    compoundingSettings: unknown;
     updatedAt: Date | null;
 }>;
 export declare function stopBot(userId: string, botSubId: string): Promise<{
@@ -157,6 +161,7 @@ export declare function stopBot(userId: string, botSubId: string): Promise<{
     expiresAt: Date | null;
     createdAt: Date | null;
     userConfig: unknown;
+    compoundingSettings: unknown;
     updatedAt: Date | null;
 }>;
 export declare function resumeBot(userId: string, botSubId: string): Promise<{
@@ -174,6 +179,7 @@ export declare function resumeBot(userId: string, botSubId: string): Promise<{
     expiresAt: Date | null;
     createdAt: Date | null;
     userConfig: unknown;
+    compoundingSettings: unknown;
     updatedAt: Date | null;
 }>;
 export declare function purchaseBot(userId: string, botId: string, mode: 'live' | 'paper', requestedAmount?: number, minOrderValue?: number, preferredExchangeConnId?: string): Promise<{
@@ -192,6 +198,7 @@ export declare function purchaseBot(userId: string, botId: string, mode: 'live' 
     pair: string | null;
     startedAt: Date | null;
     userConfig: unknown;
+    compoundingSettings: unknown;
 }>;
 export declare function startShadowMode(userId: string, botId: string, config: {
     virtualBalance: number;
@@ -236,6 +243,7 @@ export declare function startShadowMode(userId: string, botId: string, config: {
         pair: string | null;
         startedAt: Date | null;
         userConfig: unknown;
+        compoundingSettings: unknown;
     };
 }>;
 export declare function getShadowResults(userId: string, sessionId: string): Promise<{
@@ -467,6 +475,7 @@ export declare function activateLiveMode(userId: string, botId: string, exchange
     pair: string | null;
     startedAt: Date | null;
     userConfig: unknown;
+    compoundingSettings: unknown;
 }>;
 export declare function getBotDecisions(userId: string, botId: string, limit?: number, offset?: number, mode?: 'paper' | 'live'): Promise<{
     decisions: {
@@ -590,6 +599,7 @@ export declare function updateUserConfig(userId: string, subscriptionId: string,
     expiresAt: Date | null;
     createdAt: Date | null;
     userConfig: unknown;
+    compoundingSettings: unknown;
     updatedAt: Date | null;
 }>;
 export declare function getSubscription(userId: string, subscriptionId: string): Promise<{
@@ -607,6 +617,7 @@ export declare function getSubscription(userId: string, subscriptionId: string):
     expiresAt: Date | null;
     createdAt: Date | null;
     userConfig: unknown;
+    compoundingSettings: unknown;
     updatedAt: Date | null;
 }>;
 export declare function getPublicLiveStats(botId: string): Promise<{
@@ -834,6 +845,7 @@ export declare function setBotAvatar(userId: string, botId: string, avatarUrl: s
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
+    trainerConfig: unknown;
     version: string | null;
     createdAt: Date | null;
     updatedAt: Date | null;

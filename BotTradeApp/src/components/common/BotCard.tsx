@@ -57,54 +57,39 @@ export default function BotCard({bot, onPress, style, compact = false}: BotCardP
         <HeartIcon size={18} filled={favorited} color={favorited ? '#EF4444' : 'rgba(255,255,255,0.55)'} />
       </TouchableOpacity>
 
-      {/* Top row */}
+      {/* Avatar + status badge row */}
       <View style={styles.topRow}>
         <BotAvatar
-          size={36}
+          size={34}
           avatarUrl={bot.avatarUrl}
           avatarColor={bot.avatarColor}
           avatarLetter={bot.avatarLetter}
         />
-        <View style={styles.topRight}>
-          <View style={styles.statusBadgeWrap}>
-            <Badge
-              label={bot.status === 'live' ? 'LIVE' : 'SHADOW'}
-              variant={bot.status === 'live' ? 'green' : 'blue'}
-              size="sm"
-            />
-          </View>
-        </View>
+        <Badge
+          label={bot.status === 'live' ? 'LIVE' : 'SHADOW'}
+          variant={bot.status === 'live' ? 'green' : 'blue'}
+          size="sm"
+        />
       </View>
 
-      {/* Name & Strategy */}
-      <Text style={styles.name} numberOfLines={1}>{bot.name}</Text>
-      <Text style={styles.strategy} numberOfLines={1}>{bot.strategy}</Text>
-      {!!bot.subtitle && (
-        <Text style={styles.subtitle} numberOfLines={2}>{bot.subtitle}</Text>
-      )}
-      {Array.isArray(bot.tags) && bot.tags.length > 0 && (
-        <View style={styles.tagsRow}>
-          {bot.tags.slice(0, 3).map((t, i) => (
-            <View key={`${t}-${i}`} style={styles.tagChip}>
-              <Text style={styles.tagText} numberOfLines={1}>{t}</Text>
-            </View>
-          ))}
-        </View>
-      )}
+      {/* Full-width name — wraps freely */}
+      <Text style={styles.name}>{bot.name}</Text>
+      <Text style={styles.strategy} numberOfLines={2}>{bot.strategy}</Text>
 
-      {/* Return */}
-      <Text style={[styles.returnValue, {color: returnColor}]}>
-        {returnSign}{bot.returnPercent.toFixed(1)}%
-      </Text>
-      <Text style={styles.returnLabel}>30D Return</Text>
-
-      {/* Risk badge */}
-      <View style={styles.bottomRow}>
+      {/* Stats row: return + risk + price */}
+      <View style={styles.statsRow}>
+        <Text style={[styles.returnValue, {color: returnColor}]}>
+          {returnSign}{bot.returnPercent.toFixed(1)}%
+        </Text>
+        <Text style={styles.statSep}>·</Text>
         <Badge
           label={bot.risk}
           variant={bot.risk === 'Low' || bot.risk === 'Very Low' ? 'green' : bot.risk === 'High' || bot.risk === 'Very High' ? 'red' : 'orange'}
           size="sm"
         />
+      </View>
+      <View style={styles.bottomRow}>
+        <Text style={styles.returnLabel}>30D Return</Text>
         <Text style={styles.price}>
           {bot.price === 0 ? 'FREE' : `$${bot.price}/mo`}
         </Text>
@@ -118,8 +103,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#161B22',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-    padding: 14,
+    borderColor: 'rgba(255,255,255,0.08)',
+    padding: 16,
     flex: 1,
     position: 'relative',
   },
@@ -135,79 +120,50 @@ const styles = StyleSheet.create({
   },
   topRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    gap: 8,
     marginBottom: 10,
   },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarLetter: {
-    fontFamily: 'Inter-Bold',
-    fontSize: 14,
-    color: '#FFFFFF',
-  },
-  topRight: {alignItems: 'flex-end'},
-  // Push the LIVE/SHADOW badge down so it sits below the floating heart.
-  statusBadgeWrap: {marginTop: 22},
   name: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 13,
     color: '#FFFFFF',
-    marginBottom: 2,
+    marginBottom: 3,
+    lineHeight: 19,
   },
   strategy: {
     fontFamily: 'Inter-Regular',
     fontSize: 11,
-    color: 'rgba(255,255,255,0.4)',
-    marginBottom: 6,
+    color: 'rgba(255,255,255,0.45)',
+    marginBottom: 10,
+    lineHeight: 16,
   },
-  subtitle: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 10.5,
-    lineHeight: 14,
-    color: 'rgba(255,255,255,0.55)',
-    marginBottom: 6,
-  },
-  tagsRow: {
+  statsRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-    marginBottom: 8,
-  },
-  tagChip: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: 'rgba(139,92,246,0.15)',
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(139,92,246,0.3)',
-  },
-  tagText: {
-    fontFamily: 'Inter-Medium',
-    fontSize: 9,
-    color: '#A78BFA',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
   },
   returnValue: {
     fontFamily: 'Inter-Bold',
-    fontSize: 22,
-    letterSpacing: -0.5,
-    marginBottom: 2,
+    fontSize: 15,
+    letterSpacing: -0.2,
+  },
+  statSep: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.2)',
   },
   returnLabel: {
     fontFamily: 'Inter-Regular',
     fontSize: 10,
-    color: 'rgba(255,255,255,0.4)',
-    marginBottom: 10,
+    color: 'rgba(255,255,255,0.35)',
   },
   bottomRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginTop: 2,
   },
   price: {
     fontFamily: 'Inter-Medium',

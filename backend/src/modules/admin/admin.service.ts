@@ -1,4 +1,7 @@
 import { eq, and, desc, sql, count, sum, ilike, or, inArray } from 'drizzle-orm';
+import fs from 'fs';
+import path from 'path';
+import { getActiveProvider, getAvailableProviders } from '../../config/ai.js';
 import { db } from '../../config/database.js';
 import { users } from '../../db/schema/users.js';
 import { bots, botStatistics, botSubscriptions, shadowSessions, reviews } from '../../db/schema/bots.js';
@@ -838,4 +841,159 @@ export async function sendMassNotification(data: {
   }
 
   return { sent };
+}
+
+// ---- AI Config ----
+
+// Resolve env file relative to this source file so it works regardless of cwd.
+// dist/modules/admin/admin.service.js → up 3 levels → project root
+import { fileURLToPath } from 'url';
+const _serviceDir = path.dirname(fileURLToPath(import.meta.url));
+const _projectRoot = path.resolve(_serviceDir, '../../..');
+// Prefer .env.production if it exists, otherwise .env.development
+const _prodEnv = path.join(_projectRoot, '.env.production');
+const _devEnv  = path.join(_projectRoot, '.env.development');
+const ENV_FILE = fs.existsSync(_prodEnv) ? _prodEnv : _devEnv;
+
+// Available models per provider — latest as of June 2025
+export const AI_MODELS: Record<string, { id: string; label: string }[]> = {
+  anthropic: [
+    { id: 'claude-opus-4-8',   label: 'Claude Opus 4.8 — Most capable, best for complex reasoning' },
+    { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 — Recommended (best speed/quality)' },
+    { id: 'claude-haiku-4-5',  label: 'Claude Haiku 4.5 — Fastest & cheapest' },
+  ],
+  openai: [
+    { id: 'gpt-4.1',      label: 'GPT-4.1 — Most capable' },
+    { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini — Recommended (fast + cheap)' },
+    { id: 'gpt-4o',       label: 'GPT-4o — Multimodal flagship' },
+    { id: 'gpt-4o-mini',  label: 'GPT-4o Mini — Fastest & cheapest' },
+    { id: 'o3',           label: 'o3 — Advanced reasoning' },
+    { id: 'o4-mini',      label: 'o4-mini — Fast reasoning' },
+  ],
+  gemini: [
+    { id: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro — Most capable' },
+    { id: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash — Recommended (best speed/quality)' },
+    { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite — Fastest & cheapest' },
+  ],
+};
+
+function readEnvFile(): Record<string, string> {
+  const result: Record<string, string> = {};
+  try {
+    const content = fs.readFileSync(ENV_FILE, 'utf8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const idx = trimmed.indexOf('=');
+      if (idx === -1) continue;
+      const key = trimmed.slice(0, idx).trim();
+      const value = trimmed.slice(idx + 1).trim().replace(/^["']|["']$/g, '');
+      result[key] = value;
+    }
+  } catch {}
+  return result;
+}
+
+function writeEnvKey(key: string, value: string): void {
+  try {
+    let content = '';
+    try { content = fs.readFileSync(ENV_FILE, 'utf8'); } catch {}
+    const lines = content.split('\n');
+    const idx = lines.findIndex(l => l.startsWith(`${key}=`) || l.startsWith(`${key} =`));
+    const newLine = `${key}=${value}`;
+    if (idx !== -1) {
+      lines[idx] = newLine;
+    } else {
+      lines.push(newLine);
+    }
+    fs.writeFileSync(ENV_FILE, lines.join('\n'), 'utf8');
+  } catch (err) {
+    console.error(`[AiConfig] Failed to write ${key} to ${ENV_FILE}:`, err);
+  }
+}
+
+// Resolve the effective active provider from live env vars (not cached zod env)
+function resolveActiveFromEnv(vars: Record<string, string>): { provider: string; model: string } | null {
+  const provider = vars.AI_PROVIDER || 'auto';
+  const modelOverride = vars.AI_MODEL || '';
+
+  const DEFAULT_MODELS: Record<string, string> = {
+    anthropic: 'claude-sonnet-4-6',
+    openai: 'gpt-4.1-mini',
+    gemini: 'gemini-2.5-flash',
+  };
+
+  let resolved: string;
+  if (provider !== 'auto') {
+    resolved = provider;
+  } else {
+    if (vars.OPENAI_API_KEY) resolved = 'openai';
+    else if (vars.GEMINI_API_KEY) resolved = 'gemini';
+    else if (vars.ANTHROPIC_API_KEY) resolved = 'anthropic';
+    else return null;
+  }
+
+  const hasKey = resolved === 'anthropic' ? !!vars.ANTHROPIC_API_KEY
+    : resolved === 'openai' ? !!vars.OPENAI_API_KEY
+    : !!vars.GEMINI_API_KEY;
+
+  if (!hasKey) return null;
+
+  return { provider: resolved, model: modelOverride || DEFAULT_MODELS[resolved] || '' };
+}
+
+export async function getAiConfig() {
+  const envVars = readEnvFile();
+  const active = resolveActiveFromEnv(envVars);
+
+  const available = (
+    [
+      { provider: 'anthropic', key: envVars.ANTHROPIC_API_KEY, default: 'claude-sonnet-4-6' },
+      { provider: 'openai',    key: envVars.OPENAI_API_KEY,    default: 'gpt-4.1-mini' },
+      { provider: 'gemini',    key: envVars.GEMINI_API_KEY,    default: 'gemini-2.5-flash' },
+    ] as const
+  )
+    .filter(p => !!p.key)
+    .map(p => ({
+      provider: p.provider,
+      // Only apply the global AI_MODEL override to the active provider
+      // Other providers show their own default so the UI is meaningful
+      model: (active?.provider === p.provider && envVars.AI_MODEL) ? envVars.AI_MODEL : p.default,
+      isActive: active?.provider === p.provider,
+    }));
+
+  return {
+    provider: (envVars.AI_PROVIDER || 'auto') as 'anthropic' | 'openai' | 'gemini' | 'auto',
+    model: envVars.AI_MODEL || '',
+    activeProvider: active?.provider ?? null,
+    activeModel: active?.model ?? null,
+    availableProviders: available,
+    models: AI_MODELS,
+    hasAnthropicKey: !!(envVars.ANTHROPIC_API_KEY),
+    hasOpenaiKey: !!(envVars.OPENAI_API_KEY),
+    hasGeminiKey: !!(envVars.GEMINI_API_KEY),
+  };
+}
+
+export async function updateAiConfig(data: {
+  provider: string;
+  model?: string;
+  anthropicApiKey?: string;
+  openaiApiKey?: string;
+  geminiApiKey?: string;
+}) {
+  writeEnvKey('AI_PROVIDER', data.provider);
+  writeEnvKey('AI_MODEL', data.model ?? '');
+  if (data.anthropicApiKey) writeEnvKey('ANTHROPIC_API_KEY', data.anthropicApiKey);
+  if (data.openaiApiKey) writeEnvKey('OPENAI_API_KEY', data.openaiApiKey);
+  if (data.geminiApiKey) writeEnvKey('GEMINI_API_KEY', data.geminiApiKey);
+
+  // Also update live process.env so current requests use the new provider immediately
+  process.env.AI_PROVIDER = data.provider;
+  if (data.model !== undefined) process.env.AI_MODEL = data.model;
+  if (data.anthropicApiKey) process.env.ANTHROPIC_API_KEY = data.anthropicApiKey;
+  if (data.openaiApiKey) process.env.OPENAI_API_KEY = data.openaiApiKey;
+  if (data.geminiApiKey) process.env.GEMINI_API_KEY = data.geminiApiKey;
+
+  return getAiConfig();
 }

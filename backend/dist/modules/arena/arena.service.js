@@ -51,9 +51,25 @@ function getBotAssetClass(config, category) {
     return 'crypto'; // default
 }
 // ─── Get Available Bots ─────────────────────────────────────────────────────
-export async function getAvailableBots(userId) {
-    const rows = await db
-        .select({
+export async function getAvailableBots(userId, search, page = 1, pageSize = 20, assetClass) {
+    // Build the WHERE clause using sql template literals
+    const baseCondition = sql `(${bots.isPublished} = true OR ${bots.creatorId} = ${userId})`;
+    const searchCondition = search
+        ? sql `(
+        ${bots.name} ILIKE ${'%' + search + '%'}
+        OR ${bots.strategy} ILIKE ${'%' + search + '%'}
+        OR ${bots.category}::text ILIKE ${'%' + search + '%'}
+      )`
+        : null;
+    // category is a pg enum — cast to text for comparison, use only valid enum values
+    const assetClassCondition = assetClass && assetClass !== 'all'
+        ? assetClass === 'crypto'
+            ? sql `(${bots.category}::text NOT IN ('Stocks'))`
+            : sql `(${bots.category}::text = 'Stocks')`
+        : null;
+    const conditions = [baseCondition, searchCondition, assetClassCondition].filter((c) => c !== null);
+    const whereClause = conditions.reduce((acc, cond) => sql `${acc} AND ${cond}`);
+    const selectFields = {
         id: bots.id,
         name: bots.name,
         subtitle: bots.subtitle,
@@ -70,26 +86,46 @@ export async function getAvailableBots(userId) {
         sharpeRatio: botStatistics.sharpeRatio,
         avgRating: botStatistics.avgRating,
         activeUsers: botStatistics.activeUsers,
-    })
+    };
+    // Paginated data query
+    const rows = await db
+        .select(selectFields)
         .from(bots)
         .leftJoin(botStatistics, eq(bots.id, botStatistics.botId))
-        .where(sql `${bots.isPublished} = true OR ${bots.creatorId} = ${userId}`);
-    // Enrich with asset class detection
-    return rows.map(r => ({
+        .where(whereClause)
+        .limit(pageSize)
+        .offset((page - 1) * pageSize);
+    // Count query (same filters, no pagination)
+    const [countResult] = await db
+        .select({ count: sql `count(*)::int` })
+        .from(bots)
+        .leftJoin(botStatistics, eq(bots.id, botStatistics.botId))
+        .where(whereClause);
+    const total = countResult?.count ?? 0;
+    const enrichedRows = rows.map(r => ({
         ...r,
         assetClass: getBotAssetClass(r.config, r.category),
     }));
+    return {
+        bots: enrichedRows,
+        total,
+        page,
+        pageSize,
+        hasMore: page * pageSize < total,
+    };
 }
 // ─── Create Session ─────────────────────────────────────────────────────────
-export async function createSession(userId, botIds, durationSeconds = 180, mode = 'shadow', virtualBalance = 10000, cryptoBalance, stockBalance, minOrderValue) {
+export async function createSession(userId, botIds, durationSeconds = 180, mode = 'shadow', virtualBalance = 10000, cryptoBalance, stockBalance, minOrderValue, unlimited = false) {
     // ── Basic validation ──
     if (botIds.length < 2)
         throw new AppError(400, 'Select at least 2 bots for the arena battle.');
-    // No max-bots cap — see MAX_DURATION_SECONDS comment block.
-    if (durationSeconds > MAX_DURATION_SECONDS)
-        throw new AppError(400, 'Maximum battle duration is 24 hours.');
-    if (durationSeconds < 60)
-        throw new AppError(400, 'Minimum battle duration is 1 minute.');
+    if (!unlimited) {
+        // No max-bots cap — see MAX_DURATION_SECONDS comment block.
+        if (durationSeconds > MAX_DURATION_SECONDS)
+            throw new AppError(400, 'Maximum battle duration is 24 hours.');
+        if (durationSeconds < 60)
+            throw new AppError(400, 'Minimum battle duration is 1 minute.');
+    }
     // ── Daily rate limit ──
     const [dailyCount] = await db.execute(sql `
     SELECT count(*)::int as cnt FROM arena_sessions
@@ -201,6 +237,7 @@ export async function createSession(userId, botIds, durationSeconds = 180, mode 
         status: 'running',
         mode,
         durationSeconds,
+        unlimited,
         virtualBalance: totalVirtualBalance.toFixed(2),
         cryptoBalance: finalCryptoBalance != null ? finalCryptoBalance.toFixed(2) : null,
         stockBalance: finalStockBalance != null ? finalStockBalance.toFixed(2) : null,
@@ -271,9 +308,12 @@ export async function getSession(sessionId, userId) {
         .where(eq(arenaGladiators.sessionId, sessionId));
     const startedAt = session.startedAt ? new Date(session.startedAt).getTime() : Date.now();
     const sessionStartDate = session.startedAt ? new Date(session.startedAt) : new Date();
-    const elapsed = (Date.now() - startedAt) / 1000;
+    const pausedSecs = session.pausedDurationSeconds ?? 0;
+    const elapsed = (Date.now() - startedAt) / 1000 - pausedSecs;
     const duration = session.durationSeconds ?? 180;
-    const progress = Math.min(elapsed / duration, 1);
+    const isUnlimited = session.unlimited ?? false;
+    // Unlimited sessions have no fixed end — progress is 0 (frontend shows elapsed time only)
+    const progress = isUnlimited ? 0 : Math.min(elapsed / duration, 1);
     const totalPool = parseFloat(session.virtualBalance ?? '10000');
     const isMixed = session.isMixed ?? false;
     const marketOpen = isUSMarketOpen();
@@ -339,8 +379,9 @@ export async function getSession(sessionId, userId) {
         ...session,
         gladiators: enrichedGladiators,
         progress,
+        unlimited: isUnlimited,
         elapsedSeconds: Math.floor(elapsed),
-        remainingSeconds: Math.max(0, Math.floor(duration - elapsed)),
+        remainingSeconds: isUnlimited ? null : Math.max(0, Math.floor(duration - elapsed)),
         virtualBalance: session.virtualBalance,
         cryptoBalance: session.cryptoBalance,
         stockBalance: session.stockBalance,

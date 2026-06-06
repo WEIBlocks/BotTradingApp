@@ -8,6 +8,7 @@ export interface LLMOptions {
     maxTokens?: number;
     temperature?: number;
     imageUrl?: string;
+    cacheSystem?: boolean;
 }
 export interface LLMResponse {
     text: string;
@@ -16,13 +17,10 @@ export interface LLMResponse {
     usage?: {
         inputTokens?: number;
         outputTokens?: number;
+        cacheReadTokens?: number;
+        cacheWriteTokens?: number;
     };
 }
-/**
- * Send a message to the configured LLM provider.
- * OpenAI is tried first (with retry), then Gemini as fallback, then Anthropic.
- * Each provider attempt uses the retry wrapper for transient errors.
- */
 export declare function llmChat(messages: LLMMessage[], opts?: LLMOptions): Promise<LLMResponse>;
 /**
  * Get info about the currently active AI provider.

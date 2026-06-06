@@ -104,6 +104,7 @@ export declare function approveBot(botId: string): Promise<{
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
+    trainerConfig: unknown;
     version: string | null;
     createdAt: Date | null;
     updatedAt: Date | null;
@@ -129,6 +130,7 @@ export declare function rejectBot(botId: string, reason?: string): Promise<{
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
+    trainerConfig: unknown;
     version: string | null;
     createdAt: Date | null;
     updatedAt: Date | null;
@@ -153,6 +155,7 @@ export declare function suspendBot(botId: string): Promise<{
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
+    trainerConfig: unknown;
     version: string | null;
     createdAt: Date | null;
     updatedAt: Date | null;
@@ -312,6 +315,7 @@ export declare function reactivateBot(botId: string): Promise<{
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
+    trainerConfig: unknown;
     version: string | null;
     createdAt: Date | null;
     updatedAt: Date | null;
@@ -510,4 +514,50 @@ export declare function sendMassNotification(data: {
     priority?: 'low' | 'normal' | 'high';
 }): Promise<{
     sent: number;
+}>;
+export declare const AI_MODELS: Record<string, {
+    id: string;
+    label: string;
+}[]>;
+export declare function getAiConfig(): Promise<{
+    provider: "anthropic" | "openai" | "gemini" | "auto";
+    model: string;
+    activeProvider: string | null;
+    activeModel: string | null;
+    availableProviders: {
+        provider: "anthropic" | "gemini" | "openai";
+        model: string;
+        isActive: boolean;
+    }[];
+    models: Record<string, {
+        id: string;
+        label: string;
+    }[]>;
+    hasAnthropicKey: boolean;
+    hasOpenaiKey: boolean;
+    hasGeminiKey: boolean;
+}>;
+export declare function updateAiConfig(data: {
+    provider: string;
+    model?: string;
+    anthropicApiKey?: string;
+    openaiApiKey?: string;
+    geminiApiKey?: string;
+}): Promise<{
+    provider: "anthropic" | "openai" | "gemini" | "auto";
+    model: string;
+    activeProvider: string | null;
+    activeModel: string | null;
+    availableProviders: {
+        provider: "anthropic" | "gemini" | "openai";
+        model: string;
+        isActive: boolean;
+    }[];
+    models: Record<string, {
+        id: string;
+        label: string;
+    }[]>;
+    hasAnthropicKey: boolean;
+    hasOpenaiKey: boolean;
+    hasGeminiKey: boolean;
 }>;

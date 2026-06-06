@@ -46,11 +46,12 @@ export async function buildApp() {
     app.setSerializerCompiler(serializerCompiler);
     // Error handler
     app.setErrorHandler(errorHandler);
-    // CORS — allow all origins for now (no domain configured yet)
-    // Once a domain is set, replace true with: (process.env.CORS_ORIGINS || 'https://yourdomain.com').split(',')
+    // CORS — allow all origins, all methods (admin panel uses PATCH/DELETE/PUT)
     await app.register(cors, {
         origin: true,
         credentials: true,
+        methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     });
     // Multipart file uploads (10MB limit)
     await app.register(multipart, {

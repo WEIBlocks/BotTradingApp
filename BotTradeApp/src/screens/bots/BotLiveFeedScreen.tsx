@@ -811,7 +811,7 @@ export default function BotLiveFeedScreen({navigation, route}: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: {flex: 1, backgroundColor: '#0A0E14'},
+  container: {flex: 1, backgroundColor: '#0F1117'},
 
   header: {
     flexDirection: 'row',
@@ -829,7 +829,7 @@ const styles = StyleSheet.create({
   liveDot: {width: 8, height: 8, borderRadius: 4},
   liveText: {fontSize: 11, fontFamily: 'Inter-Bold', letterSpacing: 1},
   modeBadge: {paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4},
-  modeBadgeText: {fontSize: 9, fontFamily: 'Inter-Bold', letterSpacing: 0.5},
+  modeBadgeText: {fontSize: 10, fontFamily: 'Inter-Bold', letterSpacing: 0.5},
 
   // Compact P&L Strip (always visible)
   pnlStrip: {
@@ -888,8 +888,8 @@ const styles = StyleSheet.create({
   },
   statsPanelLabel: {
     fontFamily: 'Inter-Regular',
-    fontSize: 9,
-    color: 'rgba(255,255,255,0.35)',
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.5)',
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
@@ -1039,7 +1039,7 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     borderRadius: 3,
   },
-  aiBadgeText: {color: '#8B5CF6', fontSize: 9, fontFamily: 'Inter-Bold'},
+  aiBadgeText: {color: '#8B5CF6', fontSize: 10, fontFamily: 'Inter-Bold'},
 
   decisionSymbol: {color: '#D1D5DB', fontSize: 13, fontFamily: 'Inter-Medium', marginBottom: 4},
   decisionReasoning: {color: '#9CA3AF', fontSize: 13, fontFamily: 'Inter-Regular', lineHeight: 18, marginBottom: 8},

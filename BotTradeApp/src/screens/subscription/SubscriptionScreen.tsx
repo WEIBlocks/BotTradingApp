@@ -436,7 +436,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 6,
   },
-  saveBadgeText: {fontFamily: 'Inter-Bold', fontSize: 9, color: '#10B981', letterSpacing: 0.3},
+  saveBadgeText: {fontFamily: 'Inter-Bold', fontSize: 10, color: '#10B981', letterSpacing: 0.3},
 
   priceRow: {flexDirection: 'row', alignItems: 'flex-end', marginBottom: 20},
   priceAmount: {fontFamily: 'Inter-Bold', fontSize: 36, color: '#10B981'},
@@ -454,9 +454,9 @@ const styles = StyleSheet.create({
   /* Comparison */
   sectionLabel: {
     fontFamily: 'Inter-Medium',
-    fontSize: 10,
+    fontSize: 11,
     letterSpacing: 1,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
     textTransform: 'uppercase',
     marginBottom: 10,
   },
@@ -478,8 +478,8 @@ const styles = StyleSheet.create({
   compHeaderCell: {
     flex: 1,
     fontFamily: 'Inter-SemiBold',
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.45)',
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.6)',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
     textAlign: 'center',
@@ -511,7 +511,7 @@ const styles = StyleSheet.create({
   infoText: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.3)',
+    color: 'rgba(255,255,255,0.45)',
     flex: 1,
   },
 

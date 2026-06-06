@@ -66,9 +66,10 @@ export interface ArenaSession {
   id: string;
   status: string;
   durationSeconds: number;
+  unlimited: boolean;
   progress: number;
   elapsedSeconds: number;
-  remainingSeconds: number;
+  remainingSeconds: number | null;
   gladiators: Gladiator[];
   virtualBalance?: string;
   cryptoBalance?: string | null;
@@ -181,11 +182,29 @@ function mapGladiatorRow(g: any): Gladiator {
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export const arenaApi = {
-  /** Get bots available for arena battles. */
-  async getAvailableBots(): Promise<Gladiator[]> {
-    const res = await api.get<DataWrap<ArenaBotRow[]>>('/arena/bots');
-    const items = Array.isArray(res?.data) ? res.data : [];
-    return items.map(mapBotToGladiator);
+  /** Get bots with pagination, search and asset class filter. */
+  async getAvailableBots(opts?: {
+    search?: string;
+    page?: number;
+    pageSize?: number;
+    assetClass?: 'crypto' | 'stocks' | 'all';
+  }): Promise<{bots: Gladiator[]; total: number; page: number; pageSize: number; hasMore: boolean}> {
+    const parts: string[] = [];
+    if (opts?.search) parts.push(`search=${encodeURIComponent(opts.search)}`);
+    if (opts?.page) parts.push(`page=${opts.page}`);
+    if (opts?.pageSize) parts.push(`pageSize=${opts.pageSize}`);
+    if (opts?.assetClass) parts.push(`assetClass=${opts.assetClass}`);
+    const qs = parts.length > 0 ? `?${parts.join('&')}` : '';
+    const res = await api.get<DataWrap<any>>(`/arena/bots${qs}`);
+    const data = res?.data;
+    const items: ArenaBotRow[] = Array.isArray(data?.bots) ? data.bots : (Array.isArray(data) ? data : []);
+    return {
+      bots: items.map((b, i) => mapBotToGladiator(b, i)),
+      total: data?.total ?? items.length,
+      page: data?.page ?? 1,
+      pageSize: data?.pageSize ?? 20,
+      hasMore: data?.hasMore ?? false,
+    };
   },
 
   /** Create a new arena session. */
@@ -197,20 +216,23 @@ export const arenaApi = {
     cryptoBalance?: number,
     stockBalance?: number,
     minOrderValue?: number,
+    unlimited = false,
   ): Promise<ArenaSession> {
-    const body: Record<string, unknown> = { botIds, durationSeconds, mode, virtualBalance };
+    const body: Record<string, unknown> = { botIds, durationSeconds, mode, virtualBalance, unlimited };
     if (cryptoBalance !== undefined) body.cryptoBalance = cryptoBalance;
     if (stockBalance !== undefined) body.stockBalance = stockBalance;
     if (minOrderValue !== undefined) body.minOrderValue = minOrderValue;
     const res = await api.post<DataWrap<SessionResponse>>('/arena/session', body);
     const s = res?.data;
+    const isUnlimited = (s as any)?.unlimited ?? unlimited;
     return {
       id: s?.id ?? '',
       status: s?.status ?? 'running',
       durationSeconds: s?.durationSeconds ?? durationSeconds,
+      unlimited: isUnlimited,
       progress: s?.progress ?? 0,
       elapsedSeconds: s?.elapsedSeconds ?? 0,
-      remainingSeconds: s?.remainingSeconds ?? durationSeconds,
+      remainingSeconds: isUnlimited ? null : (s?.remainingSeconds ?? durationSeconds),
       gladiators: (s?.gladiators ?? []).map(mapGladiatorRow),
       virtualBalance: (s as any)?.virtualBalance,
       cryptoBalance: (s as any)?.cryptoBalance,
@@ -229,13 +251,15 @@ export const arenaApi = {
     const res = await api.get<DataWrap<any>>(`/arena/session/${sessionId}`);
     const s = res?.data;
     // Backend getSession() returns a flat object with gladiators[], progress, etc.
+    const isUnlimited = s?.unlimited ?? false;
     return {
       id: s?.id ?? '',
       status: s?.status ?? 'running',
       durationSeconds: s?.durationSeconds ?? 300,
+      unlimited: isUnlimited,
       progress: s?.progress ?? 0,
       elapsedSeconds: s?.elapsedSeconds ?? 0,
-      remainingSeconds: s?.remainingSeconds ?? 0,
+      remainingSeconds: isUnlimited ? null : (s?.remainingSeconds ?? 0),
       gladiators: (s?.gladiators ?? []).map(mapGladiatorRow),
       virtualBalance: s?.virtualBalance,
       cryptoBalance: s?.cryptoBalance,
@@ -285,9 +309,10 @@ export const arenaApi = {
       id: s?.id ?? '',
       status: s?.status ?? 'running',
       durationSeconds: s?.durationSeconds ?? 300,
+      unlimited: s?.unlimited ?? false,
       progress: s?.progress ?? 0,
       elapsedSeconds: s?.elapsedSeconds ?? 0,
-      remainingSeconds: s?.remainingSeconds ?? 0,
+      remainingSeconds: s?.unlimited ? null : (s?.remainingSeconds ?? 0),
       gladiators: (s?.gladiators ?? []).map(mapGladiatorRow),
       virtualBalance: s?.virtualBalance,
       cryptoBalance: s?.cryptoBalance,
@@ -326,9 +351,10 @@ export const arenaApi = {
           id: s?.id ?? '',
           status: s?.status ?? 'running',
           durationSeconds: s?.durationSeconds ?? 300,
+          unlimited: s?.unlimited ?? false,
           progress: s?.progress ?? 0,
           elapsedSeconds: s?.elapsedSeconds ?? 0,
-          remainingSeconds: s?.remainingSeconds ?? 0,
+          remainingSeconds: s?.unlimited ? null : (s?.remainingSeconds ?? 0),
           gladiators: (s?.gladiators ?? []).map(mapGladiatorRow),
           virtualBalance: s?.virtualBalance,
           isMixed: s?.isMixed ?? false,

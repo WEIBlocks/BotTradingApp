@@ -29,6 +29,7 @@ interface Message {
   hasStrategyCard?: boolean;
   strategyData?: AIChatResponse['strategy'];
   imageUri?: string;
+  model?: string;  // which AI model responded, e.g. "anthropic:claude-sonnet-4-6"
 }
 
 const INITIAL_MESSAGES: Message[] = [
@@ -506,6 +507,7 @@ export default function AIChatScreen() {
           cleanPrompt: response.cleanPrompt,
           hasStrategyCard: !!response.strategy,
           strategyData: response.strategy,
+          model: (response as any).model,
         });
       } catch (e: any) {
         appendMessage({id: (Date.now() + 1).toString(), role: 'ai', text: e?.message || 'Sorry, I encountered an error.'});
@@ -559,7 +561,7 @@ export default function AIChatScreen() {
         (toolName) => {
           setStageText(toolName.replace(/_/g, ' '));
         },
-        // onDone — flush immediately then finalize with strategy card
+        // onDone — flush immediately then finalize with strategy card + model info
         (meta) => {
           if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
           setConversationId(meta.conversationId);
@@ -573,6 +575,7 @@ export default function AIChatScreen() {
               cleanPrompt: meta.cleanPrompt,
               hasStrategyCard: !!meta.strategyPreview,
               strategyData: meta.strategyPreview as any,
+              model: meta.model,
             } : m,
           ));
         },
@@ -632,6 +635,14 @@ export default function AIChatScreen() {
           <Text style={styles.aiNameLabel}>{botName}</Text>
           <View style={styles.aiBubble}>
             <MarkdownText text={item.text} baseStyle={styles.aiText} />
+            {!!item.model && item.model !== 'none' && (
+              <Text style={styles.modelBadge}>
+                {item.model.includes('claude') ? '✦ Claude' :
+                 item.model.includes('gpt') || item.model.includes('openai') ? '⬡ OpenAI' :
+                 item.model.includes('gemini') ? '◆ Gemini' :
+                 item.model.split(':').pop() ?? item.model}
+              </Text>
+            )}
             {item.hasStrategyCard && (
               <View style={styles.strategyCard}>
                 <View style={styles.strategyTopRow}>
@@ -1081,6 +1092,7 @@ const styles = StyleSheet.create({
     padding: 14, alignSelf: 'flex-start', maxWidth: '95%',
   },
   aiText: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.85)', lineHeight: 21},
+  modelBadge: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 6, alignSelf: 'flex-end' as const},
 
   // User message
   userRow: {alignItems: 'flex-end', marginBottom: 18},
@@ -1113,7 +1125,7 @@ const styles = StyleSheet.create({
   strategyTopRow: {flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10},
   strategyName: {fontFamily: 'Inter-Bold', fontSize: 14, color: '#FFFFFF', lineHeight: 20},
   strategySubLabel: {
-    fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.35)',
+    fontFamily: 'Inter-Medium', fontSize: 10, color: 'rgba(255,255,255,0.5)',
     letterSpacing: 0.8, marginTop: 4,
   },
   backtestBadge: {
@@ -1123,7 +1135,7 @@ const styles = StyleSheet.create({
   },
   backtestText: {fontFamily: 'Inter-Bold', fontSize: 11, color: '#FFFFFF', textAlign: 'center', lineHeight: 16},
   perfLabel: {
-    fontFamily: 'Inter-Medium', fontSize: 9, color: 'rgba(255,255,255,0.3)',
+    fontFamily: 'Inter-Medium', fontSize: 10, color: 'rgba(255,255,255,0.45)',
     letterSpacing: 0.8, marginBottom: 8,
   },
   deployBtn: {
@@ -1136,7 +1148,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6, alignItems: 'center',
   },
   miniStatVal: {fontFamily: 'Inter-Bold', fontSize: 13, color: '#10B981'},
-  miniStatLabel: {fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.4)', marginTop: 2},
+  miniStatLabel: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 2},
 
   // Suggestions
   suggestionsScroll: {height: 46},

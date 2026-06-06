@@ -53,8 +53,8 @@ function StocksIcon({size = 16}: {size?: number}) {
 function WarningIcon({size = 16}: {size?: number}) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke="#F97316" strokeWidth={1.5} strokeLinejoin="round" />
-      <Path d="M12 9v4M12 17h.01" stroke="#F97316" strokeWidth={1.5} strokeLinecap="round" />
+      <Path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" stroke="#EF4444" strokeWidth={1.5} strokeLinejoin="round" />
+      <Path d="M12 9v4M12 17h.01" stroke="#EF4444" strokeWidth={1.5} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -503,7 +503,7 @@ const styles = StyleSheet.create({
   header: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12},
   backBtn: {width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center'},
   headerTitle: {fontFamily: 'Inter-SemiBold', fontSize: 17, color: '#FFFFFF'},
-  scroll: {paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20},
+  scroll: {paddingHorizontal: 16, paddingTop: 8, paddingBottom: 20},
 
   botCard: {alignItems: 'center', backgroundColor: '#161B22', borderRadius: 20, padding: 24, marginBottom: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'},
   botAvatar: {width: 64, height: 64, borderRadius: 18, alignItems: 'center', justifyContent: 'center', marginBottom: 10},
@@ -521,7 +521,7 @@ const styles = StyleSheet.create({
   priceUnit: {fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.5)', marginBottom: 4, marginLeft: 2},
   platformFee: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)'},
 
-  sectionLabel: {fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 10},
+  sectionLabel: {fontFamily: 'Inter-Medium', fontSize: 11, letterSpacing: 1, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: 10},
 
   exchangeCard: {backgroundColor: '#161B22', borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1},
   exchangeRow: {flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4},
@@ -539,13 +539,13 @@ const styles = StyleSheet.create({
   exchangeSelectedMark: {width: 20, height: 20, borderRadius: 10, alignItems: 'center', justifyContent: 'center'},
   exchangeSelectedMarkText: {fontFamily: 'Inter-Bold', fontSize: 11, color: '#FFFFFF'},
 
-  noExchangeCard: {flexDirection: 'row', alignItems: 'flex-start', gap: 12, backgroundColor: 'rgba(249,115,22,0.08)', borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(249,115,22,0.25)'},
-  noExchangeTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#F97316', marginBottom: 3},
+  noExchangeCard: {flexDirection: 'row', alignItems: 'flex-start', gap: 12, backgroundColor: 'rgba(239,68,68,0.08)', borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(239,68,68,0.25)'},
+  noExchangeTitle: {fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#EF4444', marginBottom: 3},
   noExchangeSub: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.45)', lineHeight: 17},
 
   amountCard: {backgroundColor: '#161B22', borderRadius: 14, padding: 16, marginBottom: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)'},
   amountHeader: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10},
-  amountLabel: {fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase'},
+  amountLabel: {fontFamily: 'Inter-Medium', fontSize: 11, letterSpacing: 1, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase'},
   maxBtn: {backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3},
   maxBtnText: {fontFamily: 'Inter-Bold', fontSize: 11},
   amountInputRow: {flexDirection: 'row', alignItems: 'center'},
@@ -560,7 +560,7 @@ const styles = StyleSheet.create({
   paymentInfoCard: {flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 12, padding: 14, marginTop: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.04)'},
   paymentInfoText: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', flex: 1},
 
-  footer: {paddingHorizontal: 20, paddingBottom: 32, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)'},
+  footer: {paddingHorizontal: 16, paddingBottom: 32, paddingTop: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)'},
   secRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 12},
   secText: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)'},
   activateBtn: {height: 56, backgroundColor: '#10B981', borderRadius: 14, alignItems: 'center', justifyContent: 'center'},

@@ -165,7 +165,7 @@ const ExchangeManageScreen = () => {
         {loading ? (
           <ActivityIndicator size="large" color="#10B981" style={{marginTop: 40}} />
         ) : connections.length === 0 ? (
-          <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginTop: 40}}>
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.5)', textAlign: 'center', marginTop: 40}}>
             No exchanges connected yet.
           </Text>
         ) : null}
@@ -265,7 +265,7 @@ export default ExchangeManageScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0E14',
+    backgroundColor: '#0F1117',
   },
 
   // Header
@@ -300,7 +300,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingBottom: 40,
   },
 
@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
   detailLabel: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.5)',
     marginBottom: 4,
   },
   detailValue: {

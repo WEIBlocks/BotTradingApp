@@ -18,6 +18,7 @@ import {
   chatsQuerySchema,
   reviewIdParamsSchema,
   grantSubscriptionBodySchema,
+  updateAiConfigBodySchema,
 } from './admin.schema.js';
 
 export async function adminRoutes(app: FastifyInstance) {
@@ -384,5 +385,44 @@ export async function adminRoutes(app: FastifyInstance) {
   }, async (_request, _reply) => {
     const health = await adminService.getSystemHealth();
     return { data: health };
+  });
+
+  // ---- AI Config ----
+
+  // GET /ai-config
+  zApp.get('/ai-config', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (_request, _reply) => {
+    const config = await adminService.getAiConfig();
+    return { data: config };
+  });
+
+  // PATCH /ai-config
+  zApp.patch('/ai-config', {
+    schema: {
+      body: updateAiConfigBodySchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, _reply) => {
+    const config = await adminService.updateAiConfig(request.body);
+    return { data: config };
+  });
+
+  // ---- Trainer Overview ----
+
+  // GET /trainer/statuses — all approved bots with trainer health scores
+  zApp.get('/trainer/statuses', {
+    schema: {
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (_request, _reply) => {
+    const { getAllTrainerStatuses } = await import('../trainer/trainer.service.js');
+    const statuses = await getAllTrainerStatuses();
+    return { data: statuses };
   });
 }

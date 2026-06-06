@@ -249,7 +249,7 @@ export default function ActiveBotsScreen() {
                   </View>
                   <View style={styles.botInfo}>
                     <View style={styles.botNameRow}>
-                      <Text style={styles.botName} numberOfLines={1}>{bot.name}</Text>
+                      <Text style={styles.botName}>{bot.name}</Text>
                       <View style={[styles.statusBadge, {backgroundColor: `${display.color}20`}]}>
                         {display.icon === 'completed' ? (
                           <Svg width={10} height={10} viewBox="0 0 16 16" fill="none" style={{marginRight: 4}}>

@@ -269,13 +269,13 @@ const ruleStyles = StyleSheet.create({
   help: {
     fontFamily: 'Inter-Regular',
     fontSize: 11,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
     marginBottom: 10,
   },
   empty: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
     fontStyle: 'italic',
     marginBottom: 8,
   },
@@ -303,8 +303,8 @@ const ruleStyles = StyleSheet.create({
   removeBtnText: {fontFamily: 'Inter-Medium', fontSize: 11, color: '#EF4444'},
   fieldHeading: {
     fontFamily: 'Inter-Medium',
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.4)',
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.5)',
     letterSpacing: 0.5,
     textTransform: 'uppercase',
     marginTop: 8,
@@ -372,7 +372,7 @@ const sectionStyles = StyleSheet.create({
   subtitle: {
     fontFamily: 'Inter-Regular',
     fontSize: 11,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.5)',
     marginTop: 2,
   },
   body: {
@@ -1325,7 +1325,7 @@ export default function BotBuilderScreen() {
             </TouchableOpacity>
           ))}
         </View>
-        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 14, marginTop: -6}}>
+        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.45)', marginBottom: 14, marginTop: -6}}>
           {tradingFrequency === 'conservative' ? 'Long cooldowns, fewer trades, lower frequency'
             : tradingFrequency === 'balanced' ? 'Balanced trade rate (default)'
             : tradingFrequency === 'aggressive' ? 'Short cooldowns, more active trading'
@@ -1352,7 +1352,7 @@ export default function BotBuilderScreen() {
             </TouchableOpacity>
           ))}
         </View>
-        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 14, marginTop: -6}}>
+        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.45)', marginBottom: 14, marginTop: -6}}>
           {aiMode === 'rules_only' ? 'Pure indicator rules, no AI calls (fastest)'
             : aiMode === 'hybrid' ? 'Rules first, AI validates on significant signals'
             : 'AI makes all decisions based on your prompt'}
@@ -1534,7 +1534,7 @@ export default function BotBuilderScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0E14',
+    backgroundColor: '#0F1117',
   },
   header: {
     flexDirection: 'row',
@@ -1550,13 +1550,13 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingBottom: 40,
   },
   label: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 11,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.5)',
     letterSpacing: 1,
     marginBottom: 8,
     marginTop: 18,
@@ -1577,7 +1577,7 @@ const styles = StyleSheet.create({
   categoryBtnText: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 14,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.5)',
   },
   categoryBtnTextActive: {
     color: '#10B981',
@@ -1646,7 +1646,7 @@ const styles = StyleSheet.create({
   avatarHint: {
     fontFamily: 'Inter-Regular',
     fontSize: 11,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
     marginTop: 2,
   },
   pairAddRow: {
@@ -1797,13 +1797,13 @@ const styles = StyleSheet.create({
   paramSuffix: {
     fontFamily: 'Inter-Medium',
     fontSize: 14,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.5)',
     marginLeft: 4,
   },
   paramPrefix: {
     fontFamily: 'Inter-Medium',
     fontSize: 14,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.5)',
     marginRight: 4,
   },
   feeCard: {
@@ -1897,7 +1897,7 @@ const styles = StyleSheet.create({
   trainBtnSub: {
     fontFamily: 'Inter-Regular',
     fontSize: 11,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.5)',
     marginTop: 2,
   },
   deployBtn: {

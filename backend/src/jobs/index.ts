@@ -6,6 +6,7 @@ import { startPortfolioUpdateJob } from './portfolio-update.job.js';
 import { startNotificationJob } from './notification.job.js';
 import { startBotStatsJob } from './bot-stats.job.js';
 import { startSubscriptionExpiryJob } from './subscription-expiry.job.js';
+import { startAutoTrainerJob } from './auto-trainer.job.js';
 
 export async function startAllJobs() {
   console.log('[Jobs] Starting all background jobs...');
@@ -24,6 +25,7 @@ export async function startAllJobs() {
     await startNotificationJob();
     await startBotStatsJob();
     await startSubscriptionExpiryJob();
+    await startAutoTrainerJob();
 
     console.log('[Jobs] All background jobs started successfully');
   } catch (err: any) {

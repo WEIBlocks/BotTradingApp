@@ -104,7 +104,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
         .finally(() => setLoading(false));
     } else {
       arenaApi.getAvailableBots()
-        .then(bots => setAllGladiators(bots))
+        .then(res => setAllGladiators(res.bots))
         .catch(() => {})
         .finally(() => setLoading(false));
     }
@@ -196,7 +196,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
 
         {/* Virtual Balance Overview */}
         {sessionStats && (
-          <View style={{marginHorizontal: 20, marginBottom: 16, backgroundColor: '#161B22', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'}}>
+          <View style={{marginHorizontal: 16, marginBottom: 16, backgroundColor: '#161B22', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'}}>
             <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
               <View>
                 <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5}}>STARTING BALANCE</Text>
@@ -371,7 +371,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
 
         {/* Session Stats Summary */}
         {sessionStats && (
-          <View style={{marginHorizontal: 20, marginBottom: 16}}>
+          <View style={{marginHorizontal: 16, marginBottom: 16}}>
             <Text style={styles.sectionTitle}>SESSION STATS</Text>
             <View style={{backgroundColor: '#161B22', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'}}>
               <View style={{flexDirection: 'row', marginBottom: 12}}>
@@ -408,7 +408,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
 
         {/* Analytics */}
         {sessionStats && (
-          <View style={{marginHorizontal: 20, marginBottom: 16}}>
+          <View style={{marginHorizontal: 16, marginBottom: 16}}>
             <Text style={styles.sectionTitle}>ANALYTICS</Text>
             <View style={{backgroundColor: '#161B22', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', gap: 12}}>
               <View style={{flexDirection: 'row', gap: 8}}>
@@ -442,7 +442,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
         )}
 
         {/* Battle Chart — Equity Curves */}
-        <View style={{marginHorizontal: 20, marginBottom: 16}}>
+        <View style={{marginHorizontal: 16, marginBottom: 16}}>
           <Text style={styles.sectionTitle}>BATTLE CHART</Text>
           <View style={{backgroundColor: '#161B22', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'}}>
             <View style={{height: 180, overflow: 'hidden'}}>
@@ -460,7 +460,7 @@ export default function ArenaFinalResultsScreen({navigation, route}: Props) {
         </View>
 
         {/* Per-Bot Trade Breakdown */}
-        <View style={{marginHorizontal: 20, marginBottom: 16}}>
+        <View style={{marginHorizontal: 16, marginBottom: 16}}>
           <Text style={styles.sectionTitle}>BOT PERFORMANCE</Text>
           {allGladiators.map((g, i) => {
             const tradeList = g.trades || [];
@@ -698,7 +698,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 56,
     paddingBottom: 12,
   },
@@ -735,7 +735,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(234,179,8,0.15)',
     marginBottom: 24,
     marginTop: 8,
-    marginHorizontal: 20,
+    marginHorizontal: 16,
   },
   trophyCircle: {
     width: 80,

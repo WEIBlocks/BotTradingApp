@@ -89,6 +89,23 @@ export declare const arenaSessions: import("drizzle-orm/pg-core").PgTableWithCol
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        unlimited: import("drizzle-orm/pg-core").PgColumn<{
+            name: "unlimited";
+            tableName: "arena_sessions";
+            dataType: "boolean";
+            columnType: "PgBoolean";
+            data: boolean;
+            driverParam: boolean;
+            notNull: false;
+            hasDefault: true;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         virtualBalance: import("drizzle-orm/pg-core").PgColumn<{
             name: "virtual_balance";
             tableName: "arena_sessions";

@@ -65,3 +65,11 @@ export const grantSubscriptionBodySchema = z.object({
   tier: z.string().default('pro'),
   durationDays: z.coerce.number().int().min(1).default(30),
 });
+
+export const updateAiConfigBodySchema = z.object({
+  provider: z.enum(['anthropic', 'gemini', 'openai', 'auto']),
+  model: z.string().default(''),
+  anthropicApiKey: z.string().optional(),
+  openaiApiKey: z.string().optional(),
+  geminiApiKey: z.string().optional(),
+});

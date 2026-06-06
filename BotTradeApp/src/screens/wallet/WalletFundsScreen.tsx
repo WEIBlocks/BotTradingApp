@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
   header: {flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 56, paddingBottom: 12},
   iconBtn: {width: 40, height: 40, borderRadius: 12, backgroundColor: 'rgba(255,255,255,0.06)', alignItems: 'center', justifyContent: 'center'},
   headerTitle: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF'},
-  scroll: {paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40},
+  scroll: {paddingHorizontal: 16, paddingTop: 8, paddingBottom: 40},
   balanceCard: {
     backgroundColor: '#161B22', borderRadius: 20, padding: 24, alignItems: 'center',
     borderWidth: 1, borderColor: 'rgba(16,185,129,0.2)', marginBottom: 20,

@@ -160,7 +160,7 @@ const emptyStyles = StyleSheet.create({
   dotsRow: {flexDirection: 'row', gap: 8, marginBottom: 20},
   dot: {width: 8, height: 8, borderRadius: 4},
   title: {fontFamily: 'Inter-Bold', fontSize: 20, color: '#FFFFFF', marginBottom: 8, textAlign: 'center'},
-  subtitle: {fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.35)', textAlign: 'center', lineHeight: 20},
+  subtitle: {fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.5)', textAlign: 'center', lineHeight: 20},
 });
 
 // ─── Members Modal ──────────────────────────────────────────────────────────────
@@ -179,7 +179,7 @@ function MembersModal({visible, onClose, members, loading}: {visible: boolean; o
             <Text style={memberStyles.headerCount}>
               <Text style={{color: '#10B981'}}>{onlineCount} online</Text>
               {'  ·  '}
-              <Text style={{color: 'rgba(255,255,255,0.3)'}}>{offlineCount} offline</Text>
+              <Text style={{color: 'rgba(255,255,255,0.45)'}}>{offlineCount} offline</Text>
             </Text>
             <TouchableOpacity onPress={onClose} style={memberStyles.closeBtn}>
               <CloseIcon />
@@ -244,7 +244,7 @@ const memberStyles = StyleSheet.create({
   avatarText: {fontFamily: 'Inter-Bold', fontSize: 15, color: '#FFFFFF'},
   statusDot: {position: 'absolute', bottom: 0, right: 0, width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: '#0F1117'},
   name: {fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF'},
-  status: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.35)', marginTop: 1},
+  status: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 1},
 });
 
 // ─── Screen ─────────────────────────────────────────────────────────────────────
@@ -458,7 +458,7 @@ export default function TradingRoomScreen() {
           {isPro && !loading && (
             <Text style={styles.headerSubtitle}>
               <Text style={{color: '#10B981'}}>{onlineCount} online</Text>
-              <Text style={{color: 'rgba(255,255,255,0.2)'}}> · {totalMembers} members</Text>
+              <Text style={{color: 'rgba(255,255,255,0.45)'}}> · {totalMembers} members</Text>
             </Text>
           )}
         </TouchableOpacity>
@@ -564,7 +564,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row', alignItems: 'center',
     paddingHorizontal: 16, paddingTop: 54, paddingBottom: 12,
-    backgroundColor: '#0A0E14',
+    backgroundColor: '#0F1117',
   },
   backBtn: {width: 36, height: 36, alignItems: 'center', justifyContent: 'center'},
   headerCenter: {flex: 1, alignItems: 'center'},
@@ -608,7 +608,7 @@ const styles = StyleSheet.create({
   creatorBadge: {
     backgroundColor: 'rgba(139,92,246,0.15)', paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4,
   },
-  creatorBadgeText: {fontFamily: 'Inter-Medium', fontSize: 9, color: '#8B5CF6'},
+  creatorBadgeText: {fontFamily: 'Inter-Medium', fontSize: 10, color: '#8B5CF6'},
 
   bubble: {
     paddingHorizontal: 14, paddingVertical: 10, borderRadius: 18,
@@ -630,7 +630,7 @@ const styles = StyleSheet.create({
   },
   bubbleTextOwn: {color: '#FFFFFF'},
   bubbleTime: {
-    fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.2)',
+    fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.45)',
     marginTop: 4, alignSelf: 'flex-end',
   },
   bubbleTimeOwn: {color: 'rgba(255,255,255,0.5)'},
@@ -652,7 +652,7 @@ const styles = StyleSheet.create({
   },
   subscribeBtnText: {fontFamily: 'Inter-Bold', fontSize: 16, color: '#FFFFFF'},
   proGateFeatures: {
-    fontFamily: 'Inter-Medium', fontSize: 11, color: 'rgba(255,255,255,0.3)',
+    fontFamily: 'Inter-Medium', fontSize: 11, color: 'rgba(255,255,255,0.45)',
     marginTop: 16, textAlign: 'center', letterSpacing: 0.3,
   },
 
@@ -661,7 +661,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-end', gap: 10,
     paddingHorizontal: 12, paddingTop: 10, paddingBottom: 24,
     borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)',
-    backgroundColor: '#0A0E14',
+    backgroundColor: '#0F1117',
   },
   input: {
     flex: 1, fontFamily: 'Inter-Regular', fontSize: 14, color: '#FFFFFF',

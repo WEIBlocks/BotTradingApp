@@ -136,3 +136,27 @@ export const updateUserConfigBodySchema = z.object({
 export const subscriptionIdParamsSchema = z.object({
   subscriptionId: z.string().uuid(),
 });
+
+export const trainerConfigBodySchema = z.object({
+  trainingMode: z.enum(['auto', 'suggestions', 'off']).optional(),
+  autoRetrain: z.boolean().optional(),
+  retrainMode: z.enum(['time', 'performance', 'combined']).optional(),
+  retrainIntervalDays: z.number().int().min(1).max(365).optional(),
+  profitFactorFloor: z.number().min(0.5).max(5).optional(),
+  winRateDropThreshold: z.number().min(1).max(50).optional(),
+  consecutiveLossLimit: z.number().int().min(1).max(50).optional(),
+  shadowValidationHours: z.number().int().min(1).max(168).optional(),
+}).passthrough();
+
+export const compoundingBodySchema = z.object({
+  enabled: z.boolean().optional(),
+  reinvestmentRate: z.number().min(0).max(100).optional(),
+  reinvestmentMode: z.enum(['free_balance', 'total_balance', 'fixed']).optional(),
+  compoundFrequency: z.enum(['each_trade', 'daily', 'weekly', 'manual']).optional(),
+  maxPositionSizeUSD: z.number().positive().nullable().optional(),
+  minProfitThresholdUSD: z.number().min(0).optional(),
+  maxCompoundMultiplier: z.number().min(1).max(10).optional(),
+  withdrawalReservePct: z.number().min(0).max(100).optional(),
+  riskReductionEnabled: z.boolean().optional(),
+  riskReductionRate: z.number().min(0).max(100).optional(),
+}).passthrough();

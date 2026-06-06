@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
   },
 
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: 24,
   },
 
@@ -474,7 +474,7 @@ const styles = StyleSheet.create({
   riskValue: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
     marginBottom: 20,
     marginLeft: 2,
   },

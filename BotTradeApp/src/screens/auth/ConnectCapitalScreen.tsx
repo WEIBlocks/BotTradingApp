@@ -251,7 +251,7 @@ const styles = StyleSheet.create({
   // Section label
   sectionLabel: {
     fontFamily: 'Inter-SemiBold', fontSize: 11, letterSpacing: 1.2,
-    color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 12,
+    color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: 12,
   },
 
   // Brokerage rows
@@ -262,7 +262,7 @@ const styles = StyleSheet.create({
   },
   brokerInfo: {flex: 1, marginLeft: 14},
   brokerName: {fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF'},
-  brokerSubtitle: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 2},
+  brokerSubtitle: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.5)', marginTop: 2},
   connectBtn: {
     borderWidth: 1.5, borderColor: '#10B981', borderRadius: 10,
     paddingHorizontal: 16, paddingVertical: 8,
@@ -275,9 +275,9 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', borderStyle: 'dashed',
     borderRadius: 14, paddingVertical: 16, marginTop: 4, marginBottom: 28,
   },
-  requestText: {fontFamily: 'Inter-Medium', fontSize: 13, color: 'rgba(255,255,255,0.35)'},
+  requestText: {fontFamily: 'Inter-Medium', fontSize: 13, color: 'rgba(255,255,255,0.5)'},
 
   // Security
   securityRow: {flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6},
-  securityText: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.3)'},
+  securityText: {fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.45)'},
 });

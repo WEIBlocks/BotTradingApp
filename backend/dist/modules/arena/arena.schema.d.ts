@@ -2,6 +2,7 @@ import { z } from 'zod';
 export declare const createSessionBodySchema: z.ZodObject<{
     botIds: z.ZodArray<z.ZodString, "many">;
     durationSeconds: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+    unlimited: z.ZodDefault<z.ZodOptional<z.ZodBoolean>>;
     mode: z.ZodDefault<z.ZodOptional<z.ZodEnum<["shadow", "live"]>>>;
     virtualBalance: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
     cryptoBalance: z.ZodOptional<z.ZodNumber>;
@@ -10,6 +11,7 @@ export declare const createSessionBodySchema: z.ZodObject<{
     mode: "shadow" | "live";
     virtualBalance: number;
     durationSeconds: number;
+    unlimited: boolean;
     botIds: string[];
     cryptoBalance?: number | undefined;
     stockBalance?: number | undefined;
@@ -18,6 +20,7 @@ export declare const createSessionBodySchema: z.ZodObject<{
     mode?: "shadow" | "live" | undefined;
     virtualBalance?: number | undefined;
     durationSeconds?: number | undefined;
+    unlimited?: boolean | undefined;
     cryptoBalance?: number | undefined;
     stockBalance?: number | undefined;
 }>;
@@ -34,4 +37,20 @@ export declare const dataResponseSchema: z.ZodObject<{
     data?: any;
 }, {
     data?: any;
+}>;
+export declare const getBotsQuerySchema: z.ZodObject<{
+    search: z.ZodOptional<z.ZodString>;
+    page: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+    pageSize: z.ZodDefault<z.ZodOptional<z.ZodNumber>>;
+    assetClass: z.ZodDefault<z.ZodOptional<z.ZodEnum<["crypto", "stocks", "all"]>>>;
+}, "strip", z.ZodTypeAny, {
+    assetClass: "crypto" | "stocks" | "all";
+    page: number;
+    pageSize: number;
+    search?: string | undefined;
+}, {
+    search?: string | undefined;
+    assetClass?: "crypto" | "stocks" | "all" | undefined;
+    page?: number | undefined;
+    pageSize?: number | undefined;
 }>;

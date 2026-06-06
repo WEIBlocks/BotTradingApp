@@ -90,6 +90,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
     gladiatorIds,
     sessionId: existingSessionId,
     durationSeconds,
+    unlimited: paramUnlimited,
     mode: arenaMode,
     virtualBalance: arenaBal,
     cryptoBalance: arenaCryptoBal,
@@ -128,6 +129,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
         arenaCryptoBal,
         arenaStockBal,
         arenaMinOrder,
+        paramUnlimited ?? false,
       )
         .then(s => {
           sessionIdRef.current = s.id;
@@ -231,7 +233,8 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
     .map((g, i) => ({...g, lineColor: getLineColor(i)}));
 
   const datasets = activeGladiators.map(g => g.equityData || []);
-  const progressPct = (session?.progress ?? 0) * 100;
+  const isUnlimited = session?.unlimited ?? paramUnlimited ?? false;
+  const progressPct = isUnlimited ? 100 : (session?.progress ?? 0) * 100;
   const totalSec = session?.durationSeconds ?? 300;
   const elapsedSec = session?.elapsedSeconds ?? 0;
   const remainingSec = session?.remainingSeconds ?? 0;
@@ -254,7 +257,10 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
     return h > 0 ? `${d}d ${h}h` : `${d}d`;
   };
 
-  const statusText = `${formatTime(Math.floor(elapsedSec))} / ${formatTime(totalSec)}`;
+  // Unlimited: show elapsed + ∞ indicator. Timed: show elapsed / total
+  const statusText = isUnlimited
+    ? `${formatTime(Math.floor(elapsedSec))} · ∞ Unlimited`
+    : `${formatTime(Math.floor(elapsedSec))} / ${formatTime(totalSec)}`;
 
   const ranked = [...activeGladiators].sort((a, b) => (b.currentReturn || 0) - (a.currentReturn || 0));
   const chartWidth = width - 32;
@@ -364,10 +370,19 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
               </Text>
             </View>
           </View>
-          {/* Progress bar */}
+          {/* Progress bar — for unlimited: full green bar with ∞ pulse; for timed: normal fill */}
           <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, {width: `${progressPct}%` as any}, session?.status === 'paused' && {backgroundColor: '#F59E0B'}]} />
+            {isUnlimited ? (
+              <View style={[styles.progressFill, {width: '100%', opacity: session?.status === 'paused' ? 0.4 : 0.7, backgroundColor: session?.status === 'paused' ? '#F59E0B' : '#10B981'}]} />
+            ) : (
+              <View style={[styles.progressFill, {width: `${progressPct}%` as any}, session?.status === 'paused' && {backgroundColor: '#F59E0B'}]} />
+            )}
           </View>
+          {isUnlimited && session?.status !== 'paused' && (
+            <Text style={{fontFamily: 'Inter-Medium', fontSize: 10, color: 'rgba(16,185,129,0.7)', letterSpacing: 0.8, marginTop: 4}}>
+              RUNNING UNTIL STOPPED · NO TIME LIMIT
+            </Text>
+          )}
 
           {/* ── Battle Controls ── */}
           {(session?.status === 'running' || session?.status === 'paused') && (
@@ -428,7 +443,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
               <View style={{backgroundColor: '#111827', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#1F2937'}}>
                 <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
                   <View style={{flex: 1}}>
-                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>SHARED POOL</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 0.5}}>SHARED POOL</Text>
                     {isMixed ? (
                       <View style={{flexDirection: 'row', gap: 8, marginTop: 2}}>
                         {cryptoBal != null && <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#F59E0B'}}>${cryptoBal.toLocaleString()} crypto</Text>}
@@ -441,7 +456,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
                   {/* PER BOT — show split values for mixed sessions */}
                   {isMixed ? (
                     <View style={{alignItems: 'flex-end', gap: 2}}>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>PER BOT</Text>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 0.5}}>PER BOT</Text>
                       {perCryptoBot != null && (
                         <Text style={{fontFamily: 'Inter-Bold', fontSize: 12, color: '#F59E0B'}}>
                           ${perCryptoBot.toLocaleString(undefined, {maximumFractionDigits: 0})} crypto
@@ -455,7 +470,7 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
                     </View>
                   ) : (
                     <View style={{alignItems: 'flex-end'}}>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>PER BOT</Text>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 0.5}}>PER BOT</Text>
                       <Text style={{fontFamily: 'Inter-Bold', fontSize: 14, color: '#10B981'}}>${perBot.toLocaleString(undefined, {maximumFractionDigits: 0})}</Text>
                     </View>
                   )}
@@ -486,13 +501,13 @@ export default function ArenaLiveScreen({navigation, route}: Props) {
             <View style={{marginBottom: 12, backgroundColor: '#111827', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#1F2937'}}>
               <View style={{flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8}}>
                 <View>
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>TOTAL P&L (ALL BOTS)</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 0.5}}>TOTAL P&L (ALL BOTS)</Text>
                   <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: isPos ? '#10B981' : '#EF4444'}}>
                     {isPos ? '+' : ''}${totalPnl.toFixed(2)}
                   </Text>
                 </View>
                 <View style={{alignItems: 'flex-end'}}>
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5}}>AVG RETURN</Text>
+                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.5)', letterSpacing: 0.5}}>AVG RETURN</Text>
                   <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: avgReturnPct >= 0 ? '#10B981' : '#EF4444'}}>
                     {avgReturnPct >= 0 ? '+' : ''}{avgReturnPct.toFixed(2)}%
                   </Text>
@@ -940,8 +955,8 @@ const styles = StyleSheet.create({
   // Status
   statusSection: {marginBottom: 20},
   statusLabel: {
-    fontFamily: 'Inter-Medium', fontSize: 10, letterSpacing: 1.2,
-    color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 8,
+    fontFamily: 'Inter-Medium', fontSize: 11, letterSpacing: 1.2,
+    color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', marginBottom: 8,
   },
   statusRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -1004,7 +1019,7 @@ const styles = StyleSheet.create({
   },
   xLabel: {
     fontFamily: 'Inter-Medium', fontSize: 10,
-    color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase',
+    color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase',
   },
   xLabelNow: {color: '#10B981'},
 
@@ -1036,7 +1051,7 @@ const styles = StyleSheet.create({
     width: 40, alignItems: 'center', marginRight: 12,
   },
   rankText: {
-    fontFamily: 'Inter-Bold', fontSize: 16, color: 'rgba(255,255,255,0.35)',
+    fontFamily: 'Inter-Bold', fontSize: 16, color: 'rgba(255,255,255,0.5)',
     textAlign: 'center', marginBottom: 5,
   },
   rankTextFirst: {color: '#FFFFFF'},
@@ -1046,8 +1061,8 @@ const styles = StyleSheet.create({
   leaderInfo: {flex: 1, marginLeft: 12},
   leaderName: {fontFamily: 'Inter-Bold', fontSize: 15, color: '#FFFFFF', marginBottom: 3},
   leaderStrategy: {
-    fontFamily: 'Inter-Medium', fontSize: 10,
-    color: 'rgba(255,255,255,0.35)', letterSpacing: 0.6,
+    fontFamily: 'Inter-Medium', fontSize: 11,
+    color: 'rgba(255,255,255,0.5)', letterSpacing: 0.6,
   },
 
   // Return
@@ -1055,8 +1070,8 @@ const styles = StyleSheet.create({
   returnValue: {fontFamily: 'Inter-Bold', fontSize: 16, letterSpacing: -0.3},
   returnSubRow: {flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3},
   returnSubLabel: {
-    fontFamily: 'Inter-Medium', fontSize: 9,
-    color: 'rgba(255,255,255,0.35)', letterSpacing: 0.5,
+    fontFamily: 'Inter-Medium', fontSize: 10,
+    color: 'rgba(255,255,255,0.5)', letterSpacing: 0.5,
   },
 
   // Exit Modal

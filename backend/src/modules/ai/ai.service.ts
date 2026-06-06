@@ -1,5 +1,6 @@
 import { eq, desc, and, sql } from 'drizzle-orm';
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { llmChat, getActiveProvider, getAvailableProviders, type LLMMessage } from '../../config/ai.js';
 import { env } from '../../config/env.js';
 import { db } from '../../config/database.js';
@@ -744,18 +745,49 @@ async function compressHistory(
 
 // ─── Gemini Fallback Chat ─────────────────────────────────────────────────────
 
+function friendlyAiError(err: any): string {
+  const msg = (err?.message || err?.toString() || '').toLowerCase();
+  if (msg.includes('credit') || msg.includes('billing') || msg.includes('balance') || msg.includes('quota') || msg.includes('insufficient') || msg.includes('payment'))
+    return 'The AI service is temporarily unavailable. Please try again later.';
+  if (msg.includes('timeout') || msg.includes('timed out'))
+    return 'That request timed out. Try a shorter message or try again.';
+  if (msg.includes('rate limit') || msg.includes('429') || msg.includes('too many'))
+    return 'The AI service is busy. Wait a moment and try again.';
+  if (msg.includes('model') && (msg.includes('not found') || msg.includes('does not exist')))
+    return 'The AI service is temporarily unavailable. Please try again later.';
+  return 'I\'m having trouble connecting right now. Please try again in a moment.';
+}
+
 async function fallbackChat(
   systemPrompt: string,
   messages: LLMMessage[],
   imageUrl?: string,
+  excludeProvider?: string,
 ): Promise<{ text: string; model: string }> {
-  console.log('[AI:chat] OpenAI unavailable, falling back to Gemini/Anthropic');
-  const response = await llmChat(messages, {
-    system: systemPrompt,
-    maxTokens: 4096,
-    imageUrl,
-  });
-  return { text: response.text, model: `${response.provider}:${response.model}` };
+  // Try providers in order, skipping the one that just failed
+  const liveProvider = process.env.AI_PROVIDER || env.AI_PROVIDER;
+  const chain = [
+    { provider: 'anthropic', key: process.env.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY },
+    { provider: 'openai',    key: process.env.OPENAI_API_KEY    || env.OPENAI_API_KEY },
+    { provider: 'gemini',    key: process.env.GEMINI_API_KEY    || env.GEMINI_API_KEY },
+  ].filter(p => !!p.key && p.provider !== excludeProvider);
+
+  for (const { provider } of chain) {
+    try {
+      // Temporarily override provider for this call via an explicit provider opt
+      const origProvider = process.env.AI_PROVIDER;
+      process.env.AI_PROVIDER = provider;
+      const response = await llmChat(messages, {
+        system: systemPrompt, maxTokens: 4096, imageUrl, cacheSystem: true,
+      });
+      process.env.AI_PROVIDER = origProvider;
+      console.log(`[AI:chat] Fallback succeeded via ${provider}`);
+      return { text: response.text, model: `${response.provider}:${response.model}` };
+    } catch (err: any) {
+      console.warn(`[AI:chat] Fallback provider "${provider}" also failed:`, err?.message?.slice(0, 100));
+    }
+  }
+  throw new Error('All AI providers failed');
 }
 
 // ─── Service Functions ───────────────────────────────────────────────────────
@@ -839,41 +871,64 @@ export async function chat(
   const systemPrompt = TRADING_ASSISTANT_SYSTEM + botContextSection +
     `\n\nTools available: get_crypto_price, get_stock_price, search_dexscreener, get_market_overview, search_knowledge_base, get_bot_context, fetch_youtube, search_web. Rules: (1) Always call fetch_youtube when the user sends a YouTube URL. (2) Use price tools for any price/market question — never guess prices. (3) Use search_web for news, recent events, earnings, or anything time-sensitive. (4) Use search_knowledge_base when user asks about previously uploaded content.`;
 
-  // --- BUILD MESSAGES FOR OPENAI ---
-  const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: 'system', content: systemPrompt },
-    ...priorMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-    { role: 'user', content: message },
-  ];
-
-  // --- AGENTIC CALL (OpenAI primary, fallback to Gemini/Anthropic) ---
+  // --- AGENTIC CALL (OpenAI tool-use loop if key present, else llmChat direct) ---
   let replyText: string;
   let modelUsed: string;
   let toolsUsed: string[] = [];
 
+  const liveProvider = process.env.AI_PROVIDER || env.AI_PROVIDER;
+  const liveAnthropicKey = process.env.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY;
+  const liveOpenaiKey = process.env.OPENAI_API_KEY || env.OPENAI_API_KEY;
+  const activeProvider = liveProvider === 'auto'
+    ? (liveAnthropicKey ? 'anthropic' : liveOpenaiKey ? 'openai' : 'gemini')
+    : liveProvider;
+
   try {
     const boundExec = (name: string, args: Record<string, unknown>) => executeToolCall(name, args, userId, botId);
-    const agentResult = await runAgenticLoop(openaiMessages, attachmentUrl, boundExec);
-    replyText = agentResult.text;
-    modelUsed = agentResult.model;
-    toolsUsed = agentResult.toolsUsed;
+
+    if (activeProvider === 'anthropic' && liveAnthropicKey) {
+      // Claude path: native tool_use agentic loop
+      const agentResult = await runAnthropicAgenticLoop(
+        systemPrompt,
+        [...priorMessages, { role: 'user', content: message }],
+        attachmentUrl,
+        boundExec,
+      );
+      replyText = agentResult.text;
+      modelUsed = agentResult.model;
+      toolsUsed = agentResult.toolsUsed;
+    } else if (activeProvider === 'openai' && liveOpenaiKey) {
+      // OpenAI path: full agentic tool-use loop
+      const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+        { role: 'system', content: systemPrompt },
+        ...priorMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+        { role: 'user', content: message },
+      ];
+      const agentResult = await runAgenticLoop(openaiMessages, attachmentUrl, boundExec);
+      replyText = agentResult.text;
+      modelUsed = agentResult.model;
+      toolsUsed = agentResult.toolsUsed;
+    } else {
+      // Gemini / fallback: direct llmChat (no tool loop)
+      const result = await llmChat(
+        [...priorMessages, { role: 'user', content: message }],
+        { system: systemPrompt, maxTokens: 4096, imageUrl: attachmentUrl },
+      );
+      replyText = result.text;
+      modelUsed = `${result.provider}:${result.model}`;
+    }
   } catch (err: any) {
-    console.error('[AI:chat] OpenAI agentic call failed:', err.message);
-    // Fallback to non-agentic provider
+    console.error('[AI:chat] Primary AI call failed:', err.message);
     try {
       const fbResult = await fallbackChat(systemPrompt, [
         ...priorMessages,
         { role: 'user', content: message },
-      ], attachmentUrl);
+      ], attachmentUrl, activeProvider);
       replyText = fbResult.text;
       modelUsed = fbResult.model;
     } catch (fbErr: any) {
       console.error('[AI:chat] Fallback also failed:', fbErr.message);
-      const msg = (err.message || '').toLowerCase();
-      let friendlyMessage = 'I\'m having trouble connecting right now. Please try again in a moment.';
-      if (msg.includes('timeout') || msg.includes('timed out')) friendlyMessage = 'That request timed out. Try a shorter message or try again.';
-      else if (msg.includes('rate limit') || msg.includes('429')) friendlyMessage = 'The AI service is busy. Wait a moment and try again.';
-      return { reply: friendlyMessage, conversationId: convId, provider: 'none', model: 'none', error: 'AI_UNAVAILABLE' };
+      return { reply: friendlyAiError(err), conversationId: convId, provider: 'none', model: 'none', error: 'AI_UNAVAILABLE' };
     }
   }
 
@@ -925,7 +980,7 @@ export async function chat(
   return {
     reply: replyText,
     conversationId: convId,
-    provider: 'openai',
+    provider: modelUsed.split(':')[0] ?? 'unknown',
     model: modelUsed,
     cleanPrompt: cleanedReplyForStorage,
     toolsUsed: toolsUsed.length > 0 ? toolsUsed : undefined,
@@ -944,8 +999,8 @@ async function runAgenticLoop(
     throw new AppError(503, 'OpenAI API key not configured.', 'AI_UNAVAILABLE');
   }
 
-  const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
-  const model = 'gpt-4.1-mini';
+  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY || env.OPENAI_API_KEY });
+  const model = process.env.AI_MODEL || env.AI_MODEL || 'gpt-4.1-mini';
   const toolsUsed: string[] = [];
   const runMessages = [...messages];
 
@@ -1026,6 +1081,136 @@ async function runAgenticLoop(
   return { text: finalResponse.choices[0]?.message?.content ?? '', model, toolsUsed };
 }
 
+// ─── Anthropic (Claude) Agentic Loop ────────────────────────────────────────
+// Mirrors runAgenticLoop but uses Claude's native tool_use / tool_result format.
+
+// Convert OpenAI-style tool definitions to Anthropic tool format once
+const ANTHROPIC_TOOLS: Anthropic.Tool[] = AGENT_TOOLS.map(t => {
+  const fn = (t as any).function;
+  return {
+    name: fn.name as string,
+    description: (fn.description ?? '') as string,
+    input_schema: fn.parameters as Anthropic.Tool['input_schema'],
+  };
+});
+
+async function resolveImageBase64(imageUrl: string): Promise<{ base64: string; mimeType: string } | null> {
+  try {
+    const fs = await import('fs');
+    const path = await import('path');
+    let filePath = imageUrl;
+    if (filePath.startsWith('/uploads/')) filePath = path.join(process.cwd(), filePath);
+    if (!fs.existsSync(filePath)) return null;
+    const buffer = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeMap: Record<string, string> = { '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
+    return { base64: buffer.toString('base64'), mimeType: mimeMap[ext] || 'image/jpeg' };
+  } catch { return null; }
+}
+
+async function runAnthropicAgenticLoop(
+  systemPrompt: string,
+  messages: LLMMessage[],
+  imageUrl: string | undefined,
+  execTool: (name: string, args: Record<string, unknown>) => Promise<string>,
+): Promise<{ text: string; model: string; toolsUsed: string[] }> {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) throw new AppError(503, 'Anthropic API key not configured.', 'AI_UNAVAILABLE');
+
+  const client = new Anthropic({ apiKey: anthropicKey });
+  const model = process.env.AI_MODEL || env.AI_MODEL || 'claude-sonnet-4-6';
+  const toolsUsed: string[] = [];
+  const t0 = Date.now();
+
+  // Build initial messages — inject image into last user message if provided
+  const runMessages: Anthropic.MessageParam[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (m.role === 'system') continue;
+    const isLastUser = m.role === 'user' && i === messages.length - 1;
+    if (isLastUser && imageUrl) {
+      const imgData = await resolveImageBase64(imageUrl);
+      if (imgData) {
+        runMessages.push({
+          role: 'user',
+          content: [
+            { type: 'text', text: m.content },
+            { type: 'image', source: { type: 'base64', media_type: imgData.mimeType as any, data: imgData.base64 } },
+          ],
+        });
+        continue;
+      }
+    }
+    runMessages.push({ role: m.role as 'user' | 'assistant', content: m.content });
+  }
+
+  console.log(`[AI:claude-agent] Starting loop | model=${model} | messages=${runMessages.length}`);
+
+  // Cache both the system prompt and tool definitions — both are static per session.
+  // system prompt (~1850 tokens) + 8 tool definitions (~800 tokens) = ~2650 tokens cached.
+  const cachedSystem = [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }];
+  const cachedTools = ANTHROPIC_TOOLS.map((tool, i) =>
+    i === ANTHROPIC_TOOLS.length - 1
+      ? { ...tool, cache_control: { type: 'ephemeral' as const } }
+      : tool,
+  );
+
+  for (let round = 0; round < 5; round++) {
+    const response = await client.messages.create({
+      model,
+      max_tokens: 4096,
+      system: cachedSystem as any,
+      tools: cachedTools as any,
+      tool_choice: { type: 'auto' },
+      messages: runMessages,
+    });
+
+    // Add assistant response to history
+    runMessages.push({ role: 'assistant', content: response.content });
+
+    if (response.stop_reason === 'tool_use') {
+      const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
+      console.log(`[AI:claude-agent] Round ${round + 1}: ${toolUseBlocks.length} tool call(s)`);
+
+      // Execute all tool calls in parallel
+      const toolResults = await Promise.all(
+        toolUseBlocks.map(async (tb) => {
+          if (!toolsUsed.includes(tb.name)) toolsUsed.push(tb.name);
+          const result = await execTool(tb.name, tb.input as Record<string, unknown>);
+          return { tool_use_id: tb.id, content: result };
+        }),
+      );
+
+      // Add tool_result block back as user turn
+      runMessages.push({
+        role: 'user',
+        content: toolResults.map(tr => ({
+          type: 'tool_result' as const,
+          tool_use_id: tr.tool_use_id,
+          content: tr.content,
+        })),
+      });
+      continue;
+    }
+
+    // Extract final text
+    const textBlock = response.content.find((b): b is Anthropic.TextBlock => b.type === 'text');
+    const text = textBlock?.text ?? '';
+    const cacheRead = (response.usage as any)?.cache_read_input_tokens ?? 0;
+    const cacheWrite = (response.usage as any)?.cache_creation_input_tokens ?? 0;
+    console.log(`[AI:claude-agent] Completed | rounds=${round + 1} | tools=[${toolsUsed.join(', ')}] | ms=${Date.now() - t0} | cache_read=${cacheRead} cache_write=${cacheWrite}`);
+    return { text, model: `anthropic:${model}`, toolsUsed };
+  }
+
+  // Max rounds — force final answer without tools
+  console.warn('[AI:claude-agent] Max rounds reached, forcing final answer');
+  const finalResp = await client.messages.create({
+    model, max_tokens: 2048, system: cachedSystem as any, messages: runMessages,
+  });
+  const finalText = (finalResp.content.find((b): b is Anthropic.TextBlock => b.type === 'text'))?.text ?? '';
+  return { text: finalText, model: `anthropic:${model}`, toolsUsed };
+}
+
 // ─── Streaming Agentic Loop ──────────────────────────────────────────────────
 // Same as runAgenticLoop but streams the final text round.
 // Tool rounds execute normally (non-streaming).
@@ -1082,34 +1267,132 @@ export async function* chatStream(
   const systemPrompt = TRADING_ASSISTANT_SYSTEM + botContextSection +
     `\n\nTools available: get_crypto_price, get_stock_price, search_dexscreener, get_market_overview, search_knowledge_base, get_bot_context, fetch_youtube, search_web. Rules: (1) Always call fetch_youtube when the user sends a YouTube URL. (2) Use price tools for any price/market question — never guess prices. (3) Use search_web for news, recent events, earnings, or anything time-sensitive. (4) Use search_knowledge_base when user asks about previously uploaded content.`;
 
-  const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: 'system', content: systemPrompt },
-    ...priorMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-    { role: 'user', content: message },
-  ];
+  // --- DETERMINE ACTIVE PROVIDER (same logic as chat()) ---
+  const streamLiveProvider = process.env.AI_PROVIDER || env.AI_PROVIDER;
+  const streamAnthropicKey = process.env.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY;
+  const streamOpenaiKey = process.env.OPENAI_API_KEY || env.OPENAI_API_KEY;
+  const streamActiveProvider = streamLiveProvider === 'auto'
+    ? (streamAnthropicKey ? 'anthropic' : streamOpenaiKey ? 'openai' : 'gemini')
+    : streamLiveProvider;
 
-  // --- SINGLE STREAMING CALL — tools + text in one pass per round ---
-  // Every round uses stream:true. If the model calls a tool, we collect the
-  // streamed tool-call arguments, execute the tool, then start the next round.
-  // This means the first token of the final answer starts streaming immediately
-  // after the last tool finishes — no wasted non-streaming probe call.
   let replyText = '';
-  let modelUsed = 'gpt-4.1-mini';
+  let modelUsed = 'unknown';
   let toolsUsed: string[] = [];
+  const boundExecStream = (name: string, args: Record<string, unknown>) => executeToolCall(name, args, userId, botId);
 
-  if (!env.OPENAI_API_KEY) {
+  // --- CLAUDE STREAMING PATH ---
+  if (streamActiveProvider === 'anthropic' && streamAnthropicKey) {
+    const anthropicClient = new Anthropic({ apiKey: streamAnthropicKey });
+    const claudeModel = process.env.AI_MODEL || env.AI_MODEL || 'claude-sonnet-4-6';
+    modelUsed = `anthropic:${claudeModel}`;
+
+    const cachedSystemStream = [{ type: 'text' as const, text: systemPrompt, cache_control: { type: 'ephemeral' as const } }];
+    const cachedToolsStream = ANTHROPIC_TOOLS.map((tool, i) =>
+      i === ANTHROPIC_TOOLS.length - 1 ? { ...tool, cache_control: { type: 'ephemeral' as const } } : tool,
+    );
+
+    const runClaudeMessages: Anthropic.MessageParam[] = [
+      ...priorMessages.filter(m => m.role !== 'system').map(m => ({
+        role: m.role as 'user' | 'assistant', content: m.content,
+      })),
+      { role: 'user' as const, content: message },
+    ];
+
     try {
-      const fb = await fallbackChat(systemPrompt, [...priorMessages, { role: 'user', content: message }], attachmentUrl);
-      replyText = fb.text;
-      modelUsed = fb.model;
-      yield `data: ${JSON.stringify({ token: replyText })}\n\n`;
-    } catch {
-      yield `data: ${JSON.stringify({ token: 'Sorry, I could not process your request.' })}\n\n`;
+      for (let round = 0; round < 5; round++) {
+        // Claude streaming with tool_use
+        const stream = await anthropicClient.messages.create({
+          model: claudeModel,
+          max_tokens: 4096,
+          system: cachedSystemStream as any,
+          tools: cachedToolsStream as any,
+          tool_choice: { type: 'auto' },
+          messages: runClaudeMessages,
+          stream: true,
+        });
+
+        let roundText = '';
+        const toolUseBlocks: Array<{ id: string; name: string; input: Record<string, unknown> }> = [];
+        let currentToolUse: { id: string; name: string; inputJson: string } | null = null;
+        let stopReason = '';
+
+        for await (const event of stream as any) {
+          if (event.type === 'content_block_start') {
+            if (event.content_block?.type === 'tool_use') {
+              currentToolUse = { id: event.content_block.id, name: event.content_block.name, inputJson: '' };
+            }
+          } else if (event.type === 'content_block_delta') {
+            if (event.delta?.type === 'text_delta' && event.delta.text) {
+              roundText += event.delta.text;
+              yield `data: ${JSON.stringify({ token: event.delta.text })}\n\n`;
+            } else if (event.delta?.type === 'input_json_delta' && currentToolUse) {
+              currentToolUse.inputJson += event.delta.partial_json || '';
+            }
+          } else if (event.type === 'content_block_stop') {
+            if (currentToolUse) {
+              let input: Record<string, unknown> = {};
+              try { input = JSON.parse(currentToolUse.inputJson); } catch {}
+              toolUseBlocks.push({ id: currentToolUse.id, name: currentToolUse.name, input });
+              currentToolUse = null;
+            }
+          } else if (event.type === 'message_delta') {
+            stopReason = event.delta?.stop_reason || stopReason;
+          }
+        }
+
+        if (stopReason === 'tool_use' && toolUseBlocks.length > 0) {
+          const toolNames = toolUseBlocks.map(t => t.name).join(', ');
+          yield `data: ${JSON.stringify({ tool: toolNames })}\n\n`;
+          console.log(`[AI:stream:claude] Round ${round + 1}: tools=[${toolNames}]`);
+
+          // Build assistant message with all content blocks
+          const assistantContent: Anthropic.ContentBlock[] = [];
+          if (roundText) assistantContent.push({ type: 'text', text: roundText } as any);
+          for (const tb of toolUseBlocks) {
+            assistantContent.push({ type: 'tool_use', id: tb.id, name: tb.name, input: tb.input } as any);
+            if (!toolsUsed.includes(tb.name)) toolsUsed.push(tb.name);
+          }
+          runClaudeMessages.push({ role: 'assistant', content: assistantContent });
+
+          // Execute tools in parallel
+          const toolResults = await Promise.all(toolUseBlocks.map(async tb => ({
+            tool_use_id: tb.id,
+            content: await boundExecStream(tb.name, tb.input),
+          })));
+          runClaudeMessages.push({
+            role: 'user',
+            content: toolResults.map(tr => ({ type: 'tool_result' as const, tool_use_id: tr.tool_use_id, content: tr.content })),
+          });
+          continue;
+        }
+
+        replyText = roundText;
+        break;
+      }
+    } catch (err: any) {
+      console.error('[AI:stream:claude] Failed:', err?.message?.slice(0, 150));
+      // Fallback to OpenAI streaming if Claude fails
+      try {
+        const fb = await fallbackChat(systemPrompt, [...priorMessages, { role: 'user', content: message }], attachmentUrl, 'anthropic');
+        replyText = fb.text;
+        modelUsed = fb.model;
+        yield `data: ${JSON.stringify({ token: replyText })}\n\n`;
+      } catch (fbErr: any) {
+        const friendly = friendlyAiError(err);
+        yield `data: ${JSON.stringify({ token: friendly })}\n\n`;
+        replyText = friendly;
+      }
     }
-  } else {
-    const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
-    const model = 'gpt-4.1-mini';
-    const boundExec = (name: string, args: Record<string, unknown>) => executeToolCall(name, args, userId, botId);
+
+  // --- OPENAI STREAMING PATH (primary when AI_PROVIDER=openai, fallback otherwise) ---
+  } else if (streamOpenaiKey) {
+    const client = new OpenAI({ apiKey: streamOpenaiKey });
+    const model = process.env.AI_MODEL || env.AI_MODEL || 'gpt-4.1-mini';
+    const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: systemPrompt },
+      ...priorMessages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+      { role: 'user', content: message },
+    ];
     const runMessages = [...openaiMessages];
 
     for (let round = 0; round < 5; round++) {
@@ -1178,7 +1461,7 @@ export async function* chatStream(
           if (!toolsUsed.includes(tc.name)) toolsUsed.push(tc.name);
           let parsed: Record<string, unknown> = {};
           try { parsed = JSON.parse(tc.args); } catch {}
-          const result = await boundExec(tc.name, parsed);
+          const result = await boundExecStream(tc.name, parsed);
           return { tool_call_id: tc.id, content: result };
         }));
 
@@ -1193,6 +1476,19 @@ export async function* chatStream(
       break;
     }
     modelUsed = model;
+
+  // --- NO KEYS FALLBACK ---
+  } else {
+    try {
+      const fb = await fallbackChat(systemPrompt, [...priorMessages, { role: 'user', content: message }], attachmentUrl);
+      replyText = fb.text;
+      modelUsed = fb.model;
+      yield `data: ${JSON.stringify({ token: replyText })}\n\n`;
+    } catch (fbErr: any) {
+      const friendly = friendlyAiError(fbErr);
+      yield `data: ${JSON.stringify({ token: friendly })}\n\n`;
+      replyText = friendly;
+    }
   }
 
   console.log(`[AI:stream] Complete | model=${modelUsed} | tools=[${toolsUsed.join(', ')}] | length=${replyText.length}`);
@@ -1221,6 +1517,7 @@ export async function voiceCommand(userId: string, transcript: string) {
       {
         system: VOICE_COMMAND_SYSTEM,
         maxTokens: 512,
+        cacheSystem: true,
       },
     );
   } catch (err: any) {
@@ -1302,6 +1599,7 @@ export async function generateStrategy(
     {
       system: STRATEGY_GENERATOR_SYSTEM,
       maxTokens: 1500,
+      cacheSystem: true,
     },
   );
 
@@ -1395,6 +1693,7 @@ export async function getCreatorSuggestions(userId: string) {
     {
       system: CREATOR_SUGGESTIONS_SYSTEM,
       maxTokens: 1500,
+      cacheSystem: true,
     },
   );
 

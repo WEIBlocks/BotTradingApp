@@ -260,7 +260,7 @@ export default function PaperTradingSetupScreen({navigation}: Props) {
           </View>
           <View style={[styles.summaryRow, {borderBottomWidth: 0}]}>
             <Text style={styles.summaryKey}>Realistic Simulation</Text>
-            <Text style={[styles.summaryValue, {color: enableRealistic ? '#10B981' : 'rgba(255,255,255,0.4)'}]}>
+            <Text style={[styles.summaryValue, {color: enableRealistic ? '#10B981' : 'rgba(255,255,255,0.5)'}]}>
               {enableRealistic ? 'Enabled' : 'Disabled'}
             </Text>
           </View>
@@ -339,7 +339,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   headerTitle: {fontFamily: 'Inter-Bold', fontSize: 17, color: '#FFFFFF'},
-  scroll: {paddingHorizontal: 20, paddingBottom: 48},
+  scroll: {paddingHorizontal: 16, paddingBottom: 48},
   // Info banner
   infoBanner: {
     flexDirection: 'row',
@@ -363,9 +363,9 @@ const styles = StyleSheet.create({
   section: {marginBottom: 24},
   sectionLabel: {
     fontFamily: 'Inter-Bold',
-    fontSize: 10,
+    fontSize: 11,
     letterSpacing: 1.5,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.5)',
     textTransform: 'uppercase',
     marginBottom: 12,
   },
@@ -392,7 +392,7 @@ const styles = StyleSheet.create({
   customLabel: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
     marginTop: 14,
     marginBottom: 8,
   },
@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
   currencyPrefix: {
     fontFamily: 'Inter-Bold',
     fontSize: 18,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.5)',
     marginRight: 8,
   },
   customInput: {
@@ -422,7 +422,7 @@ const styles = StyleSheet.create({
   balanceDisplay: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
     marginTop: 8,
   },
   balanceHighlight: {color: '#10B981', fontFamily: 'Inter-SemiBold'},
@@ -465,7 +465,7 @@ const styles = StyleSheet.create({
   optionDesc: {
     fontFamily: 'Inter-Regular',
     fontSize: 11,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
     marginTop: 2,
   },
   optionDivider: {height: 1, backgroundColor: 'rgba(255,255,255,0.04)', marginHorizontal: 16},
@@ -588,7 +588,7 @@ const styles = StyleSheet.create({
   confirmStatLabel: {
     fontFamily: 'Inter-Regular',
     fontSize: 13,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.5)',
   },
   confirmStatValue: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'},
   confirmActions: {width: '100%', gap: 12},

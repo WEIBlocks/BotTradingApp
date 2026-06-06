@@ -78,6 +78,7 @@ export declare function publishBot(userId: string, botId: string): Promise<{
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
+    trainerConfig: unknown;
     version: string | null;
     createdAt: Date | null;
     updatedAt: Date | null;
@@ -113,6 +114,7 @@ export declare function unpublishBot(userId: string, botId: string): Promise<{
     status: "draft" | "pending_review" | "approved" | "rejected" | "suspended" | null;
     isPublished: boolean | null;
     config: unknown;
+    trainerConfig: unknown;
     version: string | null;
     createdAt: Date | null;
     updatedAt: Date | null;

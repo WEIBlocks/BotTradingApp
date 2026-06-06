@@ -3,26 +3,32 @@
  *  DST approximation: March(2)–October(9) = EDT (UTC-4), else EST (UTC-5).
  */
 export declare function isUSMarketOpen(): boolean;
-export declare function getAvailableBots(userId: string): Promise<{
-    assetClass: "crypto" | "stocks" | "mixed";
-    id: string;
-    name: string;
-    subtitle: string | null;
-    strategy: string;
-    category: "Crypto" | "Stocks" | "Forex" | "Multi" | null;
-    riskLevel: "Very Low" | "Low" | "Med" | "High" | "Very High" | null;
-    avatarColor: string | null;
-    avatarLetter: string | null;
-    config: unknown;
-    creatorId: string;
-    return30d: string | null;
-    winRate: string | null;
-    maxDrawdown: string | null;
-    sharpeRatio: string | null;
-    avgRating: string | null;
-    activeUsers: number | null;
-}[]>;
-export declare function createSession(userId: string, botIds: string[], durationSeconds?: number, mode?: 'shadow' | 'live', virtualBalance?: number, cryptoBalance?: number, stockBalance?: number, minOrderValue?: number): Promise<{
+export declare function getAvailableBots(userId: string, search?: string, page?: number, pageSize?: number, assetClass?: 'crypto' | 'stocks' | 'all'): Promise<{
+    bots: {
+        assetClass: "crypto" | "stocks" | "mixed";
+        id: string;
+        name: string;
+        subtitle: string | null;
+        strategy: string;
+        category: "Crypto" | "Stocks" | "Forex" | "Multi" | null;
+        riskLevel: "Very Low" | "Low" | "Med" | "High" | "Very High" | null;
+        avatarColor: string | null;
+        avatarLetter: string | null;
+        config: unknown;
+        creatorId: string;
+        return30d: string | null;
+        winRate: string | null;
+        maxDrawdown: string | null;
+        sharpeRatio: string | null;
+        avgRating: string | null;
+        activeUsers: number | null;
+    }[];
+    total: number;
+    page: number;
+    pageSize: number;
+    hasMore: boolean;
+}>;
+export declare function createSession(userId: string, botIds: string[], durationSeconds?: number, mode?: 'shadow' | 'live', virtualBalance?: number, cryptoBalance?: number, stockBalance?: number, minOrderValue?: number, unlimited?: boolean): Promise<{
     gladiators: {
         id: string;
         createdAt: Date | null;
@@ -53,6 +59,7 @@ export declare function createSession(userId: string, botIds: string[], duration
     virtualBalance: string | null;
     notificationSent: boolean | null;
     durationSeconds: number | null;
+    unlimited: boolean | null;
     cryptoBalance: string | null;
     stockBalance: string | null;
     endedAt: Date | null;
@@ -109,8 +116,9 @@ export declare function getSession(sessionId: string, userId: string): Promise<{
         botConfig: unknown;
     }[];
     progress: number;
+    unlimited: boolean;
     elapsedSeconds: number;
-    remainingSeconds: number;
+    remainingSeconds: number | null;
     virtualBalance: string | null;
     cryptoBalance: string | null;
     stockBalance: string | null;
@@ -184,8 +192,9 @@ export declare function getActiveSession(userId: string): Promise<{
         botConfig: unknown;
     }[];
     progress: number;
+    unlimited: boolean;
     elapsedSeconds: number;
-    remainingSeconds: number;
+    remainingSeconds: number | null;
     virtualBalance: string | null;
     cryptoBalance: string | null;
     stockBalance: string | null;
@@ -259,8 +268,9 @@ export declare function getActiveSessions(userId: string): Promise<{
         botConfig: unknown;
     }[];
     progress: number;
+    unlimited: boolean;
     elapsedSeconds: number;
-    remainingSeconds: number;
+    remainingSeconds: number | null;
     virtualBalance: string | null;
     cryptoBalance: string | null;
     stockBalance: string | null;

@@ -575,7 +575,7 @@ const ExchangeConnectScreen = () => {
               autoCorrect={false}
             />
           </View>
-          <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 16, paddingHorizontal: 4}}>
+          <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 16, paddingHorizontal: 4}}>
             Paste the full PEM block from your downloaded JSON file (privateKey field)
           </Text>
         </>
@@ -688,7 +688,7 @@ export default ExchangeConnectScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0A0E14',
+    backgroundColor: '#0F1117',
   },
 
   // Header
@@ -750,7 +750,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingBottom: 20,
   },
 
@@ -882,7 +882,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: 'Inter-Regular',
     fontSize: 13,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.5)',
     lineHeight: 18,
   },
 
@@ -948,7 +948,7 @@ const styles = StyleSheet.create({
   securityText: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.4)',
+    color: 'rgba(255,255,255,0.5)',
   },
 });
 
@@ -1005,7 +1005,7 @@ const guideStyles = StyleSheet.create({
   guideSubtitle: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
   },
   expandBtn: {
     width: 32,
@@ -1059,7 +1059,7 @@ const guideStyles = StyleSheet.create({
   permissionsLabel: {
     fontFamily: 'Inter-Medium',
     fontSize: 11,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
     marginBottom: 8,
     textTransform: 'uppercase',
     letterSpacing: 0.8,

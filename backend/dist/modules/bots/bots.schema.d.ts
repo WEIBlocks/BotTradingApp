@@ -388,3 +388,65 @@ export declare const subscriptionIdParamsSchema: z.ZodObject<{
 }, {
     subscriptionId: string;
 }>;
+export declare const trainerConfigBodySchema: z.ZodObject<{
+    trainingMode: z.ZodOptional<z.ZodEnum<["auto", "suggestions", "off"]>>;
+    autoRetrain: z.ZodOptional<z.ZodBoolean>;
+    retrainMode: z.ZodOptional<z.ZodEnum<["time", "performance", "combined"]>>;
+    retrainIntervalDays: z.ZodOptional<z.ZodNumber>;
+    profitFactorFloor: z.ZodOptional<z.ZodNumber>;
+    winRateDropThreshold: z.ZodOptional<z.ZodNumber>;
+    consecutiveLossLimit: z.ZodOptional<z.ZodNumber>;
+    shadowValidationHours: z.ZodOptional<z.ZodNumber>;
+}, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+    trainingMode: z.ZodOptional<z.ZodEnum<["auto", "suggestions", "off"]>>;
+    autoRetrain: z.ZodOptional<z.ZodBoolean>;
+    retrainMode: z.ZodOptional<z.ZodEnum<["time", "performance", "combined"]>>;
+    retrainIntervalDays: z.ZodOptional<z.ZodNumber>;
+    profitFactorFloor: z.ZodOptional<z.ZodNumber>;
+    winRateDropThreshold: z.ZodOptional<z.ZodNumber>;
+    consecutiveLossLimit: z.ZodOptional<z.ZodNumber>;
+    shadowValidationHours: z.ZodOptional<z.ZodNumber>;
+}, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+    trainingMode: z.ZodOptional<z.ZodEnum<["auto", "suggestions", "off"]>>;
+    autoRetrain: z.ZodOptional<z.ZodBoolean>;
+    retrainMode: z.ZodOptional<z.ZodEnum<["time", "performance", "combined"]>>;
+    retrainIntervalDays: z.ZodOptional<z.ZodNumber>;
+    profitFactorFloor: z.ZodOptional<z.ZodNumber>;
+    winRateDropThreshold: z.ZodOptional<z.ZodNumber>;
+    consecutiveLossLimit: z.ZodOptional<z.ZodNumber>;
+    shadowValidationHours: z.ZodOptional<z.ZodNumber>;
+}, z.ZodTypeAny, "passthrough">>;
+export declare const compoundingBodySchema: z.ZodObject<{
+    enabled: z.ZodOptional<z.ZodBoolean>;
+    reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+    reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+    compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+    maxPositionSizeUSD: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+    maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+    withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+    riskReductionEnabled: z.ZodOptional<z.ZodBoolean>;
+    riskReductionRate: z.ZodOptional<z.ZodNumber>;
+}, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+    enabled: z.ZodOptional<z.ZodBoolean>;
+    reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+    reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+    compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+    maxPositionSizeUSD: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+    maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+    withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+    riskReductionEnabled: z.ZodOptional<z.ZodBoolean>;
+    riskReductionRate: z.ZodOptional<z.ZodNumber>;
+}, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+    enabled: z.ZodOptional<z.ZodBoolean>;
+    reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+    reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+    compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+    maxPositionSizeUSD: z.ZodOptional<z.ZodNullable<z.ZodNumber>>;
+    minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+    maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+    withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+    riskReductionEnabled: z.ZodOptional<z.ZodBoolean>;
+    riskReductionRate: z.ZodOptional<z.ZodNumber>;
+}, z.ZodTypeAny, "passthrough">>;

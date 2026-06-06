@@ -983,13 +983,13 @@ const styles = StyleSheet.create({
   appInfoVersion: {
     fontFamily: 'Inter-Medium',
     fontSize: 13,
-    color: 'rgba(255,255,255,0.3)',
+    color: 'rgba(255,255,255,0.45)',
     marginBottom: 4,
   },
   appInfoSub: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.2)',
+    color: 'rgba(255,255,255,0.45)',
   },
 
   // ─── Tickets List ───────────────────────────────────────────────────────────
@@ -1022,13 +1022,13 @@ const styles = StyleSheet.create({
   ticketCardType: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
     marginTop: 2,
   },
   ticketCardDate: {
     fontFamily: 'Inter-Regular',
     fontSize: 11,
-    color: 'rgba(255,255,255,0.25)',
+    color: 'rgba(255,255,255,0.45)',
     marginTop: 10,
   },
 
@@ -1066,7 +1066,7 @@ const styles = StyleSheet.create({
   ticketDetailDate: {
     fontFamily: 'Inter-Regular',
     fontSize: 12,
-    color: 'rgba(255,255,255,0.35)',
+    color: 'rgba(255,255,255,0.5)',
   },
   ticketDetailDesc: {
     fontFamily: 'Inter-Regular',
@@ -1180,7 +1180,7 @@ const styles = StyleSheet.create({
   closedBannerText: {
     fontFamily: 'Inter-Medium',
     fontSize: 13,
-    color: 'rgba(255,255,255,0.3)',
+    color: 'rgba(255,255,255,0.45)',
   },
 
   // ─── Center loader / empty ──────────────────────────────────────────────────
@@ -1200,7 +1200,7 @@ const styles = StyleSheet.create({
   emptySubText: {
     fontFamily: 'Inter-Regular',
     fontSize: 13,
-    color: 'rgba(255,255,255,0.3)',
+    color: 'rgba(255,255,255,0.45)',
     textAlign: 'center',
     paddingHorizontal: 40,
   },
