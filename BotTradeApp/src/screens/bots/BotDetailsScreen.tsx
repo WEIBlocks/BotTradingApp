@@ -1503,19 +1503,10 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </View>
             </View>
 
-            {/* Creator */}
-            {bot.creatorName ? (
+            {/* Creator — removed, name already shown in hero */}
+            {false ? (
               <View style={styles.section}>
                 <Text style={styles.sectionLabel}>CREATOR</Text>
-                <View style={styles.creatorCard}>
-                  <View style={[styles.creatorAvatar, {backgroundColor: bot.avatarColor}]}>
-                    <Text style={styles.creatorAvatarText}>{bot.creatorName.charAt(0).toUpperCase()}</Text>
-                  </View>
-                  <View style={styles.creatorInfo}>
-                    <Text style={styles.creatorName}>{bot.creatorName}</Text>
-                    <Text style={styles.creatorSub}>{isCreator ? 'You' : 'Bot Creator'}</Text>
-                  </View>
-                </View>
               </View>
             ) : null}
 
