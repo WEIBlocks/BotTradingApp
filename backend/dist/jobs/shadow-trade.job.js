@@ -200,6 +200,57 @@ async function processShadowTrades() {
                         status: 'filled',
                     });
                     newTrades++;
+                    // Virtual compounding — increase currentBalance after profitable SELL if enabled
+                    if (decision.action === 'SELL' && pnl !== null && pnl > 0) {
+                        const cs = userConfig.compounding;
+                        if (cs?.enabled) {
+                            const threshold = cs.minProfitThresholdUSD ?? 0;
+                            if (pnl >= threshold) {
+                                // Frequency gate
+                                let freqOk = true;
+                                if (cs.compoundFrequency === 'daily' && cs.lastCompoundAt) {
+                                    const hoursSince = (Date.now() - new Date(cs.lastCompoundAt).getTime()) / 3_600_000;
+                                    freqOk = hoursSince >= 24;
+                                }
+                                else if (cs.compoundFrequency === 'weekly' && cs.lastCompoundAt) {
+                                    const hoursSince = (Date.now() - new Date(cs.lastCompoundAt).getTime()) / 3_600_000;
+                                    freqOk = hoursSince >= 168;
+                                }
+                                if (freqOk) {
+                                    const rate = (cs.reinvestmentRate ?? 50) / 100;
+                                    const reservePct = (cs.withdrawalReservePct ?? 0) / 100;
+                                    let toReinvest = pnl * rate * (1 - reservePct);
+                                    // Cap at maxCompoundMultiplier headroom
+                                    const maxMult = cs.maxCompoundMultiplier ?? 3;
+                                    const startBal = parseFloat(session.virtualBalance);
+                                    const totalCompounded = cs.totalCompounded ?? 0;
+                                    const currentAlloc = startBal + totalCompounded;
+                                    const headroom = (startBal * maxMult) - currentAlloc;
+                                    if (headroom > 0) {
+                                        toReinvest = Math.min(toReinvest, headroom);
+                                        // Compound: add toReinvest to balanceDelta (already includes pnl)
+                                        balanceDelta += toReinvest;
+                                        const newTotalCompounded = totalCompounded + toReinvest;
+                                        // Persist updated compounding stats back to session userConfig
+                                        const updatedConfig = {
+                                            ...userConfig,
+                                            compounding: {
+                                                ...cs,
+                                                totalCompounded: Math.round(newTotalCompounded * 100) / 100,
+                                                lastCompoundAt: new Date().toISOString(),
+                                            },
+                                        };
+                                        await db.update(shadowSessions)
+                                            .set({ userConfig: updatedConfig })
+                                            .where(eq(shadowSessions.id, session.id));
+                                        // Update local reference so subsequent pairs in this loop see updated state
+                                        userConfig.compounding = updatedConfig.compounding;
+                                        console.log(`[ShadowTrade] Compounded +$${toReinvest.toFixed(2)} for session ${session.id}`);
+                                    }
+                                }
+                            }
+                        }
+                    }
                     // Shadow trade notification — respect user's notificationLevel setting
                     const notifLevel = userConfig.notificationLevel ?? 'all';
                     const isSell = decision.action === 'SELL';

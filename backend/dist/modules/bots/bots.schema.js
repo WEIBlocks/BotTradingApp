@@ -132,6 +132,18 @@ export const updateShadowUserConfigBodySchema = z.object({
     autoStopLossPercent: z.number().min(0).max(100).optional(),
     autoStopBalance: z.number().min(0).optional(),
     minOrderValue: z.number().min(0).optional(),
+    // Virtual compounding — stored in userConfig jsonb for shadow sessions
+    compounding: z.object({
+        enabled: z.boolean().optional(),
+        reinvestmentRate: z.number().min(0).max(100).optional(),
+        reinvestmentMode: z.enum(['free_balance', 'total_balance', 'fixed']).optional(),
+        compoundFrequency: z.enum(['each_trade', 'daily', 'weekly', 'manual']).optional(),
+        minProfitThresholdUSD: z.number().min(0).optional(),
+        maxCompoundMultiplier: z.number().min(1).max(10).optional(),
+        withdrawalReservePct: z.number().min(0).max(100).optional(),
+        totalCompounded: z.number().optional(),
+        lastCompoundAt: z.string().nullable().optional(),
+    }).optional(),
 });
 export const trainerConfigBodySchema = z.object({
     trainingMode: z.enum(['auto', 'suggestions', 'off']).optional(),

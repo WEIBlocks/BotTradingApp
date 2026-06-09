@@ -320,7 +320,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
           .then((res: any) => { if (mountedRef.current) setShadowSessionStats(res?.data ?? null); })
           .catch(() => {})
           .finally(() => { if (mountedRef.current) setMyStatsLoading(false); });
-        // Load shadow session user config
+        // Load shadow session user config (including compounding stored in userConfig.compounding)
         botsService.getShadowSessionConfig(shadowId).then((res: any) => {
           if (!mountedRef.current) return;
           const cfg = res?.data?.userConfig ?? {};
@@ -332,6 +332,39 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             autoStopBalance: cfg.autoStopBalance !== undefined ? String(cfg.autoStopBalance) : '',
             minOrderValue: minOrd !== undefined ? String(parseFloat(minOrd)) : '10',
           });
+          // Load shadow compounding from userConfig.compounding
+          if (cfg.compounding) {
+            setCompounding({
+              enabled: cfg.compounding.enabled ?? false,
+              reinvestmentRate: cfg.compounding.reinvestmentRate ?? 50,
+              reinvestmentMode: cfg.compounding.reinvestmentMode ?? 'free_balance',
+              compoundFrequency: cfg.compounding.compoundFrequency ?? 'each_trade',
+              maxPositionSizeUSD: cfg.compounding.maxPositionSizeUSD ?? null,
+              minProfitThresholdUSD: cfg.compounding.minProfitThresholdUSD ?? 0,
+              maxCompoundMultiplier: cfg.compounding.maxCompoundMultiplier ?? 3,
+              withdrawalReservePct: cfg.compounding.withdrawalReservePct ?? 0,
+              riskReductionEnabled: cfg.compounding.riskReductionEnabled ?? false,
+              riskReductionRate: cfg.compounding.riskReductionRate ?? 0,
+              totalCompounded: cfg.compounding.totalCompounded ?? 0,
+              lastCompoundAt: cfg.compounding.lastCompoundAt ?? null,
+            });
+          } else {
+            // Default compounding state for shadow sessions
+            setCompounding({
+              enabled: false,
+              reinvestmentRate: 50,
+              reinvestmentMode: 'free_balance',
+              compoundFrequency: 'each_trade',
+              maxPositionSizeUSD: null,
+              minProfitThresholdUSD: 0,
+              maxCompoundMultiplier: 3,
+              withdrawalReservePct: 0,
+              riskReductionEnabled: false,
+              riskReductionRate: 0,
+              totalCompounded: 0,
+              lastCompoundAt: null,
+            });
+          }
         }).catch(() => {});
       }
 
@@ -355,6 +388,24 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             if (cr?.data?.compounding) setCompounding(cr.data.compounding);
           }).catch(() => {});
         }).catch(() => {});
+      }
+
+      // For users with no subscription and no shadow session, set a default compounding state
+      if (!sub && !shadowId) {
+        setCompounding({
+          enabled: false,
+          reinvestmentRate: 50,
+          reinvestmentMode: 'free_balance',
+          compoundFrequency: 'each_trade',
+          maxPositionSizeUSD: null,
+          minProfitThresholdUSD: 0,
+          maxCompoundMultiplier: 3,
+          withdrawalReservePct: 0,
+          riskReductionEnabled: false,
+          riskReductionRate: 0,
+          totalCompounded: 0,
+          lastCompoundAt: null,
+        });
       }
 
       // Trainer (fire-and-forget)
@@ -1844,10 +1895,11 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </TouchableOpacity>
             </View>
 
-            {/* Tab bar — only for live users (shadow + none get single-tab modal) */}
-            {isLiveActive && (
-              <View style={{flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)'}}>
-                {(['settings', 'compounding'] as const).map(tab => (
+            {/* Tab bar — Settings + Compounding for all states */}
+            <View style={{flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)'}}>
+              {(['settings', 'compounding'] as const).map(tab => {
+                const accentColor = hasShadowSession ? '#3B82F6' : isLiveActive ? '#8B5CF6' : '#6B7280';
+                return (
                   <TouchableOpacity key={tab} activeOpacity={0.7}
                     style={{flex: 1, alignItems: 'center', paddingVertical: 11, position: 'relative'}}
                     onPress={() => setSettingsModalTab(tab)}>
@@ -1855,12 +1907,12 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                       {tab === 'settings' ? 'Settings' : 'Compounding'}
                     </Text>
                     {settingsModalTab === tab && (
-                      <View style={{position: 'absolute', bottom: 0, left: '20%', right: '20%', height: 2, borderRadius: 2, backgroundColor: '#8B5CF6'}} />
+                      <View style={{position: 'absolute', bottom: 0, left: '20%', right: '20%', height: 2, borderRadius: 2, backgroundColor: accentColor}} />
                     )}
                   </TouchableOpacity>
-                ))}
-              </View>
-            )}
+                );
+              })}
+            </View>
 
             <ScrollView
               style={modalStyles.body}
@@ -1869,7 +1921,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               keyboardDismissMode="on-drag"
               showsVerticalScrollIndicator={false}>
 
-              {hasShadowSession || userBotState.status === 'none' ? (
+              {settingsModalTab !== 'compounding' && (hasShadowSession || userBotState.status === 'none') ? (
                 /* ── Shadow session settings (also used as pre-run defaults when status=none) ── */
                 <>
                   {/* Pre-run info banner */}
@@ -1956,8 +2008,8 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                     </View>
                   </View>
                 </>
-              ) : settingsModalTab === 'settings' ? (
-                /* ── Live subscription settings ── */
+              ) : settingsModalTab !== 'compounding' ? (
+                /* ── Live subscription settings (settings tab, live user) ── */
                 <>
                   {/* Risk Multiplier card */}
                   <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 16, paddingVertical: 14}}>
@@ -2043,8 +2095,22 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                   </View>
                 </>
               ) : (
-                /* ── Compounding tab (live users only) ── */
+                /* ── Compounding tab — all states (shadow stores in userConfig.compounding, live in subscription) ── */
                 <>
+                  {/* Shadow / pre-run context banner */}
+                  {(hasShadowSession || userBotState.status === 'none') && (
+                    <View style={{backgroundColor: 'rgba(59,130,246,0.08)', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(59,130,246,0.2)', flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                      <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
+                        <Path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" stroke="#3B82F6" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                        <Path d="M12 8v4M12 16h.01" stroke="#3B82F6" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                      </Svg>
+                      <Text style={{flex: 1, fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.5)', lineHeight: 16}}>
+                        {userBotState.status === 'none'
+                          ? 'Virtual compounding — these settings apply when you start shadow mode.'
+                          : 'Shadow compounding reinvests virtual profits to grow your paper balance.'}
+                      </Text>
+                    </View>
+                  )}
                   {compounding && (<>
                     {/* Enable toggle card */}
                     <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 16, paddingVertical: 14}}>
@@ -2172,20 +2238,32 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 activeOpacity={0.85}
                 disabled={savingConfig || savingCompounding}
                 onPress={async () => {
-                  if (userBotState.status === 'none') {
+                  const isNone = userBotState.status === 'none';
+                  const isCompoundingTab = settingsModalTab === 'compounding';
+
+                  if (isCompoundingTab) {
+                    if (isNone) { setSettingsModalVisible(false); return; }
+                    if (!compounding) return;
+                    setSavingCompounding(true);
+                    try {
+                      if (hasShadowSession && userBotState.shadowSessionId) {
+                        // Shadow: save compounding inside userConfig.compounding
+                        await botsService.updateShadowSessionConfig(userBotState.shadowSessionId, {
+                          compounding,
+                        });
+                        showAlert('Saved', 'Shadow compounding settings updated.');
+                      } else if (isLiveActive && userBotState.subscriptionId) {
+                        // Live: save to subscription compoundingSettings
+                        await botsService.updateCompounding(userBotState.subscriptionId, compounding);
+                        showAlert('Saved', 'Compounding settings updated.');
+                      }
+                    } catch { showAlert('Error', 'Failed to save compounding settings.'); }
+                    finally { setSavingCompounding(false); }
+                  } else if (isNone) {
                     setSettingsModalVisible(false);
                   } else if (hasShadowSession) {
                     await handleSaveShadowConfig();
                     setSettingsModalVisible(false);
-                  } else if (settingsModalTab === 'compounding') {
-                    const sub = userBotState.subscriptionId;
-                    if (!sub || !compounding) return;
-                    setSavingCompounding(true);
-                    try {
-                      await botsService.updateCompounding(sub, compounding);
-                      showAlert('Saved', 'Compounding settings updated.');
-                    } catch { showAlert('Error', 'Failed to save compounding settings.'); }
-                    finally { setSavingCompounding(false); }
                   } else {
                     await handleSaveUserConfig();
                     setSettingsModalVisible(false);
@@ -2194,7 +2272,11 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 {(savingConfig || savingCompounding)
                   ? <ActivityIndicator size="small" color="#FFFFFF" />
                   : <Text style={modalStyles.confirmText}>
-                      {userBotState.status === 'none' ? 'Close' : settingsModalTab === 'compounding' ? 'Save Compounding' : 'Save Settings'}
+                      {userBotState.status === 'none' && settingsModalTab !== 'compounding'
+                        ? 'Close'
+                        : settingsModalTab === 'compounding'
+                          ? (userBotState.status === 'none' ? 'Close' : 'Save Compounding')
+                          : 'Save Settings'}
                     </Text>}
               </TouchableOpacity>
             </View>

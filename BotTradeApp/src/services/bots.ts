@@ -260,13 +260,14 @@ export const botsService = {
     return api.get<{data: any}>(`/bots/shadow-sessions/${sessionId}/config`);
   },
 
-  /** Update shadow session user config (notificationLevel, autoStopDays, autoStopLossPercent, autoStopBalance, minOrderValue) */
+  /** Update shadow session user config (notificationLevel, autoStopDays, autoStopLossPercent, autoStopBalance, minOrderValue, compounding) */
   updateShadowSessionConfig(sessionId: string, config: {
     notificationLevel?: 'all' | 'wins_only' | 'losses_only' | 'summary';
     autoStopDays?: number;
     autoStopLossPercent?: number;
     autoStopBalance?: number;
     minOrderValue?: number;
+    compounding?: Partial<CompoundingSettings>;
   }) {
     return api.patch<{data: any}>(`/bots/shadow-sessions/${sessionId}/user-config`, config as Record<string, unknown>);
   },
