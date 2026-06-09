@@ -320,7 +320,7 @@ export async function botsRoutes(app: FastifyInstance) {
     },
   }, async (request, reply) => {
     const { id } = request.params;
-    const result = await startShadowMode(request.user.userId, id, request.body);
+    const result = await startShadowMode(request.user.userId, id, request.body as any);
     return reply.status(201).send({ data: result });
   });
 

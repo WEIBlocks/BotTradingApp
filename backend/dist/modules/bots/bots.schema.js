@@ -98,7 +98,7 @@ const shadowCompoundingSchema = z.object({
     withdrawalReservePct: z.number().min(0).max(100).optional(),
     totalCompounded: z.number().optional(),
     lastCompoundAt: z.string().nullable().optional(),
-});
+}).passthrough();
 export const shadowModeBodySchema = z.object({
     virtualBalance: z.number().positive(),
     durationDays: z.number().int().min(0).optional(),
