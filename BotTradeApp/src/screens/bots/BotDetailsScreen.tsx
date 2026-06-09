@@ -758,18 +758,16 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </TouchableOpacity>
             );
           })()}
-          {(userBotState.status === 'active' || userBotState.status === 'paused' || userBotState.status === 'shadow_running' || userBotState.status === 'shadow_paused') && (
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={() => { setSettingsModalTab('settings'); setSettingsModalVisible(true); }}
-              accessibilityRole="button"
-              accessibilityLabel="Bot Settings">
-              <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
-                <Path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke="rgba(255,255,255,0.75)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-                <Path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="rgba(255,255,255,0.75)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-              </Svg>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => { setSettingsModalTab('settings'); setSettingsModalVisible(true); }}
+            accessibilityRole="button"
+            accessibilityLabel="Bot Settings">
+            <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
+              <Path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke="rgba(255,255,255,0.75)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+              <Path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="rgba(255,255,255,0.75)" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+            </Svg>
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.iconBtn}
             onPress={() => bot && toggleFavorite(bot.id, bot).catch(() => {})}
@@ -1820,21 +1818,34 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             <View style={modalStyles.handle} />
             <View style={modalStyles.headerRow}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-                <View style={{width: 32, height: 32, borderRadius: 10, backgroundColor: hasShadowSession ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', alignItems: 'center', justifyContent: 'center'}}>
-                  <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-                    <Path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke={hasShadowSession ? '#3B82F6' : '#8B5CF6'} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-                    <Path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke={hasShadowSession ? '#3B82F6' : '#8B5CF6'} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-                  </Svg>
+                {(() => {
+                  const iconColor = hasShadowSession ? '#3B82F6' : isLiveActive ? '#8B5CF6' : '#6B7280';
+                  const iconBg = hasShadowSession ? 'rgba(59,130,246,0.15)' : isLiveActive ? 'rgba(139,92,246,0.15)' : 'rgba(107,114,128,0.15)';
+                  return (
+                    <View style={{width: 32, height: 32, borderRadius: 10, backgroundColor: iconBg, alignItems: 'center', justifyContent: 'center'}}>
+                      <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                        <Path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke={iconColor} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                        <Path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke={iconColor} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                      </Svg>
+                    </View>
+                  );
+                })()}
+                <View>
+                  <Text style={modalStyles.title}>
+                    {hasShadowSession ? 'Shadow Settings' : isLiveActive ? 'Bot Settings' : 'Bot Preferences'}
+                  </Text>
+                  {userBotState.status === 'none' && (
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 1}}>Applied when you start this bot</Text>
+                  )}
                 </View>
-                <Text style={modalStyles.title}>{hasShadowSession ? 'Shadow Settings' : 'Bot Settings'}</Text>
               </View>
               <TouchableOpacity onPress={() => setSettingsModalVisible(false)} style={modalStyles.closeBtn}>
                 <XIcon size={18} color="rgba(255,255,255,0.5)" />
               </TouchableOpacity>
             </View>
 
-            {/* Tab bar — only for live users (shadow has a single settings tab) */}
-            {!hasShadowSession && (
+            {/* Tab bar — only for live users (shadow + none get single-tab modal) */}
+            {isLiveActive && (
               <View style={{flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)'}}>
                 {(['settings', 'compounding'] as const).map(tab => (
                   <TouchableOpacity key={tab} activeOpacity={0.7}
@@ -1853,29 +1864,46 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
             <ScrollView
               style={modalStyles.body}
-              contentContainerStyle={[modalStyles.bodyContent, {gap: 20}]}
+              contentContainerStyle={[modalStyles.bodyContent, {gap: 22, paddingTop: 20}]}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               showsVerticalScrollIndicator={false}>
 
-              {hasShadowSession ? (
-                /* ── Shadow session settings ── */
+              {hasShadowSession || userBotState.status === 'none' ? (
+                /* ── Shadow session settings (also used as pre-run defaults when status=none) ── */
                 <>
-                  {/* Min Order Value */}
-                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                    <View style={{flex: 1}}>
-                      <Text style={modalStyles.label}>MIN ORDER VALUE</Text>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Skip trades below this virtual $ amount</Text>
+                  {/* Pre-run info banner */}
+                  {userBotState.status === 'none' && (
+                    <View style={{backgroundColor: 'rgba(107,114,128,0.1)', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: 'rgba(107,114,128,0.2)', flexDirection: 'row', alignItems: 'flex-start', gap: 10}}>
+                      <Svg width={16} height={16} viewBox="0 0 24 24" fill="none" style={{marginTop: 1}}>
+                        <Path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" stroke="#9CA3AF" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                        <Path d="M12 8v4M12 16h.01" stroke="#9CA3AF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                      </Svg>
+                      <View style={{flex: 1}}>
+                        <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: 'rgba(255,255,255,0.7)'}}>Pre-run preferences</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 3, lineHeight: 16}}>Configure your shadow session defaults before you start. These apply when you tap Try Shadow Mode.</Text>
+                      </View>
                     </View>
-                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
-                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={shadowUserConfig.minOrderValue} onChangeText={v => setShadowUserConfig(c => ({...c, minOrderValue: v}))} placeholder="10" placeholderTextColor="rgba(255,255,255,0.3)" />
+                  )}
+
+                  {/* Trading section card */}
+                  <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', overflow: 'hidden'}}>
+                    {/* Min Order Value */}
+                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14}}>
+                      <View style={{flex: 1}}>
+                        <Text style={modalStyles.label}>MIN ORDER VALUE</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Skip trades below this virtual $ amount</Text>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
+                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={shadowUserConfig.minOrderValue} onChangeText={v => setShadowUserConfig(c => ({...c, minOrderValue: v}))} placeholder="10" placeholderTextColor="rgba(255,255,255,0.3)" />
+                      </View>
                     </View>
                   </View>
 
-                  {/* Notifications */}
-                  <View>
-                    <Text style={[modalStyles.label, {marginBottom: 10}]}>NOTIFICATIONS</Text>
+                  {/* Notifications card */}
+                  <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 16, paddingVertical: 14}}>
+                    <Text style={[modalStyles.label, {marginBottom: 12}]}>NOTIFICATIONS</Text>
                     <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
                       {(['all', 'wins_only', 'losses_only', 'summary'] as const).map(n => (
                         <TouchableOpacity key={n} activeOpacity={0.7}
@@ -1887,62 +1915,69 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                     </View>
                   </View>
 
-                  {/* Auto-Stop Loss % */}
-                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                    <View style={{flex: 1}}>
-                      <Text style={modalStyles.label}>AUTO-STOP LOSS %</Text>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop shadow if virtual portfolio drops this %</Text>
-                    </View>
-                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={shadowUserConfig.autoStopLossPercent} onChangeText={v => setShadowUserConfig(c => ({...c, autoStopLossPercent: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
-                    </View>
-                  </View>
+                  {/* Auto-Stop card */}
+                  <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', overflow: 'hidden'}}>
+                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.8, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 4}}>AUTO-STOP RULES</Text>
 
-                  {/* Auto-Stop Balance */}
-                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                    <View style={{flex: 1}}>
-                      <Text style={modalStyles.label}>AUTO-STOP BALANCE</Text>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop if virtual balance falls below $</Text>
+                    {/* Auto-Stop Loss % */}
+                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)'}}>
+                      <View style={{flex: 1}}>
+                        <Text style={modalStyles.label}>LOSS %</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Stop if portfolio drops this %</Text>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={shadowUserConfig.autoStopLossPercent} onChangeText={v => setShadowUserConfig(c => ({...c, autoStopLossPercent: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
+                      </View>
                     </View>
-                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
-                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={shadowUserConfig.autoStopBalance} onChangeText={v => setShadowUserConfig(c => ({...c, autoStopBalance: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                    </View>
-                  </View>
 
-                  {/* Auto-Stop Days */}
-                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                    <View style={{flex: 1}}>
-                      <Text style={modalStyles.label}>AUTO-STOP DAYS</Text>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>End shadow session after N days</Text>
+                    {/* Auto-Stop Balance */}
+                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)'}}>
+                      <View style={{flex: 1}}>
+                        <Text style={modalStyles.label}>MIN BALANCE</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Stop if virtual balance falls below</Text>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
+                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={shadowUserConfig.autoStopBalance} onChangeText={v => setShadowUserConfig(c => ({...c, autoStopBalance: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                      </View>
                     </View>
-                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="number-pad" value={shadowUserConfig.autoStopDays} onChangeText={v => setShadowUserConfig(c => ({...c, autoStopDays: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 6}}>days</Text>
+
+                    {/* Auto-Stop Days */}
+                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)'}}>
+                      <View style={{flex: 1}}>
+                        <Text style={modalStyles.label}>MAX DURATION</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>End session after N days</Text>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="number-pad" value={shadowUserConfig.autoStopDays} onChangeText={v => setShadowUserConfig(c => ({...c, autoStopDays: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 6}}>days</Text>
+                      </View>
                     </View>
                   </View>
                 </>
               ) : settingsModalTab === 'settings' ? (
                 /* ── Live subscription settings ── */
                 <>
-                  {/* Risk Multiplier */}
-                  <View>
-                    <Text style={[modalStyles.label, {marginBottom: 10}]}>RISK MULTIPLIER</Text>
+                  {/* Risk Multiplier card */}
+                  <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 16, paddingVertical: 14}}>
+                    <Text style={[modalStyles.label, {marginBottom: 12}]}>RISK MULTIPLIER</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 12}}>Scale trade size relative to bot defaults</Text>
                     <View style={{flexDirection: 'row', gap: 8}}>
                       {([0.5, 1, 1.5, 2] as const).map(v => (
                         <TouchableOpacity key={v} activeOpacity={0.7}
-                          style={{flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: subUserConfig.riskMultiplier === v ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.08)', alignItems: 'center'}}
+                          style={{flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: subUserConfig.riskMultiplier === v ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.08)', alignItems: 'center'}}
                           onPress={() => setSubUserConfig(c => ({...c, riskMultiplier: v}))}>
-                          <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{v}x</Text>
+                          <Text style={{fontFamily: 'Inter-Bold', fontSize: 15, color: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{v}x</Text>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: subUserConfig.riskMultiplier === v ? 'rgba(16,185,129,0.7)' : 'rgba(255,255,255,0.25)', marginTop: 3}}>{v === 0.5 ? 'Safe' : v === 1 ? 'Default' : v === 1.5 ? 'Moderate' : 'Aggressive'}</Text>
                         </TouchableOpacity>
                       ))}
                     </View>
                   </View>
 
-                  {/* Notifications */}
-                  <View>
-                    <Text style={[modalStyles.label, {marginBottom: 10}]}>NOTIFICATIONS</Text>
+                  {/* Notifications card */}
+                  <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 16, paddingVertical: 14}}>
+                    <Text style={[modalStyles.label, {marginBottom: 12}]}>NOTIFICATIONS</Text>
                     <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
                       {(['all', 'wins_only', 'losses_only', 'summary'] as const).map(n => (
                         <TouchableOpacity key={n} activeOpacity={0.7}
@@ -1954,51 +1989,56 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                     </View>
                   </View>
 
-                  {/* Max Daily Loss */}
-                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                    <View style={{flex: 1}}>
-                      <Text style={modalStyles.label}>MAX DAILY LOSS</Text>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop trading if this % is lost in a day</Text>
-                    </View>
-                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.maxDailyLoss ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, maxDailyLoss: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
-                    </View>
-                  </View>
+                  {/* Risk limits card */}
+                  <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', overflow: 'hidden'}}>
+                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.8, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 4}}>RISK LIMITS</Text>
 
-                  {/* Auto-Stop Loss */}
-                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                    <View style={{flex: 1}}>
-                      <Text style={modalStyles.label}>AUTO-STOP LOSS %</Text>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop bot if portfolio drops this %</Text>
+                    {/* Max Daily Loss */}
+                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)'}}>
+                      <View style={{flex: 1}}>
+                        <Text style={modalStyles.label}>MAX DAILY LOSS</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Pause if this % is lost in a day</Text>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.maxDailyLoss ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, maxDailyLoss: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
+                      </View>
                     </View>
-                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopLossPercent ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopLossPercent: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
-                    </View>
-                  </View>
 
-                  {/* Auto-Stop Balance */}
-                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                    <View style={{flex: 1}}>
-                      <Text style={modalStyles.label}>AUTO-STOP BALANCE</Text>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop if balance falls below $</Text>
+                    {/* Auto-Stop Loss */}
+                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)'}}>
+                      <View style={{flex: 1}}>
+                        <Text style={modalStyles.label}>STOP-LOSS %</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Stop bot if portfolio drops this %</Text>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopLossPercent ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopLossPercent: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
+                      </View>
                     </View>
-                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
-                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopBalance ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopBalance: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                    </View>
-                  </View>
 
-                  {/* Auto-Stop Days */}
-                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                    <View style={{flex: 1}}>
-                      <Text style={modalStyles.label}>AUTO-STOP DAYS</Text>
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Automatically stop bot after N days</Text>
+                    {/* Auto-Stop Balance */}
+                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)'}}>
+                      <View style={{flex: 1}}>
+                        <Text style={modalStyles.label}>MIN BALANCE</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Stop if balance falls below $</Text>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
+                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopBalance ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopBalance: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                      </View>
                     </View>
-                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="number-pad" value={subUserConfig.autoStopDays ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopDays: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 6}}>days</Text>
+
+                    {/* Auto-Stop Days */}
+                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.05)'}}>
+                      <View style={{flex: 1}}>
+                        <Text style={modalStyles.label}>MAX DURATION</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 2}}>Auto-stop after N days</Text>
+                      </View>
+                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="number-pad" value={subUserConfig.autoStopDays ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopDays: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 6}}>days</Text>
+                      </View>
                     </View>
                   </View>
                 </>
@@ -2006,24 +2046,26 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 /* ── Compounding tab (live users only) ── */
                 <>
                   {compounding && (<>
-                    {/* Enable toggle */}
-                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                      <View style={{flex: 1}}>
-                        <Text style={modalStyles.label}>AUTO-COMPOUND</Text>
-                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Reinvest profits automatically</Text>
+                    {/* Enable toggle card */}
+                    <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 16, paddingVertical: 14}}>
+                      <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                        <View style={{flex: 1}}>
+                          <Text style={modalStyles.label}>AUTO-COMPOUND</Text>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Reinvest profits automatically after each trade</Text>
+                        </View>
+                        <TouchableOpacity activeOpacity={0.7}
+                          style={{width: 48, height: 26, borderRadius: 13, backgroundColor: compounding.enabled ? '#10B981' : 'rgba(255,255,255,0.08)', justifyContent: 'center', paddingHorizontal: 3}}
+                          onPress={() => setCompounding(c => c ? {...c, enabled: !c.enabled} : c)}>
+                          <View style={{width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF', alignSelf: compounding.enabled ? 'flex-end' : 'flex-start'}} />
+                        </TouchableOpacity>
                       </View>
-                      <TouchableOpacity activeOpacity={0.7}
-                        style={{width: 48, height: 26, borderRadius: 13, backgroundColor: compounding.enabled ? '#10B981' : '#2D3748', justifyContent: 'center', paddingHorizontal: 3}}
-                        onPress={() => setCompounding(c => c ? {...c, enabled: !c.enabled} : c)}>
-                        <View style={{width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF', alignSelf: compounding.enabled ? 'flex-end' : 'flex-start'}} />
-                      </TouchableOpacity>
                     </View>
 
                     {compounding.enabled && (<>
-                      {/* Reinvestment Rate */}
-                      <View>
-                        <Text style={[modalStyles.label, {marginBottom: 10}]}>REINVESTMENT RATE</Text>
-                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 10}}>% of profit to reinvest each time</Text>
+                      {/* Reinvestment Rate card */}
+                      <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 16, paddingVertical: 14}}>
+                        <Text style={[modalStyles.label, {marginBottom: 6}]}>REINVESTMENT RATE</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 12}}>% of profit to reinvest each time</Text>
                         <View style={{flexDirection: 'row', gap: 8}}>
                           {([25, 50, 75, 100] as const).map(v => (
                             <TouchableOpacity key={v} activeOpacity={0.7}
@@ -2035,70 +2077,76 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                         </View>
                       </View>
 
-                      {/* Compound Frequency */}
-                      <View>
-                        <Text style={[modalStyles.label, {marginBottom: 10}]}>COMPOUND FREQUENCY</Text>
-                        <View style={{flexDirection: 'row', gap: 8, flexWrap: 'wrap'}}>
-                          {([
-                            {key: 'each_trade', label: 'Each Trade'},
-                            {key: 'daily', label: 'Daily'},
-                            {key: 'weekly', label: 'Weekly'},
-                          ] as const).map(f => (
-                            <TouchableOpacity key={f.key} activeOpacity={0.7}
-                              style={{paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, backgroundColor: compounding.compoundFrequency === f.key ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: compounding.compoundFrequency === f.key ? '#10B981' : 'rgba(255,255,255,0.08)'}}
-                              onPress={() => setCompounding(c => c ? {...c, compoundFrequency: f.key} : c)}>
-                              <Text style={{fontFamily: 'Inter-Medium', fontSize: 13, color: compounding.compoundFrequency === f.key ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{f.label}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      </View>
-
-                      {/* Reinvestment Mode */}
-                      <View>
-                        <Text style={[modalStyles.label, {marginBottom: 10}]}>REINVEST FROM</Text>
-                        <View style={{flexDirection: 'row', gap: 8}}>
-                          {([
-                            {key: 'free_balance', label: 'Free Balance'},
-                            {key: 'total_balance', label: 'Total Balance'},
-                          ] as const).map(m => (
-                            <TouchableOpacity key={m.key} activeOpacity={0.7}
-                              style={{flex: 1, paddingVertical: 9, borderRadius: 10, backgroundColor: compounding.reinvestmentMode === m.key ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: compounding.reinvestmentMode === m.key ? '#10B981' : 'rgba(255,255,255,0.08)', alignItems: 'center'}}
-                              onPress={() => setCompounding(c => c ? {...c, reinvestmentMode: m.key} : c)}>
-                              <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: compounding.reinvestmentMode === m.key ? '#10B981' : 'rgba(255,255,255,0.5)', textAlign: 'center'}}>{m.label}</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
-                      </View>
-
-                      {/* Max Multiplier + Keep as Cash */}
-                      <View style={{flexDirection: 'row', gap: 10}}>
-                        <View style={{flex: 1}}>
-                          <Text style={[modalStyles.label, {marginBottom: 8}]}>MAX GROWTH</Text>
-                          <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10}}>
-                            <TextInput style={{flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#10B981', textAlign: 'center'}} keyboardType="decimal-pad" value={String(compounding.maxCompoundMultiplier)} onChangeText={v => setCompounding(c => c ? {...c, maxCompoundMultiplier: parseFloat(v) || 3} : c)} />
-                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>×</Text>
+                      {/* Frequency + Mode card */}
+                      <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 16, paddingVertical: 14, gap: 14}}>
+                        {/* Compound Frequency */}
+                        <View>
+                          <Text style={[modalStyles.label, {marginBottom: 10}]}>COMPOUND FREQUENCY</Text>
+                          <View style={{flexDirection: 'row', gap: 8}}>
+                            {([
+                              {key: 'each_trade', label: 'Each Trade'},
+                              {key: 'daily', label: 'Daily'},
+                              {key: 'weekly', label: 'Weekly'},
+                            ] as const).map(f => (
+                              <TouchableOpacity key={f.key} activeOpacity={0.7}
+                                style={{flex: 1, paddingVertical: 9, borderRadius: 10, backgroundColor: compounding.compoundFrequency === f.key ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: compounding.compoundFrequency === f.key ? '#10B981' : 'rgba(255,255,255,0.08)', alignItems: 'center'}}
+                                onPress={() => setCompounding(c => c ? {...c, compoundFrequency: f.key} : c)}>
+                                <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: compounding.compoundFrequency === f.key ? '#10B981' : 'rgba(255,255,255,0.5)', textAlign: 'center'}}>{f.label}</Text>
+                              </TouchableOpacity>
+                            ))}
                           </View>
-                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4, textAlign: 'center'}}>max multiplier</Text>
                         </View>
-                        <View style={{flex: 1}}>
-                          <Text style={[modalStyles.label, {marginBottom: 8}]}>KEEP AS CASH</Text>
-                          <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10}}>
-                            <TextInput style={{flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#F59E0B', textAlign: 'center'}} keyboardType="number-pad" value={String(compounding.withdrawalReservePct)} onChangeText={v => setCompounding(c => c ? {...c, withdrawalReservePct: parseInt(v, 10) || 20} : c)} />
-                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
+
+                        {/* Reinvestment Mode */}
+                        <View>
+                          <Text style={[modalStyles.label, {marginBottom: 10}]}>REINVEST FROM</Text>
+                          <View style={{flexDirection: 'row', gap: 8}}>
+                            {([
+                              {key: 'free_balance', label: 'Free Balance'},
+                              {key: 'total_balance', label: 'Total Balance'},
+                            ] as const).map(m => (
+                              <TouchableOpacity key={m.key} activeOpacity={0.7}
+                                style={{flex: 1, paddingVertical: 9, borderRadius: 10, backgroundColor: compounding.reinvestmentMode === m.key ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: compounding.reinvestmentMode === m.key ? '#10B981' : 'rgba(255,255,255,0.08)', alignItems: 'center'}}
+                                onPress={() => setCompounding(c => c ? {...c, reinvestmentMode: m.key} : c)}>
+                                <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: compounding.reinvestmentMode === m.key ? '#10B981' : 'rgba(255,255,255,0.5)', textAlign: 'center'}}>{m.label}</Text>
+                              </TouchableOpacity>
+                            ))}
                           </View>
-                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4, textAlign: 'center'}}>of profit reserved</Text>
                         </View>
                       </View>
 
-                      {/* Min profit threshold */}
-                      <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                        <View style={{flex: 1}}>
-                          <Text style={modalStyles.label}>MIN PROFIT THRESHOLD</Text>
-                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Only compound if profit ≥ $</Text>
+                      {/* Limits card */}
+                      <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 16, paddingVertical: 14, gap: 14}}>
+                        {/* Max Multiplier + Keep as Cash */}
+                        <View style={{flexDirection: 'row', gap: 10}}>
+                          <View style={{flex: 1}}>
+                            <Text style={[modalStyles.label, {marginBottom: 8}]}>MAX GROWTH</Text>
+                            <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10}}>
+                              <TextInput style={{flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#10B981', textAlign: 'center'}} keyboardType="decimal-pad" value={String(compounding.maxCompoundMultiplier)} onChangeText={v => setCompounding(c => c ? {...c, maxCompoundMultiplier: parseFloat(v) || 3} : c)} />
+                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>×</Text>
+                            </View>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4, textAlign: 'center'}}>max multiplier</Text>
+                          </View>
+                          <View style={{flex: 1}}>
+                            <Text style={[modalStyles.label, {marginBottom: 8}]}>KEEP AS CASH</Text>
+                            <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10}}>
+                              <TextInput style={{flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#F59E0B', textAlign: 'center'}} keyboardType="number-pad" value={String(compounding.withdrawalReservePct)} onChangeText={v => setCompounding(c => c ? {...c, withdrawalReservePct: parseInt(v, 10) || 20} : c)} />
+                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
+                            </View>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4, textAlign: 'center'}}>of profit reserved</Text>
+                          </View>
                         </View>
-                        <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
-                          <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={String(compounding.minProfitThresholdUSD ?? 0)} onChangeText={v => setCompounding(c => c ? {...c, minProfitThresholdUSD: parseFloat(v) || 0} : c)} placeholder="0" placeholderTextColor="rgba(255,255,255,0.3)" />
+
+                        {/* Min profit threshold */}
+                        <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                          <View style={{flex: 1}}>
+                            <Text style={modalStyles.label}>MIN PROFIT THRESHOLD</Text>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Only compound if profit ≥ $</Text>
+                          </View>
+                          <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
+                            <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={String(compounding.minProfitThresholdUSD ?? 0)} onChangeText={v => setCompounding(c => c ? {...c, minProfitThresholdUSD: parseFloat(v) || 0} : c)} placeholder="0" placeholderTextColor="rgba(255,255,255,0.3)" />
+                          </View>
                         </View>
                       </View>
                     </>)}
@@ -2124,7 +2172,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 activeOpacity={0.85}
                 disabled={savingConfig || savingCompounding}
                 onPress={async () => {
-                  if (hasShadowSession) {
+                  if (userBotState.status === 'none') {
+                    setSettingsModalVisible(false);
+                  } else if (hasShadowSession) {
                     await handleSaveShadowConfig();
                     setSettingsModalVisible(false);
                   } else if (settingsModalTab === 'compounding') {
@@ -2143,7 +2193,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 }}>
                 {(savingConfig || savingCompounding)
                   ? <ActivityIndicator size="small" color="#FFFFFF" />
-                  : <Text style={modalStyles.confirmText}>{settingsModalTab === 'compounding' ? 'Save Compounding' : 'Save Settings'}</Text>}
+                  : <Text style={modalStyles.confirmText}>
+                      {userBotState.status === 'none' ? 'Close' : settingsModalTab === 'compounding' ? 'Save Compounding' : 'Save Settings'}
+                    </Text>}
               </TouchableOpacity>
             </View>
           </View>
