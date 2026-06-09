@@ -125,6 +125,14 @@ export const updateUserConfigBodySchema = z.object({
 export const subscriptionIdParamsSchema = z.object({
     subscriptionId: z.string().uuid(),
 });
+// Shadow session user config — subset relevant to paper trading
+export const updateShadowUserConfigBodySchema = z.object({
+    notificationLevel: z.enum(['all', 'wins_only', 'losses_only', 'summary']).optional(),
+    autoStopDays: z.number().int().min(1).optional(),
+    autoStopLossPercent: z.number().min(0).max(100).optional(),
+    autoStopBalance: z.number().min(0).optional(),
+    minOrderValue: z.number().min(0).optional(),
+});
 export const trainerConfigBodySchema = z.object({
     trainingMode: z.enum(['auto', 'suggestions', 'off']).optional(),
     autoRetrain: z.boolean().optional(),

@@ -1,4 +1,4 @@
-﻿import {
+import {
   pgTable,
   pgEnum,
   uuid,
@@ -7,7 +7,7 @@
   timestamp,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
+import { users } from "./users.js";
 
 export const riskLevelEnum = pgEnum("risk_level", [
   "conservative",
@@ -30,4 +30,3 @@ export const investorProfiles = pgTable("investor_profiles", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
-

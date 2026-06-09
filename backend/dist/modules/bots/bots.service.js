@@ -1027,6 +1027,42 @@ export async function getBotTradeMarkers(botId, symbol, days = 30) {
         timestamp: m.timestamp?.getTime() ?? 0,
     }));
 }
+export async function getShadowSessionConfig(userId, sessionId) {
+    const [session] = await db.select().from(shadowSessions)
+        .where(and(eq(shadowSessions.id, sessionId), eq(shadowSessions.userId, userId)));
+    if (!session)
+        throw new NotFoundError('Shadow session');
+    return {
+        sessionId: session.id,
+        userConfig: session.userConfig ?? {},
+        minOrderValue: session.minOrderValue,
+        virtualBalance: session.virtualBalance,
+        enableRiskLimits: session.enableRiskLimits,
+        enableRealisticFees: session.enableRealisticFees,
+    };
+}
+export async function updateShadowSessionConfig(userId, sessionId, data) {
+    const [session] = await db.select().from(shadowSessions)
+        .where(and(eq(shadowSessions.id, sessionId), eq(shadowSessions.userId, userId)));
+    if (!session)
+        throw new NotFoundError('Shadow session');
+    const existing = session.userConfig ?? {};
+    const merged = { ...existing, ...data };
+    // minOrderValue is a real column — update it directly if provided
+    const updatePayload = { userConfig: merged };
+    if (data.minOrderValue !== undefined) {
+        updatePayload.minOrderValue = String(data.minOrderValue);
+    }
+    const [updated] = await db.update(shadowSessions)
+        .set(updatePayload)
+        .where(eq(shadowSessions.id, sessionId))
+        .returning();
+    return {
+        sessionId: updated.id,
+        userConfig: updated.userConfig ?? {},
+        minOrderValue: updated.minOrderValue,
+    };
+}
 export async function updateUserConfig(userId, subscriptionId, data) {
     const [sub] = await db
         .select()

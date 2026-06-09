@@ -5,8 +5,8 @@ import { fileURLToPath } from 'url';
 import { authenticate } from '../../middleware/authenticate.js';
 import { requireSubscription, getActiveProSubscription } from '../../middleware/requireSubscription.js';
 import { SubscriptionRequiredError } from '../../middleware/requireSubscription.js';
-import { createBot, updateBot, deleteBot, setBotAvatar, addFavorite, removeFavorite, isFavorited, getUserFavorites, getBotForEdit, pauseBot, stopBot, resumeBot, purchaseBot, startShadowMode, pauseShadowSession, resumeShadowSession, stopShadowSession, getShadowResults, getUserShadowSessions, getUserActiveBots, addReview, backtestBot, getPaperTradingStatus, activateLiveMode, getBotDecisions, getLeaderboard, compareBots, startCopyTrading, stopCopyTrading, getBotEquityCurve, getBotTradeMarkers, updateUserConfig, getSubscription, getBotFeedStats, getPublicLiveStats, getShadowSessionLiveStats, getMyLiveStats, } from './bots.service.js';
-import { botIdParamsSchema, createBotBodySchema, updateBotBodySchema, purchaseBotBodySchema, shadowModeBodySchema, reviewBodySchema, backtestBodySchema, paperTradingSetupBodySchema, dataResponseSchema, updateUserConfigBodySchema, subscriptionIdParamsSchema, trainerConfigBodySchema, compoundingBodySchema, } from './bots.schema.js';
+import { createBot, updateBot, deleteBot, setBotAvatar, addFavorite, removeFavorite, isFavorited, getUserFavorites, getBotForEdit, pauseBot, stopBot, resumeBot, purchaseBot, startShadowMode, pauseShadowSession, resumeShadowSession, stopShadowSession, getShadowResults, getUserShadowSessions, getUserActiveBots, addReview, backtestBot, getPaperTradingStatus, activateLiveMode, getBotDecisions, getLeaderboard, compareBots, startCopyTrading, stopCopyTrading, getBotEquityCurve, getBotTradeMarkers, updateUserConfig, getSubscription, getBotFeedStats, getPublicLiveStats, getShadowSessionLiveStats, getMyLiveStats, getShadowSessionConfig, updateShadowSessionConfig, } from './bots.service.js';
+import { botIdParamsSchema, createBotBodySchema, updateBotBodySchema, purchaseBotBodySchema, shadowModeBodySchema, reviewBodySchema, backtestBodySchema, paperTradingSetupBodySchema, dataResponseSchema, updateUserConfigBodySchema, updateShadowUserConfigBodySchema, subscriptionIdParamsSchema, trainerConfigBodySchema, compoundingBodySchema, } from './bots.schema.js';
 import { getTrainerStatus, updateTrainerConfig, triggerRetrain, promotePendingChanges, } from '../trainer/trainer.service.js';
 import { db } from '../../config/database.js';
 import { botSubscriptions } from '../../db/schema/bots.js';
@@ -412,6 +412,31 @@ export async function botsRoutes(app) {
     }, async (request, reply) => {
         const { id } = request.params;
         const result = await getShadowSessionLiveStats(request.user.userId, id);
+        return { data: result };
+    });
+    // GET /shadow-sessions/:id/config - Get shadow session user config
+    zApp.get('/shadow-sessions/:id/config', {
+        schema: {
+            params: botIdParamsSchema,
+            response: { 200: dataResponseSchema },
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (request, reply) => {
+        const { id } = request.params;
+        const result = await getShadowSessionConfig(request.user.userId, id);
+        return { data: result };
+    });
+    // PATCH /shadow-sessions/:id/user-config - Update shadow session user config
+    zApp.patch('/shadow-sessions/:id/user-config', {
+        schema: {
+            params: botIdParamsSchema,
+            body: updateShadowUserConfigBodySchema,
+            response: { 200: dataResponseSchema },
+            security: [{ bearerAuth: [] }],
+        },
+    }, async (request, reply) => {
+        const { id } = request.params;
+        const result = await updateShadowSessionConfig(request.user.userId, id, request.body);
         return { data: result };
     });
     // GET /:id/my-live-stats - Current user's personal live trading stats for a bot

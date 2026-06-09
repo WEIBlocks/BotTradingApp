@@ -1,4 +1,4 @@
-﻿import {
+import {
   pgTable,
   pgEnum,
   uuid,
@@ -9,7 +9,7 @@
   jsonb,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
+import { users } from "./users.js";
 
 export const paymentTypeEnum = pgEnum("payment_type", [
   "subscription",
@@ -56,4 +56,3 @@ export const payments = pgTable("payments", {
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
-

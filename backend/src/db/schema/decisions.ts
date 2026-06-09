@@ -1,4 +1,4 @@
-﻿import {
+import {
   pgTable,
   pgEnum,
   uuid,
@@ -12,8 +12,8 @@
   index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
-import { bots, botSubscriptions } from "./bots";
+import { users } from "./users.js";
+import { bots, botSubscriptions } from "./bots.js";
 
 export const decisionActionEnum = pgEnum("decision_action", [
   "BUY",
@@ -66,4 +66,3 @@ export const botDecisions = pgTable(
     ),
   })
 );
-

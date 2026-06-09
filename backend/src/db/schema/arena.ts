@@ -1,4 +1,4 @@
-﻿import {
+import {
   pgTable,
   pgEnum,
   uuid,
@@ -10,8 +10,8 @@
   index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
-import { bots } from "./bots";
+import { users } from "./users.js";
+import { bots } from "./bots.js";
 
 export const arenaStatusEnum = pgEnum("arena_status", [
   "setup",
@@ -39,7 +39,7 @@ export const arenaSessions = pgTable(
     mode: arenaModeEnum("mode").default("shadow"),
     durationSeconds: integer("duration_seconds").default(180),
     unlimited: boolean("unlimited").default(false),
-    // Shared balance pool â€” all bots compete within this total pool
+    // Shared balance pool — all bots compete within this total pool
     virtualBalance: numeric("virtual_balance", { precision: 14, scale: 2 }).default("10000"),
     // For mixed (crypto+stock) sessions, store balances separately
     cryptoBalance: numeric("crypto_balance", { precision: 14, scale: 2 }),
@@ -89,4 +89,3 @@ export const arenaGladiators = pgTable(
     sessionIdx: index("arena_gladiator_session_idx").on(t.sessionId),
   })
 );
-

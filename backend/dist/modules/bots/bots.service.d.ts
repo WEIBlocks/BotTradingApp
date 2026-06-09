@@ -216,6 +216,7 @@ export declare function startShadowMode(userId: string, botId: string, config: {
         botId: string | null;
         minOrderValue: string | null;
         startedAt: Date | null;
+        userConfig: unknown;
         virtualBalance: string;
         currentBalance: string | null;
         durationDays: number;
@@ -262,6 +263,7 @@ export declare function getShadowResults(userId: string, sessionId: string): Pro
         enableRiskLimits: boolean | null;
         enableRealisticFees: boolean | null;
         minOrderValue: string | null;
+        userConfig: unknown;
         dailyPerformance: unknown;
         totalTrades: number | null;
         winCount: number | null;
@@ -313,6 +315,7 @@ export declare function pauseShadowSession(userId: string, sessionId: string): P
     enableRiskLimits: boolean | null;
     enableRealisticFees: boolean | null;
     minOrderValue: string | null;
+    userConfig: unknown;
     dailyPerformance: unknown;
     totalTrades: number | null;
     winCount: number | null;
@@ -332,6 +335,7 @@ export declare function resumeShadowSession(userId: string, sessionId: string): 
     enableRiskLimits: boolean | null;
     enableRealisticFees: boolean | null;
     minOrderValue: string | null;
+    userConfig: unknown;
     dailyPerformance: unknown;
     totalTrades: number | null;
     winCount: number | null;
@@ -351,6 +355,7 @@ export declare function stopShadowSession(userId: string, sessionId: string): Pr
     enableRiskLimits: boolean | null;
     enableRealisticFees: boolean | null;
     minOrderValue: string | null;
+    userConfig: unknown;
     dailyPerformance: unknown;
     totalTrades: number | null;
     winCount: number | null;
@@ -377,6 +382,7 @@ export declare function getUserShadowSessions(userId: string): Promise<{
     enableRiskLimits: boolean | null;
     enableRealisticFees: boolean | null;
     minOrderValue: string | null;
+    userConfig: unknown;
     dailyPerformance: unknown;
     totalTrades: number | null;
     winCount: number | null;
@@ -584,6 +590,19 @@ export declare function getBotTradeMarkers(botId: string, symbol: string, days?:
     reasoning: string | null;
     timestamp: number;
 }[]>;
+export declare function getShadowSessionConfig(userId: string, sessionId: string): Promise<{
+    sessionId: string;
+    userConfig: Record<string, any>;
+    minOrderValue: string | null;
+    virtualBalance: string;
+    enableRiskLimits: boolean | null;
+    enableRealisticFees: boolean | null;
+}>;
+export declare function updateShadowSessionConfig(userId: string, sessionId: string, data: Record<string, any>): Promise<{
+    sessionId: string;
+    userConfig: Record<string, any>;
+    minOrderValue: string | null;
+}>;
 export declare function updateUserConfig(userId: string, subscriptionId: string, data: Record<string, any>): Promise<{
     id: string;
     userId: string;

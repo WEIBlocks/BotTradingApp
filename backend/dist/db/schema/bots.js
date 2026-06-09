@@ -189,6 +189,7 @@ export const shadowSessions = pgTable("shadow_sessions", {
     enableRiskLimits: boolean("enable_risk_limits").default(true),
     enableRealisticFees: boolean("enable_realistic_fees").default(true),
     minOrderValue: numeric("min_order_value", { precision: 10, scale: 2 }).default("10"),
+    userConfig: jsonb("user_config"),
     dailyPerformance: jsonb("daily_performance"),
     totalTrades: integer("total_trades").default(0),
     winCount: integer("win_count").default(0),

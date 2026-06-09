@@ -1,7 +1,7 @@
-﻿import { pgTable, uuid, text, varchar, integer, timestamp, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, varchar, integer, timestamp, jsonb } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import { users } from './users';
-import { bots } from './bots';
+import { users } from './users.js';
+import { bots } from './bots.js';
 
 // Note: pgvector extension must be enabled on the database
 // We store embeddings as JSONB arrays since drizzle doesn't natively support vector type
@@ -31,4 +31,3 @@ export const userAiSettings = pgTable('user_ai_settings', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
 });
-

@@ -1,4 +1,4 @@
-﻿import {
+import {
   pgTable,
   pgEnum,
   uuid,
@@ -7,7 +7,7 @@
   jsonb,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
+import { users } from "./users.js";
 
 export const chatRoleEnum = pgEnum("chat_role", ["user", "assistant"]);
 
@@ -38,4 +38,3 @@ export const chatMessages = pgTable("chat_messages", {
   metadata: jsonb("metadata"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
-

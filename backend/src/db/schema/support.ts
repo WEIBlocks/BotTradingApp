@@ -1,4 +1,4 @@
-﻿import {
+import {
   pgTable,
   pgEnum,
   uuid,
@@ -8,7 +8,7 @@
   timestamp,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
+import { users } from "./users.js";
 
 export const ticketStatusEnum = pgEnum("ticket_status", [
   "open",
@@ -61,4 +61,3 @@ export const ticketMessages = pgTable("ticket_messages", {
   isAdmin: boolean("is_admin").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
-

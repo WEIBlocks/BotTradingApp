@@ -1,4 +1,4 @@
-﻿import {
+import {
   pgTable,
   pgEnum,
   uuid,
@@ -10,8 +10,8 @@
   unique,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users";
-import { bots } from "./bots";
+import { users } from "./users.js";
+import { bots } from "./bots.js";
 
 export const copyStatusEnum = pgEnum("copy_status", [
   "active",
@@ -53,4 +53,3 @@ export const copyTradingSessions = pgTable(
     leaderIdx: index("copy_leader_idx").on(t.leaderId),
   })
 );
-

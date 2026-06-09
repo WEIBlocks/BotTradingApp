@@ -1251,6 +1251,23 @@ export declare const shadowSessions: import("drizzle-orm/pg-core").PgTableWithCo
             identity: undefined;
             generated: undefined;
         }, {}, {}>;
+        userConfig: import("drizzle-orm/pg-core").PgColumn<{
+            name: "user_config";
+            tableName: "shadow_sessions";
+            dataType: "json";
+            columnType: "PgJsonb";
+            data: unknown;
+            driverParam: unknown;
+            notNull: false;
+            hasDefault: false;
+            isPrimaryKey: false;
+            isAutoincrement: false;
+            hasRuntimeDefault: false;
+            enumValues: undefined;
+            baseColumn: never;
+            identity: undefined;
+            generated: undefined;
+        }, {}, {}>;
         dailyPerformance: import("drizzle-orm/pg-core").PgColumn<{
             name: "daily_performance";
             tableName: "shadow_sessions";

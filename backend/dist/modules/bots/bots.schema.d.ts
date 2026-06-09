@@ -388,6 +388,25 @@ export declare const subscriptionIdParamsSchema: z.ZodObject<{
 }, {
     subscriptionId: string;
 }>;
+export declare const updateShadowUserConfigBodySchema: z.ZodObject<{
+    notificationLevel: z.ZodOptional<z.ZodEnum<["all", "wins_only", "losses_only", "summary"]>>;
+    autoStopDays: z.ZodOptional<z.ZodNumber>;
+    autoStopLossPercent: z.ZodOptional<z.ZodNumber>;
+    autoStopBalance: z.ZodOptional<z.ZodNumber>;
+    minOrderValue: z.ZodOptional<z.ZodNumber>;
+}, "strip", z.ZodTypeAny, {
+    minOrderValue?: number | undefined;
+    autoStopBalance?: number | undefined;
+    autoStopDays?: number | undefined;
+    autoStopLossPercent?: number | undefined;
+    notificationLevel?: "summary" | "all" | "wins_only" | "losses_only" | undefined;
+}, {
+    minOrderValue?: number | undefined;
+    autoStopBalance?: number | undefined;
+    autoStopDays?: number | undefined;
+    autoStopLossPercent?: number | undefined;
+    notificationLevel?: "summary" | "all" | "wins_only" | "losses_only" | undefined;
+}>;
 export declare const trainerConfigBodySchema: z.ZodObject<{
     trainingMode: z.ZodOptional<z.ZodEnum<["auto", "suggestions", "off"]>>;
     autoRetrain: z.ZodOptional<z.ZodBoolean>;
