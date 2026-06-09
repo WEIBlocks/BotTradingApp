@@ -88,6 +88,17 @@ export const purchaseBotBodySchema = z.object({
     minOrderValue: z.number().positive().optional(),
     exchangeConnId: z.string().uuid().optional(),
 });
+const shadowCompoundingSchema = z.object({
+    enabled: z.boolean().optional(),
+    reinvestmentRate: z.number().min(0).max(100).optional(),
+    reinvestmentMode: z.enum(['free_balance', 'total_balance', 'fixed']).optional(),
+    compoundFrequency: z.enum(['each_trade', 'daily', 'weekly', 'manual']).optional(),
+    minProfitThresholdUSD: z.number().min(0).optional(),
+    maxCompoundMultiplier: z.number().min(1).max(10).optional(),
+    withdrawalReservePct: z.number().min(0).max(100).optional(),
+    totalCompounded: z.number().optional(),
+    lastCompoundAt: z.string().nullable().optional(),
+});
 export const shadowModeBodySchema = z.object({
     virtualBalance: z.number().positive(),
     durationDays: z.number().int().min(0).optional(),
@@ -95,6 +106,7 @@ export const shadowModeBodySchema = z.object({
     enableRiskLimits: z.boolean().optional(),
     enableRealisticFees: z.boolean().optional(),
     minOrderValue: z.number().positive().optional(),
+    compounding: shadowCompoundingSchema.optional(),
 }).refine(data => (data.durationDays && data.durationDays > 0) || (data.durationMinutes && data.durationMinutes > 0), {
     message: 'Either durationDays or durationMinutes must be provided',
 });
@@ -132,18 +144,7 @@ export const updateShadowUserConfigBodySchema = z.object({
     autoStopLossPercent: z.number().min(0).max(100).optional(),
     autoStopBalance: z.number().min(0).optional(),
     minOrderValue: z.number().min(0).optional(),
-    // Virtual compounding — stored in userConfig jsonb for shadow sessions
-    compounding: z.object({
-        enabled: z.boolean().optional(),
-        reinvestmentRate: z.number().min(0).max(100).optional(),
-        reinvestmentMode: z.enum(['free_balance', 'total_balance', 'fixed']).optional(),
-        compoundFrequency: z.enum(['each_trade', 'daily', 'weekly', 'manual']).optional(),
-        minProfitThresholdUSD: z.number().min(0).optional(),
-        maxCompoundMultiplier: z.number().min(1).max(10).optional(),
-        withdrawalReservePct: z.number().min(0).max(100).optional(),
-        totalCompounded: z.number().optional(),
-        lastCompoundAt: z.string().nullable().optional(),
-    }).optional(),
+    compounding: shadowCompoundingSchema.optional(),
 });
 export const trainerConfigBodySchema = z.object({
     trainingMode: z.enum(['auto', 'suggestions', 'off']).optional(),

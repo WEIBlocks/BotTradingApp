@@ -337,6 +337,8 @@ export async function startShadowMode(userId, botId, config) {
     // below the exchange's accepted minimum (separate concern, see bot-engine).
     // We default to 10 only when the user didn't supply a value at all.
     const resolvedMinOrder = config.minOrderValue && config.minOrderValue > 0 ? config.minOrderValue : 10;
+    // Seed userConfig with pre-run compounding settings if the user configured them
+    const initialUserConfig = config.compounding ? { compounding: config.compounding } : undefined;
     // Create shadow session
     const [session] = await db
         .insert(shadowSessions)
@@ -351,6 +353,7 @@ export async function startShadowMode(userId, botId, config) {
         enableRiskLimits: config.enableRiskLimits ?? true,
         enableRealisticFees: config.enableRealisticFees ?? true,
         minOrderValue: String(resolvedMinOrder),
+        ...(initialUserConfig ? { userConfig: initialUserConfig } : {}),
     })
         .returning();
     // Create or update subscription in shadow mode

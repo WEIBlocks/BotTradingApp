@@ -106,7 +106,7 @@ export const botsService = {
   },
 
   /** Start shadow mode for a bot */
-  startShadowMode(botId: string, config?: {virtualBalance?: number; durationDays?: number; durationMinutes?: number; minOrderValue?: number}) {
+  startShadowMode(botId: string, config?: {virtualBalance?: number; durationDays?: number; durationMinutes?: number; minOrderValue?: number; compounding?: Partial<CompoundingSettings>}) {
     return api.post(`/bots/${botId}/shadow-mode`, (config ?? {}) as Record<string, unknown>);
   },
 

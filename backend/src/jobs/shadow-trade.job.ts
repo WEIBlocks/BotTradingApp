@@ -281,6 +281,10 @@ async function processShadowTrades() {
                 if (freqOk) {
                   const rate = (cs.reinvestmentRate ?? 50) / 100;
                   const reservePct = (cs.withdrawalReservePct ?? 0) / 100;
+                  // toReinvest is the portion of this trade's profit that gets
+                  // locked in as compounded capital. The full pnl is already in
+                  // balanceDelta — we only track how much was deliberately retained
+                  // (vs mentally "withdrawn") for the totalCompounded stat.
                   let toReinvest = pnl * rate * (1 - reservePct);
 
                   // Cap at maxCompoundMultiplier headroom
@@ -291,8 +295,9 @@ async function processShadowTrades() {
                   const headroom = (startBal * maxMult) - currentAlloc;
                   if (headroom > 0) {
                     toReinvest = Math.min(toReinvest, headroom);
-                    // Compound: add toReinvest to balanceDelta (already includes pnl)
-                    balanceDelta += toReinvest;
+                    // Do NOT add toReinvest to balanceDelta — pnl is already
+                    // included. We only update the tracking counter so the UI
+                    // can display total compounded and enforce the multiplier cap.
                     const newTotalCompounded = totalCompounded + toReinvest;
 
                     // Persist updated compounding stats back to session userConfig

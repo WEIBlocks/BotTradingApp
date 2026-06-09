@@ -541,8 +541,13 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
     setShadowModalVisible(false);
     setActionLoading(true);
+    // Pass pre-run compounding settings into the new session if the user configured them
+    const startConfig: typeof apiConfig & {compounding?: CompoundingSettings} = apiConfig;
+    if (compounding && compounding.enabled) {
+      startConfig.compounding = compounding;
+    }
     botsService
-      .startShadowMode(bot.id, apiConfig)
+      .startShadowMode(bot.id, startConfig)
       .then(() => navigation.navigate('ShadowMode'))
       .catch(() => showAlert('Error', 'Failed to start shadow mode.'))
       .finally(() => setActionLoading(false));
@@ -2170,6 +2175,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                             {([
                               {key: 'free_balance', label: 'Free Balance'},
                               {key: 'total_balance', label: 'Total Balance'},
+                              {key: 'fixed', label: 'Fixed Amount'},
                             ] as const).map(m => (
                               <TouchableOpacity key={m.key} activeOpacity={0.7}
                                 style={{flex: 1, paddingVertical: 9, borderRadius: 10, backgroundColor: compounding.reinvestmentMode === m.key ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: compounding.reinvestmentMode === m.key ? '#10B981' : 'rgba(255,255,255,0.08)', alignItems: 'center'}}
@@ -2196,7 +2202,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                           <View style={{flex: 1}}>
                             <Text style={[modalStyles.label, {marginBottom: 8}]}>KEEP AS CASH</Text>
                             <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10}}>
-                              <TextInput style={{flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#F59E0B', textAlign: 'center'}} keyboardType="number-pad" value={String(compounding.withdrawalReservePct)} onChangeText={v => setCompounding(c => c ? {...c, withdrawalReservePct: parseInt(v, 10) || 20} : c)} />
+                              <TextInput style={{flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#F59E0B', textAlign: 'center'}} keyboardType="number-pad" value={String(compounding.withdrawalReservePct)} onChangeText={v => setCompounding(c => c ? {...c, withdrawalReservePct: v === '' ? 0 : parseInt(v, 10) || 0} : c)} />
                               <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
                             </View>
                             <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4, textAlign: 'center'}}>of profit reserved</Text>
@@ -2242,7 +2248,12 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                   const isCompoundingTab = settingsModalTab === 'compounding';
 
                   if (isCompoundingTab) {
-                    if (isNone) { setSettingsModalVisible(false); return; }
+                    if (isNone) {
+                      // Settings are held in local state and will be passed to startShadowMode
+                      showAlert('Ready', 'Compounding settings saved. They will be applied when you start shadow mode.');
+                      setSettingsModalVisible(false);
+                      return;
+                    }
                     if (!compounding) return;
                     setSavingCompounding(true);
                     try {
