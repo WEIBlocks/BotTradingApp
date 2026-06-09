@@ -18,6 +18,8 @@ export interface IndicatorSnapshot {
         lower: number;
     } | null;
     atr: number | null;
+    atrProxy: number | null;
+    regime: MarketRegime | null;
     priceChangePercent: number | null;
     volumeChangePercent: number | null;
     currentPrice: number;
@@ -38,6 +40,15 @@ export declare function bollingerBands(prices: number[], period?: number, stdDev
     lower: number;
 } | null;
 export declare function atr(highs: number[], lows: number[], closes: number[], period?: number): number | null;
+export interface MarketRegime {
+    trend: 'up' | 'down' | 'ranging';
+    volatility: 'high' | 'normal' | 'low';
+    adxProxy: number;
+    atrProxy: number | null;
+    blockEntry: boolean;
+    blockReason: string;
+}
+export declare function detectMarketRegime(prices: number[], currentPrice: number, high24h: number, low24h: number, change24h: number): MarketRegime;
 export declare function computeIndicators(prices: number[], currentPrice: number, high24h: number, low24h: number, volume?: number, prevVolume?: number): IndicatorSnapshot;
 /**
  * Check if indicators have changed significantly enough to warrant an AI call.

@@ -109,4 +109,15 @@ export declare function executeLiveTrade(decision: EngineDecision, userId: strin
     error?: string;
 }>;
 export declare function invalidateRulesCache(botId: string): void;
+/**
+ * Called by trainer's promotePendingChanges() after applying an improved strategy.
+ * Instead of just deleting the cache (forcing a new LLM generateRules call next cycle),
+ * we merge the trainer's config changes directly into the cached rules immediately.
+ * This means the very next trade cycle (30s away) uses the improved parameters
+ * without waiting for another AI call to regenerate rules.
+ *
+ * configChanges matches trainer's pendingConfig shape:
+ *   { stopLoss?, takeProfit?, aiMode?, tradingFrequency?, maxPositionPct? }
+ */
+export declare function applyTrainerConfigToRulesCache(botId: string, configChanges: Record<string, any>): void;
 export declare function summarizeSessionLearnings(botId: string): Promise<string>;

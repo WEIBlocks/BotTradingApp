@@ -12,6 +12,7 @@ import {
   Bell,
   LifeBuoy,
   Settings,
+  Brain,
   LogOut,
   Menu,
   X,
@@ -31,6 +32,7 @@ const navItems = [
   { path: '/exchanges', label: 'Exchanges', icon: ArrowLeftRight },
   { path: '/support', label: 'Support', icon: LifeBuoy },
   { path: '/notifications', label: 'Notifications', icon: Bell },
+  { path: '/trainer', label: 'AI Trainer', icon: Brain },
   { path: '/settings', label: 'Settings', icon: Settings },
 ];
 

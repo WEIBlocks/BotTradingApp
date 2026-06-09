@@ -14,6 +14,7 @@ import Trades from './pages/Trades';
 import Chats from './pages/Chats';
 import ShadowSessions from './pages/ShadowSessions';
 import Support from './pages/Support';
+import Trainer from './pages/Trainer';
 
 export default function App() {
   return (
@@ -39,6 +40,7 @@ export default function App() {
             <Route path="/support" element={<Support />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="/settings" element={<Settings />} />
+            <Route path="/trainer" element={<Trainer />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

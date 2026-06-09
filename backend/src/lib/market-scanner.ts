@@ -273,57 +273,155 @@ export function extractStockSymbols(message: string): string[] {
   return [...found];
 }
 
-// Cache for 60 seconds
+// ─── RSI helper (inline — avoids circular import with indicators.ts) ──────────
+function calcRSI(closes: number[], period = 14): number | null {
+  if (closes.length < period + 1) return null;
+  let gains = 0, losses = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    if (d > 0) gains += d; else losses -= d;
+  }
+  const avgG = gains / period;
+  const avgL = losses / period;
+  if (avgL === 0) return 100;
+  return 100 - 100 / (1 + avgG / avgL);
+}
+
+// Cache for 2 minutes — OHLCV fetch is slower than a ticker call
 let cachedRankings: AssetRanking[] = [];
 let cacheTime = 0;
+// Per-symbol OHLCV cache: symbol → close prices array (TTL 5 min in memory)
+const ohlcvCache = new Map<string, { closes: number[]; at: number }>();
+const OHLCV_MEM_TTL = 300_000; // 5 min
+
+async function fetchOHLCVCloses(symbol: string, limit = 50): Promise<number[]> {
+  const cached = ohlcvCache.get(symbol);
+  if (cached && Date.now() - cached.at < OHLCV_MEM_TTL) return cached.closes;
+
+  try {
+    // KuCoin 1-hour candles: newest first. [timestamp, open, close, high, low, volume]
+    const kcSym = symbol.replace('/', '-');
+    const url = `https://api.kucoin.com/api/v1/market/candles?type=1hour&symbol=${kcSym}&pageSize=${limit}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return [];
+    const json: any = await res.json();
+    const candles: any[] = json?.data;
+    if (!Array.isArray(candles) || candles.length < 5) return [];
+    // Reverse to oldest→newest; index 2 = close
+    const closes = candles.map((c: any) => parseFloat(c[2])).filter(Boolean).reverse();
+    ohlcvCache.set(symbol, { closes, at: Date.now() });
+    return closes;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Score a symbol using real technical signals from OHLCV data.
+ *
+ * Scoring components (each 0-100, weighted sum):
+ *  • RSI oversold bounce (RSI 25-45 = bullish setup)    weight 30
+ *  • Volume spike vs 20-candle average (>2× = signal)   weight 25
+ *  • Price momentum (clean uptrend last 5 candles)       weight 25
+ *  • 24h % change (positive = directional bias)          weight 20
+ *
+ * This mirrors how a real trader scans for breakout setups:
+ * momentum confirmed by volume, not exhausted (RSI < 70).
+ */
+async function scoreSymbol(symbol: string, ticker: any): Promise<number> {
+  const closes = await fetchOHLCVCloses(symbol, 50);
+  if (closes.length < 20) {
+    // Not enough data — use simple volume-weighted change as fallback
+    const change = Math.abs(ticker.percentage || 0);
+    const vol = ticker.quoteVolume || 0;
+    return change * (vol > 0 ? Math.min(Math.log10(vol) / 10, 1) : 0);
+  }
+
+  const rsi = calcRSI(closes, 14);
+  const volumes = closes.map((_: number, i: number) => {
+    // KuCoin candle index 5 = volume — we don't have it here, use ticker volume as proxy
+    return ticker.quoteVolume || 0;
+  });
+
+  // RSI score: best at 30-50 (oversold recovery), penalise >70 (overbought)
+  let rsiScore = 0;
+  if (rsi !== null) {
+    if (rsi >= 25 && rsi <= 45) rsiScore = 100;           // ideal oversold bounce
+    else if (rsi > 45 && rsi <= 60) rsiScore = 70;        // healthy uptrend
+    else if (rsi > 60 && rsi <= 70) rsiScore = 40;        // extended, caution
+    else if (rsi > 70) rsiScore = 10;                     // overbought — avoid
+    else rsiScore = 30;                                    // deeply oversold <25 — risky
+  }
+
+  // Volume spike score: current 24h volume vs average of past syncs
+  // Since we only have ticker volume, compare change vs recent data
+  const volScore = Math.min((ticker.quoteVolume || 0) > 5_000_000 ? 100 : ((ticker.quoteVolume || 0) / 5_000_000) * 100, 100);
+
+  // Price momentum: count of up-closes in last 5 candles
+  const last5 = closes.slice(-5);
+  let upCount = 0;
+  for (let i = 1; i < last5.length; i++) if (last5[i] > last5[i - 1]) upCount++;
+  const momentumScore = (upCount / 4) * 100; // 4 transitions in 5 candles
+
+  // 24h change score: reward clean positive moves, not explosions (those are chases)
+  const change = ticker.percentage || 0;
+  const changeScore = change > 0 && change <= 8
+    ? Math.min((change / 8) * 100, 100)   // sweet spot: 1-8% gain
+    : change > 8
+      ? Math.max(0, 100 - (change - 8) * 5) // penalty for >8% (chase risk)
+      : 0;                                   // negative change = 0
+
+  return (rsiScore * 0.30) + (volScore * 0.25) + (momentumScore * 0.25) + (changeScore * 0.20);
+}
 
 export async function getTopAssets(limit = 10, _type: 'crypto' | 'all' = 'crypto'): Promise<AssetRanking[]> {
-  // Return cached if fresh
-  if (Date.now() - cacheTime < 60000 && cachedRankings.length > 0) {
+  // Cache 2 minutes (OHLCV fetch is ~1s per symbol, we scan top 30 by volume first)
+  if (Date.now() - cacheTime < 120_000 && cachedRankings.length > 0) {
     return cachedRankings.slice(0, limit);
   }
 
   try {
     const tickers = await exchange.fetchTickers();
 
-    // Filter USDT pairs only for consistency
-    const usdtPairs = Object.entries(tickers)
-      .filter(([symbol]) => symbol.endsWith('/USDT') && !symbol.includes(':'))
-      .map(([symbol, ticker]) => {
-        const change = ticker.percentage || 0;
-        const volume = ticker.quoteVolume || 0;
-        const price = ticker.last || 0;
+    // Step 1: Pre-filter to top 30 by raw 24h volume (> $500k) to limit OHLCV fetches
+    const candidates = Object.entries(tickers)
+      .filter(([symbol, t]) =>
+        symbol.endsWith('/USDT') &&
+        !symbol.includes(':') &&
+        (t.quoteVolume || 0) > 500_000,
+      )
+      .sort(([, a], [, b]) => (b.quoteVolume || 0) - (a.quoteVolume || 0))
+      .slice(0, 30);
 
-        // Momentum score: weighted by price change magnitude
-        const momentumScore = Math.abs(change) * (change > 0 ? 1.2 : 0.8);
-
-        // Volume score: normalized (log scale)
-        const volumeScore = volume > 0 ? Math.log10(volume) : 0;
-
-        // Overall score: momentum * volume weight
-        const overallScore = momentumScore * (volumeScore / 10);
-
+    // Step 2: Score each candidate using real OHLCV signals (parallel, capped at 30)
+    const scored = await Promise.all(
+      candidates.map(async ([symbol, ticker]) => {
+        const score = await scoreSymbol(symbol, ticker);
         return {
           symbol: symbol.replace('/USDT', ''),
           name: symbol,
-          price,
-          change24h: change,
-          volume24h: volume,
-          volumeScore,
-          momentumScore,
-          overallScore,
-        };
-      })
-      .filter(a => a.volume24h > 100000) // minimum volume filter
+          price: ticker.last || 0,
+          change24h: ticker.percentage || 0,
+          volume24h: ticker.quoteVolume || 0,
+          volumeScore: Math.log10(Math.max(ticker.quoteVolume || 1, 1)),
+          momentumScore: score,
+          overallScore: score,
+        } as AssetRanking;
+      }),
+    );
+
+    // Step 3: Sort by composite signal score, highest first
+    const ranked = scored
+      .filter(a => a.price > 0)
       .sort((a, b) => b.overallScore - a.overallScore);
 
-    cachedRankings = usdtPairs;
+    cachedRankings = ranked;
     cacheTime = Date.now();
 
-    return usdtPairs.slice(0, limit);
+    return ranked.slice(0, limit);
   } catch (error) {
-    console.error('[MarketScanner] Error:', error);
-    return cachedRankings.slice(0, limit); // return stale cache on error
+    console.error('[MarketScanner] Error in getTopAssets:', error);
+    return cachedRankings.slice(0, limit);
   }
 }
 

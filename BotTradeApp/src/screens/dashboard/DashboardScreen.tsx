@@ -799,17 +799,6 @@ export default function DashboardScreen() {
                         {returnSign}{displayReturn.toFixed(1)}%
                       </Text>
                     </View>
-                    {/* Min order */}
-                    {(isLiveRunning || isPaused) && bot.minOrderValue > 0 && (
-                      <Text style={styles.botMinOrder}>
-                        Min <Text style={{color: '#10B981'}}>${bot.minOrderValue.toLocaleString()}</Text>
-                      </Text>
-                    )}
-                    {(isShadowRunning || isShadowPaused) && bot.shadowMinOrderValue > 0 && (
-                      <Text style={styles.botMinOrder}>
-                        Min <Text style={{color: '#3B82F6'}}>${bot.shadowMinOrderValue.toLocaleString()}</Text>
-                      </Text>
-                    )}
                   </View>
                   {isLiveRunning && (
                     <View style={styles.botActions}>

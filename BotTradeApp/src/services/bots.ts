@@ -30,7 +30,6 @@ export type ActiveBotsResponse = {
 export type PurchaseBody = {
   mode: 'live' | 'paper';
   allocatedAmount?: number;
-  minOrderValue?: number;
   exchangeConnId?: string;
 };
 
@@ -106,7 +105,7 @@ export const botsService = {
   },
 
   /** Start shadow mode for a bot */
-  startShadowMode(botId: string, config?: {virtualBalance?: number; durationDays?: number; durationMinutes?: number; minOrderValue?: number; compounding?: Partial<CompoundingSettings>}) {
+  startShadowMode(botId: string, config?: {virtualBalance?: number; durationDays?: number; durationMinutes?: number; compounding?: Partial<CompoundingSettings>}) {
     return api.post(`/bots/${botId}/shadow-mode`, (config ?? {}) as Record<string, unknown>);
   },
 
@@ -260,13 +259,12 @@ export const botsService = {
     return api.get<{data: any}>(`/bots/shadow-sessions/${sessionId}/config`);
   },
 
-  /** Update shadow session user config (notificationLevel, autoStopDays, autoStopLossPercent, autoStopBalance, minOrderValue, compounding) */
+  /** Update shadow session user config (notificationLevel, autoStopDays, autoStopLossPercent, autoStopBalance, compounding) */
   updateShadowSessionConfig(sessionId: string, config: {
     notificationLevel?: 'all' | 'wins_only' | 'losses_only' | 'summary';
     autoStopDays?: number;
     autoStopLossPercent?: number;
     autoStopBalance?: number;
-    minOrderValue?: number;
     compounding?: Partial<CompoundingSettings>;
   }) {
     return api.patch<{data: any}>(`/bots/shadow-sessions/${sessionId}/user-config`, config as Record<string, unknown>);
@@ -362,6 +360,7 @@ export interface BotPerformanceSnapshot {
   consecutiveLosses: number;
   recentWinRate: number;
   sharpeEstimate: number;
+  avgPnlPercent?: number;
   trainerScore: number;
   needsRetrain: boolean;
   retrainReason: string | null;

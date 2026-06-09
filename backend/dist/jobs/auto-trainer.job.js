@@ -19,7 +19,9 @@ async function runTrainerChecks() {
         let checked = 0;
         for (const bot of allBots) {
             const config = (bot.trainerConfig ?? DEFAULT_TRAINER_CONFIG);
-            if (!config.autoRetrain)
+            // trainingMode is source of truth; fall back to legacy autoRetrain bool
+            const mode = config.trainingMode ?? (config.autoRetrain ? 'suggestions' : 'off');
+            if (mode === 'off')
                 continue;
             try {
                 await runAutoTrainerCheck(bot.id);

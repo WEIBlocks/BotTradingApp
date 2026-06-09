@@ -40,8 +40,6 @@ async function processShadowTrades() {
                 const sessionConfig = session.userConfig ?? {};
                 // Session-level keys win — shadow settings modal writes here
                 const userConfig = { ...subConfig, ...sessionConfig };
-                // minOrderValue from session column (set at session creation + updatable via settings)
-                const minOrderValue = session.minOrderValue ? parseFloat(session.minOrderValue) : 10;
                 const isStockBot = bot.category === 'Stocks';
                 const defaultPairs = isStockBot ? ['AAPL'] : ['BTC/USDT', 'ETH/USDT'];
                 const pairs = config.pairs?.length ? config.pairs : defaultPairs;
@@ -158,11 +156,6 @@ async function processShadowTrades() {
                     // Skip if engine didn't produce a valid trade (e.g. price data missing)
                     if (!tradeAmount || !tradeValue || tradeAmount <= 0 || tradeValue <= 0)
                         continue;
-                    // Skip BUY trades below user's minOrderValue threshold (don't skip SELLs — closing is always valid)
-                    if (decision.action === 'BUY' && tradeValue < minOrderValue) {
-                        console.log(`[ShadowTrade] Skipping BUY ${pair} — tradeValue $${tradeValue.toFixed(2)} < minOrderValue $${minOrderValue}`);
-                        continue;
-                    }
                     const fee = tradeValue * feeRate;
                     let pnl = null;
                     let pnlPercent = null;

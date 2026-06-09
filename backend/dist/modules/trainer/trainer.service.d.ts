@@ -73,6 +73,7 @@ export declare function triggerRetrain(botId: string, userId: string): Promise<{
 export declare function promotePendingChanges(botId: string, userId: string): Promise<{
     success: boolean;
     message: string;
+    newPrompt?: string;
 }>;
 export declare function runAutoTrainerCheck(botId: string): Promise<void>;
 export declare function getAllTrainerStatuses(): Promise<Array<{

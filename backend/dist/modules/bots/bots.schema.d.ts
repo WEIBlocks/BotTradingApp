@@ -78,11 +78,11 @@ export declare const createBotBodySchema: z.ZodObject<{
     creatorFeePercent?: number | undefined;
     stopLoss?: number | undefined;
     takeProfit?: number | undefined;
+    tradingFrequency?: "max" | "conservative" | "aggressive" | "balanced" | undefined;
     pairs?: string[] | undefined;
     maxPositionSize?: number | undefined;
     dailyLossLimit?: number | undefined;
     maxOpenPositions?: number | undefined;
-    tradingFrequency?: "max" | "conservative" | "aggressive" | "balanced" | undefined;
     tradingSchedule?: "custom" | "24_7" | "us_hours" | undefined;
     aiMode?: "rules_only" | "hybrid" | "full_ai" | undefined;
     maxHoldsBeforeAI?: number | undefined;
@@ -114,12 +114,12 @@ export declare const createBotBodySchema: z.ZodObject<{
     stopLoss?: number | undefined;
     takeProfit?: number | undefined;
     orderType?: "limit" | "market" | undefined;
+    tradingFrequency?: "max" | "conservative" | "aggressive" | "balanced" | undefined;
     pairs?: string[] | undefined;
     maxPositionSize?: number | undefined;
     dailyLossLimit?: number | undefined;
     maxOpenPositions?: number | undefined;
     tradeDirection?: "both" | "buy" | "sell" | undefined;
-    tradingFrequency?: "max" | "conservative" | "aggressive" | "balanced" | undefined;
     tradingSchedule?: "custom" | "24_7" | "us_hours" | undefined;
     aiMode?: "rules_only" | "hybrid" | "full_ai" | undefined;
     maxHoldsBeforeAI?: number | undefined;
@@ -208,12 +208,12 @@ export declare const updateBotBodySchema: z.ZodObject<{
     stopLoss?: number | undefined;
     takeProfit?: number | undefined;
     orderType?: "limit" | "market" | undefined;
+    tradingFrequency?: "max" | "conservative" | "aggressive" | "balanced" | undefined;
     pairs?: string[] | undefined;
     maxPositionSize?: number | undefined;
     dailyLossLimit?: number | undefined;
     maxOpenPositions?: number | undefined;
     tradeDirection?: "both" | "buy" | "sell" | undefined;
-    tradingFrequency?: "max" | "conservative" | "aggressive" | "balanced" | undefined;
     tradingSchedule?: "custom" | "24_7" | "us_hours" | undefined;
     aiMode?: "rules_only" | "hybrid" | "full_ai" | undefined;
     maxHoldsBeforeAI?: number | undefined;
@@ -244,12 +244,12 @@ export declare const updateBotBodySchema: z.ZodObject<{
     stopLoss?: number | undefined;
     takeProfit?: number | undefined;
     orderType?: "limit" | "market" | undefined;
+    tradingFrequency?: "max" | "conservative" | "aggressive" | "balanced" | undefined;
     pairs?: string[] | undefined;
     maxPositionSize?: number | undefined;
     dailyLossLimit?: number | undefined;
     maxOpenPositions?: number | undefined;
     tradeDirection?: "both" | "buy" | "sell" | undefined;
-    tradingFrequency?: "max" | "conservative" | "aggressive" | "balanced" | undefined;
     tradingSchedule?: "custom" | "24_7" | "us_hours" | undefined;
     aiMode?: "rules_only" | "hybrid" | "full_ai" | undefined;
     maxHoldsBeforeAI?: number | undefined;
@@ -289,7 +289,6 @@ export declare const shadowModeBodySchema: z.ZodEffects<z.ZodObject<{
     durationMinutes: z.ZodOptional<z.ZodNumber>;
     enableRiskLimits: z.ZodOptional<z.ZodBoolean>;
     enableRealisticFees: z.ZodOptional<z.ZodBoolean>;
-    minOrderValue: z.ZodOptional<z.ZodNumber>;
     compounding: z.ZodOptional<z.ZodObject<{
         enabled: z.ZodOptional<z.ZodBoolean>;
         reinvestmentRate: z.ZodOptional<z.ZodNumber>;
@@ -300,99 +299,95 @@ export declare const shadowModeBodySchema: z.ZodEffects<z.ZodObject<{
         withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
         totalCompounded: z.ZodOptional<z.ZodNumber>;
         lastCompoundAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, "strip", z.ZodTypeAny, {
-        enabled?: boolean | undefined;
-        reinvestmentRate?: number | undefined;
-        reinvestmentMode?: "fixed" | "total_balance" | "free_balance" | undefined;
-        compoundFrequency?: "daily" | "each_trade" | "weekly" | "manual" | undefined;
-        minProfitThresholdUSD?: number | undefined;
-        maxCompoundMultiplier?: number | undefined;
-        withdrawalReservePct?: number | undefined;
-        totalCompounded?: number | undefined;
-        lastCompoundAt?: string | null | undefined;
-    }, {
-        enabled?: boolean | undefined;
-        reinvestmentRate?: number | undefined;
-        reinvestmentMode?: "fixed" | "total_balance" | "free_balance" | undefined;
-        compoundFrequency?: "daily" | "each_trade" | "weekly" | "manual" | undefined;
-        minProfitThresholdUSD?: number | undefined;
-        maxCompoundMultiplier?: number | undefined;
-        withdrawalReservePct?: number | undefined;
-        totalCompounded?: number | undefined;
-        lastCompoundAt?: string | null | undefined;
-    }>>;
+    }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+        enabled: z.ZodOptional<z.ZodBoolean>;
+        reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+        reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+        compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+        minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+        maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+        withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+        totalCompounded: z.ZodOptional<z.ZodNumber>;
+        lastCompoundAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+        enabled: z.ZodOptional<z.ZodBoolean>;
+        reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+        reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+        compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+        minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+        maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+        withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+        totalCompounded: z.ZodOptional<z.ZodNumber>;
+        lastCompoundAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough">>>;
 }, "strip", z.ZodTypeAny, {
     virtualBalance: number;
-    minOrderValue?: number | undefined;
     durationDays?: number | undefined;
     enableRiskLimits?: boolean | undefined;
     enableRealisticFees?: boolean | undefined;
     durationMinutes?: number | undefined;
-    compounding?: {
-        enabled?: boolean | undefined;
-        reinvestmentRate?: number | undefined;
-        reinvestmentMode?: "fixed" | "total_balance" | "free_balance" | undefined;
-        compoundFrequency?: "daily" | "each_trade" | "weekly" | "manual" | undefined;
-        minProfitThresholdUSD?: number | undefined;
-        maxCompoundMultiplier?: number | undefined;
-        withdrawalReservePct?: number | undefined;
-        totalCompounded?: number | undefined;
-        lastCompoundAt?: string | null | undefined;
-    } | undefined;
+    compounding?: z.objectOutputType<{
+        enabled: z.ZodOptional<z.ZodBoolean>;
+        reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+        reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+        compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+        minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+        maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+        withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+        totalCompounded: z.ZodOptional<z.ZodNumber>;
+        lastCompoundAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough"> | undefined;
 }, {
     virtualBalance: number;
-    minOrderValue?: number | undefined;
     durationDays?: number | undefined;
     enableRiskLimits?: boolean | undefined;
     enableRealisticFees?: boolean | undefined;
     durationMinutes?: number | undefined;
-    compounding?: {
-        enabled?: boolean | undefined;
-        reinvestmentRate?: number | undefined;
-        reinvestmentMode?: "fixed" | "total_balance" | "free_balance" | undefined;
-        compoundFrequency?: "daily" | "each_trade" | "weekly" | "manual" | undefined;
-        minProfitThresholdUSD?: number | undefined;
-        maxCompoundMultiplier?: number | undefined;
-        withdrawalReservePct?: number | undefined;
-        totalCompounded?: number | undefined;
-        lastCompoundAt?: string | null | undefined;
-    } | undefined;
+    compounding?: z.objectInputType<{
+        enabled: z.ZodOptional<z.ZodBoolean>;
+        reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+        reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+        compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+        minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+        maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+        withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+        totalCompounded: z.ZodOptional<z.ZodNumber>;
+        lastCompoundAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough"> | undefined;
 }>, {
     virtualBalance: number;
-    minOrderValue?: number | undefined;
     durationDays?: number | undefined;
     enableRiskLimits?: boolean | undefined;
     enableRealisticFees?: boolean | undefined;
     durationMinutes?: number | undefined;
-    compounding?: {
-        enabled?: boolean | undefined;
-        reinvestmentRate?: number | undefined;
-        reinvestmentMode?: "fixed" | "total_balance" | "free_balance" | undefined;
-        compoundFrequency?: "daily" | "each_trade" | "weekly" | "manual" | undefined;
-        minProfitThresholdUSD?: number | undefined;
-        maxCompoundMultiplier?: number | undefined;
-        withdrawalReservePct?: number | undefined;
-        totalCompounded?: number | undefined;
-        lastCompoundAt?: string | null | undefined;
-    } | undefined;
+    compounding?: z.objectOutputType<{
+        enabled: z.ZodOptional<z.ZodBoolean>;
+        reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+        reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+        compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+        minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+        maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+        withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+        totalCompounded: z.ZodOptional<z.ZodNumber>;
+        lastCompoundAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough"> | undefined;
 }, {
     virtualBalance: number;
-    minOrderValue?: number | undefined;
     durationDays?: number | undefined;
     enableRiskLimits?: boolean | undefined;
     enableRealisticFees?: boolean | undefined;
     durationMinutes?: number | undefined;
-    compounding?: {
-        enabled?: boolean | undefined;
-        reinvestmentRate?: number | undefined;
-        reinvestmentMode?: "fixed" | "total_balance" | "free_balance" | undefined;
-        compoundFrequency?: "daily" | "each_trade" | "weekly" | "manual" | undefined;
-        minProfitThresholdUSD?: number | undefined;
-        maxCompoundMultiplier?: number | undefined;
-        withdrawalReservePct?: number | undefined;
-        totalCompounded?: number | undefined;
-        lastCompoundAt?: string | null | undefined;
-    } | undefined;
+    compounding?: z.objectInputType<{
+        enabled: z.ZodOptional<z.ZodBoolean>;
+        reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+        reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+        compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+        minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+        maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+        withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+        totalCompounded: z.ZodOptional<z.ZodNumber>;
+        lastCompoundAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough"> | undefined;
 }>;
 export declare const reviewBodySchema: z.ZodObject<{
     rating: z.ZodNumber;
@@ -468,7 +463,6 @@ export declare const updateShadowUserConfigBodySchema: z.ZodObject<{
     autoStopDays: z.ZodOptional<z.ZodNumber>;
     autoStopLossPercent: z.ZodOptional<z.ZodNumber>;
     autoStopBalance: z.ZodOptional<z.ZodNumber>;
-    minOrderValue: z.ZodOptional<z.ZodNumber>;
     compounding: z.ZodOptional<z.ZodObject<{
         enabled: z.ZodOptional<z.ZodBoolean>;
         reinvestmentRate: z.ZodOptional<z.ZodNumber>;
@@ -479,57 +473,55 @@ export declare const updateShadowUserConfigBodySchema: z.ZodObject<{
         withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
         totalCompounded: z.ZodOptional<z.ZodNumber>;
         lastCompoundAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, "strip", z.ZodTypeAny, {
-        enabled?: boolean | undefined;
-        reinvestmentRate?: number | undefined;
-        reinvestmentMode?: "fixed" | "total_balance" | "free_balance" | undefined;
-        compoundFrequency?: "daily" | "each_trade" | "weekly" | "manual" | undefined;
-        minProfitThresholdUSD?: number | undefined;
-        maxCompoundMultiplier?: number | undefined;
-        withdrawalReservePct?: number | undefined;
-        totalCompounded?: number | undefined;
-        lastCompoundAt?: string | null | undefined;
-    }, {
-        enabled?: boolean | undefined;
-        reinvestmentRate?: number | undefined;
-        reinvestmentMode?: "fixed" | "total_balance" | "free_balance" | undefined;
-        compoundFrequency?: "daily" | "each_trade" | "weekly" | "manual" | undefined;
-        minProfitThresholdUSD?: number | undefined;
-        maxCompoundMultiplier?: number | undefined;
-        withdrawalReservePct?: number | undefined;
-        totalCompounded?: number | undefined;
-        lastCompoundAt?: string | null | undefined;
-    }>>;
+    }, "passthrough", z.ZodTypeAny, z.objectOutputType<{
+        enabled: z.ZodOptional<z.ZodBoolean>;
+        reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+        reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+        compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+        minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+        maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+        withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+        totalCompounded: z.ZodOptional<z.ZodNumber>;
+        lastCompoundAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough">, z.objectInputType<{
+        enabled: z.ZodOptional<z.ZodBoolean>;
+        reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+        reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+        compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+        minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+        maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+        withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+        totalCompounded: z.ZodOptional<z.ZodNumber>;
+        lastCompoundAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough">>>;
 }, "strip", z.ZodTypeAny, {
-    minOrderValue?: number | undefined;
-    compounding?: {
-        enabled?: boolean | undefined;
-        reinvestmentRate?: number | undefined;
-        reinvestmentMode?: "fixed" | "total_balance" | "free_balance" | undefined;
-        compoundFrequency?: "daily" | "each_trade" | "weekly" | "manual" | undefined;
-        minProfitThresholdUSD?: number | undefined;
-        maxCompoundMultiplier?: number | undefined;
-        withdrawalReservePct?: number | undefined;
-        totalCompounded?: number | undefined;
-        lastCompoundAt?: string | null | undefined;
-    } | undefined;
+    compounding?: z.objectOutputType<{
+        enabled: z.ZodOptional<z.ZodBoolean>;
+        reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+        reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+        compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+        minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+        maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+        withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+        totalCompounded: z.ZodOptional<z.ZodNumber>;
+        lastCompoundAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough"> | undefined;
     autoStopBalance?: number | undefined;
     autoStopDays?: number | undefined;
     autoStopLossPercent?: number | undefined;
     notificationLevel?: "summary" | "all" | "wins_only" | "losses_only" | undefined;
 }, {
-    minOrderValue?: number | undefined;
-    compounding?: {
-        enabled?: boolean | undefined;
-        reinvestmentRate?: number | undefined;
-        reinvestmentMode?: "fixed" | "total_balance" | "free_balance" | undefined;
-        compoundFrequency?: "daily" | "each_trade" | "weekly" | "manual" | undefined;
-        minProfitThresholdUSD?: number | undefined;
-        maxCompoundMultiplier?: number | undefined;
-        withdrawalReservePct?: number | undefined;
-        totalCompounded?: number | undefined;
-        lastCompoundAt?: string | null | undefined;
-    } | undefined;
+    compounding?: z.objectInputType<{
+        enabled: z.ZodOptional<z.ZodBoolean>;
+        reinvestmentRate: z.ZodOptional<z.ZodNumber>;
+        reinvestmentMode: z.ZodOptional<z.ZodEnum<["free_balance", "total_balance", "fixed"]>>;
+        compoundFrequency: z.ZodOptional<z.ZodEnum<["each_trade", "daily", "weekly", "manual"]>>;
+        minProfitThresholdUSD: z.ZodOptional<z.ZodNumber>;
+        maxCompoundMultiplier: z.ZodOptional<z.ZodNumber>;
+        withdrawalReservePct: z.ZodOptional<z.ZodNumber>;
+        totalCompounded: z.ZodOptional<z.ZodNumber>;
+        lastCompoundAt: z.ZodOptional<z.ZodNullable<z.ZodString>>;
+    }, z.ZodTypeAny, "passthrough"> | undefined;
     autoStopBalance?: number | undefined;
     autoStopDays?: number | undefined;
     autoStopLossPercent?: number | undefined;

@@ -416,7 +416,6 @@ export async function startShadowMode(
     durationMinutes?: number;
     enableRiskLimits?: boolean;
     enableRealisticFees?: boolean;
-    minOrderValue?: number;
     compounding?: Record<string, any>;
   }
 ) {
@@ -457,12 +456,6 @@ export async function startShadowMode(
   // Store durationDays — for minute-based durations store 1 as minimum display value
   const storedDays = durationDays > 0 ? durationDays : Math.max(1, Math.ceil(durationMinutes / 1440));
 
-  // No floor on user input — pass minOrderValue through verbatim. The bot
-  // engine will silently skip individual trades whose calculated size falls
-  // below the exchange's accepted minimum (separate concern, see bot-engine).
-  // We default to 10 only when the user didn't supply a value at all.
-  const resolvedMinOrder = config.minOrderValue && config.minOrderValue > 0 ? config.minOrderValue : 10;
-
   // Seed userConfig with pre-run compounding settings if the user configured them
   const initialUserConfig = config.compounding ? { compounding: config.compounding } : undefined;
 
@@ -479,7 +472,6 @@ export async function startShadowMode(
       status: 'running',
       enableRiskLimits: config.enableRiskLimits ?? true,
       enableRealisticFees: config.enableRealisticFees ?? true,
-      minOrderValue: String(resolvedMinOrder),
       ...(initialUserConfig ? { userConfig: initialUserConfig } : {}),
     })
     .returning();
@@ -1318,7 +1310,6 @@ export async function getShadowSessionConfig(userId: string, sessionId: string) 
   return {
     sessionId: session.id,
     userConfig: (session.userConfig as Record<string, any>) ?? {},
-    minOrderValue: session.minOrderValue,
     virtualBalance: session.virtualBalance,
     enableRiskLimits: session.enableRiskLimits,
     enableRealisticFees: session.enableRealisticFees,
@@ -1333,21 +1324,14 @@ export async function updateShadowSessionConfig(userId: string, sessionId: strin
   const existing = (session.userConfig as Record<string, any>) ?? {};
   const merged = { ...existing, ...data };
 
-  // minOrderValue is a real column — update it directly if provided
-  const updatePayload: Record<string, any> = { userConfig: merged };
-  if (data.minOrderValue !== undefined) {
-    updatePayload.minOrderValue = String(data.minOrderValue);
-  }
-
   const [updated] = await db.update(shadowSessions)
-    .set(updatePayload)
+    .set({ userConfig: merged })
     .where(eq(shadowSessions.id, sessionId))
     .returning();
 
   return {
     sessionId: updated.id,
     userConfig: (updated.userConfig as Record<string, any>) ?? {},
-    minOrderValue: updated.minOrderValue,
   };
 }
 

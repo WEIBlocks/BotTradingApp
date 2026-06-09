@@ -119,7 +119,6 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const [selectedDurationIdx, setSelectedDurationIdx] = useState<number | null>(null);
   const [customDays, setCustomDays] = useState('');
   const [virtualBalance, setVirtualBalance] = useState('10000');
-  const [shadowMinOrder, setShadowMinOrder] = useState('10');
 
   const [activeStatsTab, setActiveStatsTab] = useState<'live' | 'my'>('live');
   const [, startTabTransition] = useTransition();
@@ -148,8 +147,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     autoStopDays: string;
     autoStopLossPercent: string;
     autoStopBalance: string;
-    minOrderValue: string;
-  }>({notificationLevel: 'all', autoStopDays: '', autoStopLossPercent: '', autoStopBalance: '', minOrderValue: '10'});
+  }>({notificationLevel: 'all', autoStopDays: '', autoStopLossPercent: '', autoStopBalance: ''});
   const [strategyExpanded, setStrategyExpanded] = useState(false);
 
   // Compounding settings (per subscription)
@@ -159,7 +157,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
   // Trainer state (visible to all, creator-controls gated on isCreator)
   const [trainerStatus, setTrainerStatus] = useState<{config: TrainerConfig; performance: BotPerformanceSnapshot; isCreator?: boolean} | null>(null);
-  const [trainerExpanded, setTrainerExpanded] = useState(false);
+  const [trainerModalVisible, setTrainerModalVisible] = useState(false);
   const [retraining, setRetraining] = useState(false);
   const [promoting, setPromoting] = useState(false);
 
@@ -324,13 +322,11 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         botsService.getShadowSessionConfig(shadowId).then((res: any) => {
           if (!mountedRef.current) return;
           const cfg = res?.data?.userConfig ?? {};
-          const minOrd = res?.data?.minOrderValue;
           setShadowUserConfig({
             notificationLevel: cfg.notificationLevel ?? 'all',
             autoStopDays: cfg.autoStopDays !== undefined ? String(cfg.autoStopDays) : '',
             autoStopLossPercent: cfg.autoStopLossPercent !== undefined ? String(cfg.autoStopLossPercent) : '',
             autoStopBalance: cfg.autoStopBalance !== undefined ? String(cfg.autoStopBalance) : '',
-            minOrderValue: minOrd !== undefined ? String(parseFloat(minOrd)) : '10',
           });
           // Load shadow compounding from userConfig.compounding
           if (cfg.compounding) {
@@ -493,7 +489,6 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     setSelectedDurationIdx(null);
     setCustomDays('');
     setVirtualBalance('10000');
-    setShadowMinOrder(bot.category === 'Stocks' ? '1' : '10');
     setShadowModalVisible(true);
   }, [bot, userBotState.status]);
 
@@ -503,45 +498,32 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       showAlert('Select Duration', 'Please select how long to run shadow mode.');
       return;
     }
-    // Allow any positive virtual balance and any positive min-order value.
-    // The user is testing with virtual funds — no need to gate small amounts.
-    // The trading engine will skip individual trades whose calculated size
-    // is below the exchange's accepted minimum (separate concern).
     const balance = parseFloat(virtualBalance) || 10000;
     if (balance <= 0) {
       showAlert('Invalid Balance', 'Virtual balance must be greater than $0.');
       return;
     }
-    const isStockBotCheck = bot.category === 'Stocks';
-    const fallbackMin = isStockBotCheck ? 1 : 10;
-    const parsedMinOrder = parseFloat(shadowMinOrder) || fallbackMin;
-    if (parsedMinOrder <= 0) {
-      showAlert('Invalid Min Order', 'Minimum order value must be greater than $0.');
-      return;
-    }
 
-    let apiConfig: {virtualBalance: number; durationDays?: number; durationMinutes?: number; minOrderValue?: number};
+    let apiConfig: {virtualBalance: number; durationDays?: number; durationMinutes?: number};
 
     if (selectedDurationIdx === -1) {
-      // Custom days
       const days = parseInt(customDays, 10);
       if (!days || days <= 0) {
         showAlert('Invalid Duration', 'Please enter a valid number of days.');
         return;
       }
-      apiConfig = {virtualBalance: balance, durationDays: days, minOrderValue: parsedMinOrder};
+      apiConfig = {virtualBalance: balance, durationDays: days};
     } else {
       const opt = DURATION_OPTIONS[selectedDurationIdx];
       if (opt.minutes) {
-        apiConfig = {virtualBalance: balance, durationMinutes: opt.minutes, minOrderValue: parsedMinOrder};
+        apiConfig = {virtualBalance: balance, durationMinutes: opt.minutes};
       } else {
-        apiConfig = {virtualBalance: balance, durationDays: opt.days!, minOrderValue: parsedMinOrder};
+        apiConfig = {virtualBalance: balance, durationDays: opt.days!};
       }
     }
 
     setShadowModalVisible(false);
     setActionLoading(true);
-    // Pass pre-run compounding settings into the new session if the user configured them
     const startConfig: typeof apiConfig & {compounding?: CompoundingSettings} = apiConfig;
     if (compounding && compounding.enabled) {
       startConfig.compounding = compounding;
@@ -551,7 +533,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
       .then(() => navigation.navigate('ShadowMode'))
       .catch(() => showAlert('Error', 'Failed to start shadow mode.'))
       .finally(() => setActionLoading(false));
-  }, [navigation, bot, selectedDurationIdx, customDays, virtualBalance, shadowMinOrder, DURATION_OPTIONS]);
+  }, [navigation, bot, selectedDurationIdx, customDays, virtualBalance, DURATION_OPTIONS]);
 
   const handleActivate = useCallback(() => {
     if (!bot) return;
@@ -707,7 +689,6 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         autoStopDays: shadowUserConfig.autoStopDays ? parseInt(shadowUserConfig.autoStopDays, 10) : undefined,
         autoStopLossPercent: shadowUserConfig.autoStopLossPercent ? parseFloat(shadowUserConfig.autoStopLossPercent) : undefined,
         autoStopBalance: shadowUserConfig.autoStopBalance ? parseFloat(shadowUserConfig.autoStopBalance) : undefined,
-        minOrderValue: shadowUserConfig.minOrderValue ? parseFloat(shadowUserConfig.minOrderValue) : undefined,
       });
       showAlert('Settings Saved', 'Shadow session preferences updated.');
     } catch {
@@ -797,6 +778,54 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         </TouchableOpacity>
         <View style={{flex: 1}} />
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+          {/* AI Trainer header icon */}
+          {trainerStatus && (() => {
+            const tCfg = trainerStatus.config as any;
+            const tPerf = trainerStatus.performance;
+            const hasPending = !!(tCfg.pendingPrompt);
+            const score = tPerf?.trainerScore ?? 0;
+            const scoreColor = score >= 70 ? '#10B981' : score >= 50 ? '#F59E0B' : '#EF4444';
+            const trainerMode = tCfg.trainingMode ?? (tCfg.autoRetrain ? 'suggestions' : 'off');
+            // Creator always sees the icon (even when off — they need to be able to turn it on)
+            // Subscriber only sees it when trainer is active (not off)
+            if (!isCreator && trainerMode === 'off') return null;
+            if (isCreator) {
+              return (
+                <TouchableOpacity
+                  style={[styles.iconBtn, {
+                    backgroundColor: hasPending ? 'rgba(139,92,246,0.2)' : 'rgba(139,92,246,0.1)',
+                    borderWidth: 1,
+                    borderColor: hasPending ? 'rgba(139,92,246,0.6)' : 'rgba(139,92,246,0.25)',
+                    width: 44, height: 40,
+                  }]}
+                  activeOpacity={0.7}
+                  onPress={() => setTrainerModalVisible(true)}>
+                  {hasPending && (
+                    <View style={{position: 'absolute', top: 6, right: 7, width: 7, height: 7, borderRadius: 3.5, backgroundColor: '#8B5CF6', borderWidth: 1.5, borderColor: '#0D1117'}} />
+                  )}
+                  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                    <Path d="M12 2a2 2 0 012 2c0 .74-.4 1.38-1 1.73V7h1a7 7 0 017 7H3a7 7 0 017-7h1V5.73A2 2 0 0112 2zM3 21v-2a4 4 0 014-4h10a4 4 0 014 4v2" stroke="#8B5CF6" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
+                  </Svg>
+                </TouchableOpacity>
+              );
+            } else {
+              return (
+                <TouchableOpacity
+                  style={[styles.iconBtn, {
+                    backgroundColor: `${scoreColor}18`,
+                    borderWidth: 1,
+                    borderColor: `${scoreColor}35`,
+                    width: 44, height: 40,
+                  }]}
+                  activeOpacity={0.7}
+                  onPress={() => setTrainerModalVisible(true)}>
+                  <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                    <Path d="M22 12h-4l-3 9L9 3l-3 9H2" stroke={scoreColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                  </Svg>
+                </TouchableOpacity>
+              );
+            }
+          })()}
           {/* Pulsing live feed icon — replaces the banner */}
           {isRunning && (() => {
             const liveColor = userBotState.status === 'active' ? '#10B981' : '#3B82F6';
@@ -1259,13 +1288,11 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             </View>
 
             {/* Compounding settings moved to settings modal gear icon */}
-
-            {/* ── AI Trainer Panel ── */}
-            {trainerStatus && (() => {
-              const tCfg = trainerStatus.config;
-              const tPerf = trainerStatus.performance;
-              const tIsCreator = isCreator || !!trainerStatus.isCreator;
-              const effectiveMode: 'auto' | 'suggestions' | 'off' = tCfg.trainingMode ?? (tCfg.autoRetrain ? 'suggestions' : 'off');
+            {/* AI Trainer accessible via header brain/pulse icon */}
+            {false && (() => {
+              // dead — kept only so JSX nesting stays valid; never rendered
+              const effectiveMode: 'auto' | 'suggestions' | 'off' = 'off' as const;
+              const tCfg: Record<string, any> = {}; const tPerf: Record<string, any> = {}; const tIsCreator = false; const trainerExpanded = false; const setTrainerExpanded = (_v: boolean | ((prev: boolean) => boolean)) => {};
 
               const modeOptions: {key: 'auto' | 'suggestions' | 'off'; label: string; sub: string; accent: string; bg: string}[] = [
                 {
@@ -1370,7 +1397,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                                 onPress={async () => {
                                   if (active) return;
                                   try {
-                                    const res: any = await botsService.updateTrainerConfig(bot.id, { trainingMode: opt.key });
+                                    const res: any = await botsService.updateTrainerConfig(bot?.id ?? '', { trainingMode: opt.key });
                                     const newCfg = res?.data?.config;
                                     if (newCfg) setTrainerStatus(s => s ? {...s, config: {...s.config, ...newCfg}} : s);
                                     showToast('success', `Trainer set to ${opt.label}`);
@@ -1440,9 +1467,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                               onPress={async () => {
                                 setPromoting(true);
                                 try {
-                                  await botsService.promoteTrainerChanges(bot.id);
+                                  await botsService.promoteTrainerChanges(bot?.id ?? '');
                                   showToast('success', 'Strategy improvement applied!');
-                                  const tr: any = await botsService.getTrainerStatus(bot.id);
+                                  const tr: any = await botsService.getTrainerStatus(bot?.id ?? '');
                                   if (tr?.data) setTrainerStatus(tr.data);
                                 } catch { showToast('error', 'Failed to apply changes'); }
                                 finally { setPromoting(false); }
@@ -1459,7 +1486,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                               onPress={async () => {
                                 // Dismiss pending — clear pendingPrompt/Config without promoting
                                 try {
-                                  await botsService.updateTrainerConfig(bot.id, {pendingPrompt: null, pendingConfig: null} as any);
+                                  await botsService.updateTrainerConfig(bot?.id ?? '', {pendingPrompt: null, pendingConfig: null} as any);
                                   setTrainerStatus(s => s ? {...s, config: {...s.config, pendingPrompt: null, pendingConfig: null}} : s);
                                   showToast('info', 'Suggestion dismissed');
                                 } catch {}
@@ -1475,7 +1502,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                       {tCfg.insights?.length > 0 && effectiveMode !== 'off' && (
                         <View style={{gap: 0}}>
                           <Text style={[styles.metricLabel, {marginBottom: 8}]}>TRAINER LOG</Text>
-                          {tCfg.insights.slice(0, 4).map((ins, i) => (
+                          {tCfg.insights.slice(0, 4).map((ins: any, i: number) => (
                             <View
                               key={i}
                               style={{flexDirection: 'row', gap: 10, paddingVertical: 10,
@@ -1512,9 +1539,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                           onPress={async () => {
                             setRetraining(true);
                             try {
-                              const res: any = await botsService.triggerRetrain(bot.id);
+                              const res: any = await botsService.triggerRetrain(bot?.id ?? '');
                               showToast('success', res?.data?.message ?? 'Trainer running…');
-                              const tr: any = await botsService.getTrainerStatus(bot.id);
+                              const tr: any = await botsService.getTrainerStatus(bot?.id ?? '');
                               if (tr?.data) setTrainerStatus(tr.data);
                             } catch { showToast('error', 'Retrain failed — AI credits needed'); }
                             finally { setRetraining(false); }
@@ -1861,6 +1888,288 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         )}
       </ScrollView>
 
+      {/* ─── AI Trainer Modal (header icon) ──────────────────────────── */}
+      {trainerStatus && (
+        <Modal
+          visible={trainerModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setTrainerModalVisible(false)}>
+          <View style={modalStyles.overlay}>
+            <TouchableOpacity style={{flex: 1}} activeOpacity={1} onPress={() => setTrainerModalVisible(false)} />
+            <View style={[modalStyles.sheet, {maxHeight: '92%', minHeight: '78%', paddingHorizontal: 20}]}>
+              {/* Handle */}
+              <View style={{width: 36, height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.15)', alignSelf: 'center', marginBottom: 16}} />
+
+              {/* Header */}
+              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20}}>
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
+                  {(() => {
+                    const tCfg2 = trainerStatus.config as any;
+                    const tPerf2 = trainerStatus.performance;
+                    const score2 = tPerf2?.trainerScore ?? 0;
+                    const scoreColor2 = score2 >= 70 ? '#10B981' : score2 >= 50 ? '#F59E0B' : '#EF4444';
+                    const iconColor = isCreator ? '#8B5CF6' : scoreColor2;
+                    const iconBg = isCreator ? 'rgba(139,92,246,0.15)' : `${scoreColor2}18`;
+                    return (
+                      <View style={{width: 36, height: 36, borderRadius: 11, backgroundColor: iconBg, alignItems: 'center', justifyContent: 'center'}}>
+                        <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                          {isCreator
+                            ? <Path d="M9.5 2a2.5 2.5 0 01.5 5v1h4V7a2.5 2.5 0 11.5-5M9.5 2A2.5 2.5 0 007 4.5c0 .94.52 1.76 1.28 2.19M9.5 2h5m0 0A2.5 2.5 0 0117 4.5c0 .94-.52 1.76-1.28 2.19M14 7h-4m0 0v1m4-1v1M7 12a5 5 0 005 5v2M7 12a5 5 0 010-4.36M7 12H5m12-4.36A5 5 0 0117 12m0 0h2m-2 0a5 5 0 01-5 5v2m0 0H9m3 0h3" stroke={iconColor} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
+                            : <Path d="M22 12h-4l-3 9L9 3l-3 9H2" stroke={iconColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+                          }
+                        </Svg>
+                      </View>
+                    );
+                  })()}
+                  <View>
+                    <Text style={{fontFamily: 'Inter-Bold', fontSize: 16, color: '#FFFFFF'}}>AI Trainer</Text>
+                    <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)', marginTop: 1}}>
+                      {isCreator ? 'Manage training behaviour' : 'Training activity log'}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity onPress={() => setTrainerModalVisible(false)} style={{padding: 6}}>
+                  <XIcon size={20} color="rgba(255,255,255,0.4)" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false} style={{flex: 1}} contentContainerStyle={{gap: 16, paddingBottom: 32}}>
+                {(() => {
+                  const tCfg = trainerStatus.config as any;
+                  const tPerf = trainerStatus.performance;
+                  const tIsCreator = isCreator || !!trainerStatus.isCreator;
+                  const effectiveMode: 'auto' | 'suggestions' | 'off' = tCfg.trainingMode ?? (tCfg.autoRetrain ? 'suggestions' : 'off');
+
+                  const modeOptions: {key: 'auto' | 'suggestions' | 'off'; label: string; sub: string; accent: string; bg: string}[] = [
+                    {key: 'auto', label: 'Auto-Train', sub: 'Applies improvements automatically when confidence ≥ 70%', accent: '#10B981', bg: 'rgba(16,185,129,0.12)'},
+                    {key: 'suggestions', label: 'Suggestions', sub: 'AI suggests improvements — you review before applying', accent: '#8B5CF6', bg: 'rgba(139,92,246,0.12)'},
+                    {key: 'off', label: 'Off', sub: 'No automatic training', accent: 'rgba(255,255,255,0.3)', bg: 'rgba(255,255,255,0.04)'},
+                  ];
+                  const activeModeOpt = modeOptions.find(m => m.key === effectiveMode) ?? modeOptions[2];
+
+                  const score = tPerf?.trainerScore ?? 0;
+                  const scoreColor = score >= 70 ? '#10B981' : score >= 50 ? '#F59E0B' : '#EF4444';
+
+                  return (
+                    <>
+                      {/* Status + score row */}
+                      <View style={{flexDirection: 'row', gap: 8}}>
+                        <View style={{flex: 1, backgroundColor: '#1C2333', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', alignItems: 'center', gap: 4}}>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5}}>TRAINER SCORE</Text>
+                          <Text style={{fontFamily: 'Inter-Bold', fontSize: 22, color: scoreColor}}>{tPerf?.trainerScore ?? '—'}</Text>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)'}}>/ 100</Text>
+                        </View>
+                        <View style={{flex: 1, backgroundColor: '#1C2333', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', alignItems: 'center', gap: 4}}>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5}}>MODE</Text>
+                          <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: activeModeOpt.accent}}>{activeModeOpt.label}</Text>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)'}}>
+                            {tCfg.trainerStatus === 'retraining' ? '⚡ Training now' : tCfg.trainerStatus === 'shadow_validating' ? '🔍 Validating' : 'Idle'}
+                          </Text>
+                        </View>
+                        <View style={{flex: 1, backgroundColor: '#1C2333', borderRadius: 12, padding: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', alignItems: 'center', gap: 4}}>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5}}>WIN RATE</Text>
+                          <Text style={{fontFamily: 'Inter-Bold', fontSize: 22, color: (tPerf?.winRate ?? 0) >= 55 ? '#10B981' : (tPerf?.winRate ?? 0) >= 45 ? '#F59E0B' : '#EF4444'}}>{tPerf?.winRate?.toFixed(0) ?? '—'}%</Text>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)'}}>{tPerf?.totalTrades ?? 0} trades</Text>
+                        </View>
+                      </View>
+
+                      {/* Perf metrics row 2 */}
+                      {effectiveMode !== 'off' && (
+                        <View style={{flexDirection: 'row', gap: 8}}>
+                          {[
+                            {label: 'PROFIT FACTOR', value: tPerf?.profitFactor?.toFixed(2) ?? '—', color: (tPerf?.profitFactor ?? 0) >= 1.5 ? '#10B981' : (tPerf?.profitFactor ?? 0) >= 1.0 ? '#F59E0B' : '#EF4444'},
+                            {label: 'MAX DRAWDOWN', value: `${tPerf?.maxDrawdown?.toFixed(1) ?? '—'}%`, color: (tPerf?.maxDrawdown ?? 0) <= 10 ? '#10B981' : (tPerf?.maxDrawdown ?? 0) <= 25 ? '#F59E0B' : '#EF4444'},
+                            {label: 'AVG P&L', value: tPerf?.avgPnlPercent != null ? `${tPerf.avgPnlPercent.toFixed(2)}%` : '—', color: (tPerf?.avgPnlPercent ?? 0) >= 0 ? '#10B981' : '#EF4444'},
+                          ].map(m => (
+                            <View key={m.label} style={{flex: 1, backgroundColor: '#1C2333', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', alignItems: 'center'}}>
+                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 9, color: 'rgba(255,255,255,0.35)', marginBottom: 4, letterSpacing: 0.4}}>{m.label}</Text>
+                              <Text style={{fontFamily: 'Inter-Bold', fontSize: 15, color: m.color}}>{m.value}</Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+
+                      {/* Pending suggestion banner — creator only */}
+                      {tCfg.pendingPrompt && tIsCreator && (
+                        <View style={{backgroundColor: 'rgba(139,92,246,0.1)', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: 'rgba(139,92,246,0.35)', gap: 12}}>
+                          <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+                            <View style={{width: 6, height: 6, borderRadius: 3, backgroundColor: '#8B5CF6'}} />
+                            <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#8B5CF6'}}>Trainer suggestion ready</Text>
+                          </View>
+                          <View style={{backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 10, padding: 12}}>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)', marginBottom: 5, letterSpacing: 0.5}}>SUGGESTED IMPROVEMENT</Text>
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 18}}>
+                              {tCfg.pendingPrompt.slice(0, 200)}{tCfg.pendingPrompt.length > 200 ? '...' : ''}
+                            </Text>
+                          </View>
+                          <View style={{flexDirection: 'row', gap: 10}}>
+                            <TouchableOpacity
+                              style={{flex: 1, backgroundColor: '#8B5CF6', borderRadius: 12, paddingVertical: 13, alignItems: 'center', opacity: promoting ? 0.6 : 1}}
+                              activeOpacity={0.8}
+                              disabled={promoting}
+                              onPress={async () => {
+                                setPromoting(true);
+                                try {
+                                  await botsService.promoteTrainerChanges(bot!.id);
+                                  showToast('success', 'Strategy improvement applied!');
+                                  const tr: any = await botsService.getTrainerStatus(bot!.id);
+                                  if (tr?.data) setTrainerStatus(tr.data);
+                                } catch { showToast('error', 'Failed to apply — AI credits needed'); }
+                                finally { setPromoting(false); }
+                              }}>
+                              {promoting
+                                ? <ActivityIndicator size="small" color="#FFF" />
+                                : <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#FFFFFF'}}>Apply Now</Text>
+                              }
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={{paddingHorizontal: 18, paddingVertical: 13, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', alignItems: 'center', justifyContent: 'center'}}
+                              activeOpacity={0.7}
+                              onPress={async () => {
+                                try {
+                                  await botsService.updateTrainerConfig(bot!.id, {pendingPrompt: null, pendingConfig: null} as any);
+                                  setTrainerStatus(s => s ? {...s, config: {...s.config, pendingPrompt: null, pendingConfig: null}} : s);
+                                  showToast('info', 'Suggestion dismissed');
+                                } catch {}
+                              }}>
+                              <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: 'rgba(255,255,255,0.4)'}}>Dismiss</Text>
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      )}
+
+                      {/* Training mode selector — creator only */}
+                      {tIsCreator && (
+                        <View style={{gap: 8}}>
+                          <Text style={{fontFamily: 'Inter-Medium', fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: 1, marginBottom: 2}}>TRAINING MODE</Text>
+                          {modeOptions.map(opt => {
+                            const active = effectiveMode === opt.key;
+                            return (
+                              <TouchableOpacity
+                                key={opt.key}
+                                activeOpacity={0.7}
+                                style={{
+                                  flexDirection: 'row', alignItems: 'center', padding: 14,
+                                  borderRadius: 12, gap: 12,
+                                  backgroundColor: active ? opt.bg : '#1C2333',
+                                  borderWidth: 1.5,
+                                  borderColor: active ? opt.accent : 'rgba(255,255,255,0.07)',
+                                }}
+                                onPress={async () => {
+                                  if (active) return;
+                                  try {
+                                    const res: any = await botsService.updateTrainerConfig(bot!.id, {trainingMode: opt.key});
+                                    const newCfg = res?.data?.config;
+                                    if (newCfg) setTrainerStatus(s => s ? {...s, config: {...s.config, ...newCfg}} : s);
+                                    showToast('success', `Trainer set to ${opt.label}`);
+                                  } catch { showToast('error', 'Failed to update trainer mode'); }
+                                }}>
+                                <View style={{width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: active ? opt.accent : 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center'}}>
+                                  {active && <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: opt.accent}} />}
+                                </View>
+                                <View style={{flex: 1}}>
+                                  <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: active ? opt.accent : '#FFFFFF'}}>{opt.label}</Text>
+                                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 2}}>{opt.sub}</Text>
+                                </View>
+                                {active && opt.key !== 'off' && <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: opt.accent}} />}
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      )}
+
+                      {/* Trainer log — visible to all */}
+                      {tCfg.insights?.length > 0 && (
+                        <View style={{gap: 0}}>
+                          <Text style={{fontFamily: 'Inter-Medium', fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: 1, marginBottom: 10}}>TRAINING LOG</Text>
+                          <View style={{backgroundColor: '#1C2333', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', overflow: 'hidden'}}>
+                            {tCfg.insights.slice(0, 6).map((ins: any, i: number) => (
+                              <View
+                                key={i}
+                                style={{flexDirection: 'row', gap: 12, paddingHorizontal: 14, paddingVertical: 12,
+                                  borderBottomWidth: i < Math.min(tCfg.insights.length, 6) - 1 ? 1 : 0,
+                                  borderBottomColor: 'rgba(255,255,255,0.05)'}}>
+                                <View style={{
+                                  width: 7, height: 7, borderRadius: 3.5, marginTop: 5,
+                                  backgroundColor:
+                                    ins.type === 'retrain' ? '#EF4444' :
+                                    ins.type === 'improvement' ? '#10B981' :
+                                    ins.type === 'warning' ? '#F59E0B' : 'rgba(255,255,255,0.25)',
+                                }} />
+                                <View style={{flex: 1}}>
+                                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 18}}>{ins.message}</Text>
+                                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>{new Date(ins.ts).toLocaleDateString()}</Text>
+                                </View>
+                              </View>
+                            ))}
+                          </View>
+                        </View>
+                      )}
+
+                      {/* No log yet */}
+                      {(!tCfg.insights || tCfg.insights.length === 0) && effectiveMode !== 'off' && (
+                        <View style={{backgroundColor: '#1C2333', borderRadius: 14, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', alignItems: 'center', gap: 8}}>
+                          <Svg width={24} height={24} viewBox="0 0 24 24" fill="none">
+                            <Path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" stroke="rgba(255,255,255,0.2)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
+                          </Svg>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)', textAlign: 'center'}}>
+                            No training activity yet.{'\n'}The trainer runs every 5 minutes.
+                          </Text>
+                        </View>
+                      )}
+
+                      {/* Off state — no controls for non-creator */}
+                      {effectiveMode === 'off' && !tIsCreator && (
+                        <View style={{backgroundColor: '#1C2333', borderRadius: 14, padding: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', alignItems: 'center', gap: 8}}>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.3)', textAlign: 'center'}}>AI Trainer is disabled for this bot.</Text>
+                        </View>
+                      )}
+
+                      {/* Manual retrain — creator only */}
+                      {tIsCreator && effectiveMode !== 'off' && (
+                        <TouchableOpacity
+                          style={{
+                            backgroundColor: 'rgba(139,92,246,0.1)', borderRadius: 14,
+                            paddingVertical: 15, alignItems: 'center',
+                            borderWidth: 1, borderColor: 'rgba(139,92,246,0.3)',
+                            flexDirection: 'row', justifyContent: 'center', gap: 8,
+                            opacity: (retraining || tCfg.trainerStatus === 'retraining') ? 0.5 : 1,
+                          }}
+                          activeOpacity={0.8}
+                          disabled={retraining || tCfg.trainerStatus === 'retraining'}
+                          onPress={async () => {
+                            setRetraining(true);
+                            try {
+                              const res: any = await botsService.triggerRetrain(bot!.id);
+                              showToast('success', res?.data?.message ?? 'Trainer running…');
+                              const tr: any = await botsService.getTrainerStatus(bot!.id);
+                              if (tr?.data) setTrainerStatus(tr.data);
+                            } catch { showToast('error', 'Retrain failed — AI credits needed'); }
+                            finally { setRetraining(false); }
+                          }}>
+                          {retraining
+                            ? <ActivityIndicator size="small" color="#8B5CF6" />
+                            : (
+                              <>
+                                <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+                                  <Path d="M9.5 2a2.5 2.5 0 01.5 5v1h4V7a2.5 2.5 0 11.5-5M9.5 2A2.5 2.5 0 007 4.5c0 .94.52 1.76 1.28 2.19M9.5 2h5m0 0A2.5 2.5 0 0117 4.5c0 .94-.52 1.76-1.28 2.19M14 7h-4m0 0v1m4-1v1M7 12a5 5 0 005 5v2M7 12a5 5 0 010-4.36M7 12H5m12-4.36A5 5 0 0117 12m0 0h2m-2 0a5 5 0 01-5 5v2m0 0H9m3 0h3" stroke="#8B5CF6" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round"/>
+                                </Svg>
+                                <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: '#8B5CF6'}}>Train Now</Text>
+                              </>
+                            )
+                          }
+                        </TouchableOpacity>
+                      )}
+                    </>
+                  );
+                })()}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
+
       {/* ─── Bot Settings Modal (gear icon) ──────────────────────────── */}
       <Modal
         visible={settingsModalVisible}
@@ -1942,21 +2251,6 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                       </View>
                     </View>
                   )}
-
-                  {/* Trading section card */}
-                  <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', overflow: 'hidden'}}>
-                    {/* Min Order Value */}
-                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14}}>
-                      <View style={{flex: 1}}>
-                        <Text style={modalStyles.label}>MIN ORDER VALUE</Text>
-                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Skip trades below this virtual $ amount</Text>
-                      </View>
-                      <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.06)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
-                        <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={shadowUserConfig.minOrderValue} onChangeText={v => setShadowUserConfig(c => ({...c, minOrderValue: v}))} placeholder="10" placeholderTextColor="rgba(255,255,255,0.3)" />
-                      </View>
-                    </View>
-                  </View>
 
                   {/* Notifications card */}
                   <View style={{backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)', paddingHorizontal: 16, paddingVertical: 14}}>
@@ -2381,22 +2675,6 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 />
               </View>
 
-              {/* Min order value — no enforced floor. The trading engine will
-                  silently skip individual trades that don't clear the actual
-                  exchange minimum, which is a separate concern. */}
-              <Text style={modalStyles.label}>MIN ORDER VALUE (PER TRADE)</Text>
-              <View style={modalStyles.balanceRow}>
-                <Text style={modalStyles.dollarSign}>$</Text>
-                <TextInput
-                  style={modalStyles.balanceInput}
-                  value={shadowMinOrder}
-                  onChangeText={setShadowMinOrder}
-                  keyboardType="decimal-pad"
-                />
-              </View>
-              <Text style={modalStyles.bodyHint}>
-                Trades below this value are skipped. Any positive amount is allowed.
-              </Text>
             </ScrollView>
 
             {/* Sticky footer — sits OUTSIDE the ScrollView so the keyboard can

@@ -239,10 +239,27 @@ export async function runTrainerAgent(botId: string): Promise<{
     .orderBy(desc(botDecisions.createdAt))
     .limit(50);
 
+  const config = ((bot.trainerConfig as any) ?? {}) as any;
+  const previousActions = (config.insights ?? [])
+    .filter((i: any) => i.type === 'retrain' || i.type === 'improvement')
+    .slice(0, 5)
+    .map((i: any) => `[${new Date(i.ts).toLocaleDateString()}] ${i.message}`)
+    .join('\n');
+
+  // Read current market context (set by auto-trainer check cycle)
+  let marketContext = '';
+  try {
+    marketContext = (await redisConnection.get(`trainer:market-context:${bot.id}`)) ?? '';
+  } catch {}
+
   // Build comprehensive analysis prompt
   const analysisPrompt = `
 Bot: "${bot.name}" | Strategy: ${bot.strategy} | Risk: ${bot.riskLevel}
 Current Prompt: ${bot.prompt ?? 'None'}
+
+TRAINER HISTORY (last 5 actions — build on what worked, avoid repeating failures):
+${previousActions || 'No previous trainer actions — this is the first analysis.'}
+${marketContext ? `\nCURRENT MARKET CONTEXT: ${marketContext}` : ''}
 
 PERFORMANCE METRICS (${perf.totalTrades} total trades):
 - Win Rate: ${perf.winRate.toFixed(1)}% (recent 10: ${perf.recentWinRate.toFixed(1)}%)
@@ -275,13 +292,47 @@ Generate an improved strategy that addresses the performance issues above.`;
     if (!jm) throw new Error('No JSON in trainer response');
 
     const result = JSON.parse(jm[0]);
+    // Calculate real confidence from verifiable data signals — do not use LLM's self-reported score
+    let realConfidence = 40; // base
+
+    // +20 if we have enough trades for a statistically meaningful sample
+    if (perf.totalTrades >= 20) realConfidence += 20;
+    else if (perf.totalTrades >= 10) realConfidence += 10;
+
+    // +15 if profit factor is above breakeven (strategy makes more than it loses)
+    if (perf.profitFactor >= 1.2) realConfidence += 15;
+    else if (perf.profitFactor >= 1.0) realConfidence += 5;
+
+    // +15 if win rate is respectable
+    if (perf.winRate >= 55) realConfidence += 15;
+    else if (perf.winRate >= 50) realConfidence += 8;
+
+    // +10 if the new config has a better R:R ratio than current (TP/SL > current ratio)
+    const newSL = result.configChanges?.stopLoss ?? (bot.config as any)?.stopLoss ?? 3;
+    const newTP = result.configChanges?.takeProfit ?? (bot.config as any)?.takeProfit ?? 6;
+    const currentSL = (bot.config as any)?.stopLoss ?? 3;
+    const currentTP = (bot.config as any)?.takeProfit ?? 6;
+    if (newTP / newSL > currentTP / currentSL) realConfidence += 10;
+
+    // -20 if we have very few trades (not enough signal)
+    if (perf.totalTrades < 10) realConfidence -= 20;
+
+    // -15 if drawdown is severe — risky to auto-promote in a drawdown
+    if (perf.maxDrawdown > 20) realConfidence -= 15;
+    else if (perf.maxDrawdown > 10) realConfidence -= 5;
+
+    // -10 if this is the first trainer run (no baseline to compare)
+    if (!config.lastRetrainAt) realConfidence -= 10;
+
+    realConfidence = Math.max(0, Math.min(100, realConfidence));
+
     return {
       improvedPrompt: result.improvedPrompt ?? bot.prompt ?? '',
       configChanges: result.configChanges ?? {},
       insights: result.keyInsights ?? [],
       diagnosis: result.diagnosis ?? '',
       expectedImpact: result.expectedImpact ?? '',
-      confidence: Math.min(100, Math.max(0, result.confidence ?? 70)),
+      confidence: realConfidence,
     };
   } catch (err) {
     console.error('[Trainer] Agent failed:', (err as Error).message);
@@ -304,11 +355,13 @@ export async function getTrainerStatus(botId: string, callerId?: string): Promis
   const fullConfig = ((bot?.trainerConfig as any) ?? DEFAULT_TRAINER_CONFIG) as TrainerConfig;
 
   // Non-creators see public trainer data only — no pending strategy (that's IP)
-  const config: TrainerConfig = isCreator ? fullConfig : {
-    ...fullConfig,
-    pendingPrompt: null,   // hide pending strategy from subscribers
-    pendingConfig: null,
-  };
+  let config: TrainerConfig;
+  if (isCreator) {
+    config = fullConfig;
+  } else {
+    const { pendingPrompt: _pp, pendingConfig: _pc, ...publicConfig } = fullConfig as any;
+    config = publicConfig as TrainerConfig;
+  }
 
   const performance = await analyzeBotPerformance(botId);
 
@@ -417,13 +470,18 @@ export async function triggerRetrain(botId: string, userId: string): Promise<{
     updatedAt: new Date(),
   }).where(eq(bots.id, botId));
 
-  // Queue for shadow validation via Redis
+  // Queue for shadow validation — stores candidate config with validation deadline
+  const shadowValidationHours = currentConfig.shadowValidationHours ?? 24;
+  const validationDeadline = new Date(Date.now() + shadowValidationHours * 3600 * 1000).toISOString();
   try {
     await redisConnection.set(`trainer:pending:${botId}`, JSON.stringify({
       prompt: trainerResult.improvedPrompt,
       config: trainerResult.configChanges,
       startedAt: new Date().toISOString(),
-    }), 'EX', 86400 * 3); // 3-day TTL
+      validationDeadlineAt: validationDeadline,
+      baselineWinRate: (await analyzeBotPerformance(botId)).winRate,
+      baselinePF: (await analyzeBotPerformance(botId)).profitFactor,
+    }), 'EX', shadowValidationHours * 3600 + 3600); // TTL = validation window + 1hr buffer
   } catch {}
 
   return {
@@ -436,7 +494,7 @@ export async function triggerRetrain(botId: string, userId: string): Promise<{
 // ─── Promote Pending Trainer Changes ─────────────────────────────────────────
 // Called by user to promote validated pending prompt/config to live
 
-export async function promotePendingChanges(botId: string, userId: string): Promise<{ success: boolean; message: string }> {
+export async function promotePendingChanges(botId: string, userId: string): Promise<{ success: boolean; message: string; newPrompt?: string }> {
   const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1);
   if (!bot) return { success: false, message: 'Bot not found' };
   if (bot.creatorId !== userId) return { success: false, message: 'Not authorized' };
@@ -445,6 +503,8 @@ export async function promotePendingChanges(botId: string, userId: string): Prom
   if (!config.pendingPrompt && !config.pendingConfig) {
     return { success: false, message: 'No pending trainer changes to promote' };
   }
+
+  const promotedPrompt = config.pendingPrompt;
 
   // Apply improved prompt to bot
   const updates: Partial<typeof bots.$inferInsert> = { updatedAt: new Date() };
@@ -481,13 +541,24 @@ export async function promotePendingChanges(botId: string, userId: string): Prom
     } as any,
   }).where(eq(bots.id, botId));
 
-  // Invalidate rules cache so engine re-generates with new prompt
+  // Apply trainer config changes directly into rules cache so the very next engine
+  // cycle (30s away) uses improved stopLoss/takeProfit/aiMode without waiting for
+  // another LLM generateRules call. Falls back to plain invalidation if cache is empty.
   try {
-    const { invalidateRulesCache } = await import('../../lib/bot-engine.js');
-    invalidateRulesCache(botId);
+    const { applyTrainerConfigToRulesCache, invalidateRulesCache } = await import('../../lib/bot-engine.js');
+    if (config.pendingConfig && Object.keys(config.pendingConfig).length > 0) {
+      applyTrainerConfigToRulesCache(botId, config.pendingConfig);
+    } else {
+      // No structured config changes — just invalidate so engine re-generates from new prompt
+      invalidateRulesCache(botId);
+    }
   } catch { /* Non-fatal if engine isn't loaded yet */ }
 
-  return { success: true, message: 'Trainer improvements applied to live bot. Rules cache invalidated.' };
+  return {
+    success: true,
+    message: 'Trainer improvements applied to live bot. Rules cache updated immediately.',
+    newPrompt: promotedPrompt ?? undefined,
+  };
 }
 
 // ─── Automated Monitoring Check ───────────────────────────────────────────────
@@ -511,6 +582,25 @@ export async function runAutoTrainerCheck(botId: string): Promise<void> {
   if (config.trainerStatus === 'retraining' || config.trainerStatus === 'shadow_validating') return;
 
   const perf = await analyzeBotPerformance(botId);
+
+  // Fetch current market regime from Redis (populated by price-sync job)
+  let marketContext = '';
+  try {
+    const btcRaw = await redisConnection.get('price:BTC:USDT');
+    if (btcRaw) {
+      const btcData = JSON.parse(btcRaw);
+      const btcChange = btcData.change24h ?? 0;
+      const btcVol = btcData.high24h > 0 ? ((btcData.high24h - btcData.low24h) / btcData.low24h) * 100 : 0;
+      const regimeLabel = btcChange < -5 ? 'CRASH' : btcChange < -2 ? 'BEARISH' : btcChange > 5 ? 'BULLISH_SURGE' : btcChange > 2 ? 'BULLISH' : 'NEUTRAL';
+      marketContext = `BTC regime: ${regimeLabel} (${btcChange.toFixed(1)}% 24h, range ${btcVol.toFixed(1)}%)`;
+    }
+  } catch {}
+
+  // Store market context in Redis so runTrainerAgent can include it
+  if (marketContext) {
+    await redisConnection.set(`trainer:market-context:${botId}`, marketContext, 'EX', 3600).catch(() => {});
+  }
+
   const currentInsights = config.insights ?? [];
   let shouldFire = false;
   let fireReason = '';
@@ -548,7 +638,7 @@ export async function runAutoTrainerCheck(botId: string): Promise<void> {
   const monitoringInsight: TrainerInsight = {
     ts: new Date().toISOString(),
     type: perf.trainerScore >= 70 ? 'info' : perf.trainerScore >= 50 ? 'warning' : 'retrain',
-    message: `[${mode.toUpperCase()}] Health ${perf.trainerScore}/100. WR: ${perf.winRate.toFixed(0)}%, PF: ${perf.profitFactor.toFixed(2)}, DD: ${perf.maxDrawdown.toFixed(1)}%${shouldFire ? ` — ${fireReason}` : ''}`,
+    message: `[${mode.toUpperCase()}] Health ${perf.trainerScore}/100. WR: ${perf.winRate.toFixed(0)}%, PF: ${perf.profitFactor.toFixed(2)}, DD: ${perf.maxDrawdown.toFixed(1)}%${marketContext ? ` | ${marketContext}` : ''}${shouldFire ? ` — ${fireReason}` : ''}`,
   };
 
   await db.update(bots).set({

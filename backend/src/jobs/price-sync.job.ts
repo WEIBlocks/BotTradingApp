@@ -470,10 +470,84 @@ function isMarketOpenByTime(): boolean {
   return currentMinutes >= openMinutes && currentMinutes < closeMinutes;
 }
 
+// ─── OHLCV Candle History ────────────────────────────────────────────────────
+// Fetches real 1-hour candles from KuCoin (100 candles = ~4 days of hourly data).
+// Stored as a JSON array in Redis: history:closes:SYMBOL — used by bot-engine to
+// seed its price buffer with real data instead of flat-padded current price.
+// TTL: 2 hours (refreshed each price-sync cycle for base symbols).
+
+const OHLCV_HISTORY_KEY = (symbol: string) => `history:closes:${symbol.replace('/', ':')}`;
+const OHLCV_CANDLES = 100;
+const OHLCV_TTL = 7200; // 2 hours
+
+async function fetchAndStoreOHLCV(symbol: string): Promise<void> {
+  try {
+    // KuCoin symbol format: BTC-USDT not BTC/USDT
+    const kcSym = symbol.replace('/', '-');
+    // type=1hour: 1-hour candles. Returns array of [timestamp, open, close, high, low, volume]
+    const url = `https://api.kucoin.com/api/v1/market/candles?type=1hour&symbol=${kcSym}&pageSize=${OHLCV_CANDLES}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return;
+    const json: any = await res.json();
+    const candles: any[] = json?.data;
+    if (!Array.isArray(candles) || candles.length < 10) return;
+
+    // KuCoin returns newest first — reverse so oldest→newest for indicator math
+    const closes = candles
+      .map((c: any) => parseFloat(c[2])) // index 2 = close price
+      .filter((p: number) => p > 0)
+      .reverse();
+
+    if (closes.length < 10) return;
+
+    await redisConnection.set(OHLCV_HISTORY_KEY(symbol), JSON.stringify(closes), 'EX', OHLCV_TTL);
+  } catch {
+    // Non-fatal — bot-engine falls back to price-tick buffer
+  }
+}
+
+/**
+ * Returns real historical close prices for a symbol (up to `count` values),
+ * newest-last (oldest→newest order for indicator computation).
+ * Called by bot-engine's seedPriceHistoryFromReal().
+ */
+export async function getPriceHistory(symbol: string, count = 100): Promise<number[] | null> {
+  try {
+    const raw = await redisConnection.get(OHLCV_HISTORY_KEY(symbol));
+    if (!raw) return null;
+    const closes: number[] = JSON.parse(raw);
+    if (!Array.isArray(closes) || closes.length < 5) return null;
+    return closes.slice(-count);
+  } catch {
+    return null;
+  }
+}
+
+// Refresh OHLCV history for base crypto symbols every 5 price-sync cycles (~2.5 min).
+// We don't fetch every 30s (overkill for hourly candles) but keep it fresh.
+let ohlcvSyncCounter = 0;
+async function maybeRefreshOHLCV() {
+  ohlcvSyncCounter++;
+  if (ohlcvSyncCounter % 5 !== 0) return; // every ~2.5 minutes
+  for (const sym of BASE_CRYPTO_SYMBOLS) {
+    await fetchAndStoreOHLCV(sym);
+  }
+}
+
 export async function startPriceSyncJob() {
   console.log(`[PriceSync] Alpaca key: ${env.ALPACA_API_KEY ? env.ALPACA_API_KEY.slice(0, 6) + '...' : 'NOT SET'}`);
   console.log(`[PriceSync] Alpaca secret: ${env.ALPACA_API_SECRET ? '***configured***' : 'NOT SET'}`);
+
+  // Seed OHLCV history immediately on startup so first bot cycle has real data
+  for (const sym of BASE_CRYPTO_SYMBOLS) {
+    await fetchAndStoreOHLCV(sym);
+  }
+  console.log('[PriceSync] OHLCV history seeded for base symbols');
+
   await processPriceSync();
-  setInterval(processPriceSync, 30_000);
-  console.log('[PriceSync] Job started - runs every 30s (crypto + stocks)');
+  setInterval(async () => {
+    await processPriceSync();
+    await maybeRefreshOHLCV();
+  }, 30_000);
+  console.log('[PriceSync] Job started - runs every 30s (crypto + stocks), OHLCV refresh every ~2.5min');
 }

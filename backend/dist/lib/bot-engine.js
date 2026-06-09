@@ -44,7 +44,8 @@ const aiCallCount = new Map();
 const holdCountCache = new Map();
 const MAX_PRICE_HISTORY = 100;
 const RULES_TTL_MS = 30 * 60 * 1000;
-// max AI calls per bot per hour — configurable via AI_RATE_LIMIT_PER_HOUR env var
+// Max AI calls per botId:symbol per hour — each symbol gets its own bucket so a
+// bot trading 5 pairs gets AI_RATE_LIMIT calls per pair, not AI_RATE_LIMIT total.
 const AI_RATE_LIMIT = env.AI_RATE_LIMIT_PER_HOUR;
 function addPrice(key, price) {
     if (!priceHistoryBuffer.has(key))
@@ -94,11 +95,13 @@ function seedPriceHistory(key, currentPrice, count = 30) {
     priceHistoryBuffer.set(key, prices);
     return prices;
 }
-function checkAIRateLimit(botId) {
+// bucketKey = botId:symbol so each symbol gets its own AI call budget per hour
+function checkAIRateLimit(botId, symbol) {
+    const bucketKey = symbol ? `${botId}:${symbol}` : botId;
     const now = Date.now();
-    const entry = aiCallCount.get(botId);
+    const entry = aiCallCount.get(bucketKey);
     if (!entry || now - entry.windowStart > 3600_000) {
-        aiCallCount.set(botId, { count: 1, windowStart: now });
+        aiCallCount.set(bucketKey, { count: 1, windowStart: now });
         return true;
     }
     if (entry.count >= AI_RATE_LIMIT)
@@ -483,9 +486,13 @@ LEARNING:
 
 Return ONLY valid JSON: {"action":"BUY"|"SELL"|"HOLD","confidence":0-100,"sizePercent":1-100,"reasoning":"Short explanation"}`;
 async function getAIDecision(symbol, snap, botPrompt, strategy, riskLevel, hasPosition, positionPnlPct, triggerReasons, trainingContext, recentDecisions) {
+    const regimeInfo = snap.regime
+        ? `Market: ${snap.regime.trend.toUpperCase()} trend, ${snap.regime.volatility} volatility, ADX-proxy ${snap.regime.adxProxy.toFixed(0)}, ATR ${snap.regime.atrProxy?.toFixed(3) ?? 'N/A'}%/hr`
+        : '';
     const prompt = `Bot Profile: ${strategy || 'Balanced'} strategy with ${riskLevel} risk level.
 ${symbol} @ $${snap.currentPrice.toFixed(2)} | RSI: ${snap.rsi?.toFixed(1) ?? 'N/A'} | EMA20: ${snap.ema20?.toFixed(2) ?? 'N/A'} | MACD: ${snap.macd?.histogram.toFixed(4) ?? 'N/A'}
 BB: ${snap.bollingerBands ? `${snap.bollingerBands.lower.toFixed(2)}-${snap.bollingerBands.upper.toFixed(2)}` : 'N/A'} | 24h: $${snap.high24h.toFixed(2)}/$${snap.low24h.toFixed(2)}
+${regimeInfo}
 Position: ${hasPosition ? `LONG P&L:${positionPnlPct?.toFixed(2)}%` : 'None'} | Trigger: ${triggerReasons.join('; ')}
 Instructions: ${botPrompt || 'Standard approach'}
 ${trainingContext ? `Knowledge: ${trainingContext.slice(0, 500)}` : ''}
@@ -553,14 +560,20 @@ export async function processSymbol(opts) {
                 return pauseDecision;
             }
         }
-        // 2. Seed price history on first run so indicators work immediately
+        // 2. Seed price history — use real OHLCV candles on first run (async).
+        // seedPriceHistoryFromReal() reads the Redis history:closes:SYMBOL key populated
+        // by price-sync's fetchAndStoreOHLCV(), giving 100 real hourly closes immediately.
         if (!priceHistoryBuffer.has(cacheKey) || priceHistoryBuffer.get(cacheKey).length < 20) {
-            seedPriceHistory(cacheKey, priceData.price, 30);
+            await seedPriceHistoryFromReal(cacheKey, symbol, priceData.price, 100);
         }
         const prices = addPrice(cacheKey, priceData.price);
         const snap = computeIndicators(prices, priceData.price, priceData.high24h, priceData.low24h, priceData.volume);
         const prevSnap = indicatorCache.get(cacheKey) ?? null;
         indicatorCache.set(cacheKey, snap);
+        // 2b. Market regime detection + circuit breaker
+        const { detectMarketRegime } = await import('./indicators.js');
+        const regime = detectMarketRegime(prices, priceData.price, priceData.high24h, priceData.low24h, priceData.change24h ?? 0);
+        snap.regime = regime;
         // 3. Get or generate rules
         const rulesCacheKey = `rules:${botId}`;
         let cachedRules = rulesCache.get(rulesCacheKey);
@@ -598,6 +611,17 @@ export async function processSymbol(opts) {
         const positionPnlPct = existingPos
             ? ((priceData.price - parseFloat(existingPos.entryPrice)) / parseFloat(existingPos.entryPrice)) * 100
             : null;
+        // Dynamic ATR-based stop-loss: overrides fixed % when ATR data is available
+        // Uses 1.5× ATR as stop (professional standard) and 3× ATR as take-profit (2:1 R:R)
+        if (regime.atrProxy !== null && regime.atrProxy > 0 && !existingPos) {
+            const atrStopPct = Math.max(regime.atrProxy * 1.5, 0.5); // min 0.5%
+            const atrTpPct = Math.max(regime.atrProxy * 3.0, 1.0); // min 1.0%
+            // Only apply if ATR-based stop is tighter than the configured stop (more protective)
+            if (atrStopPct < rules.stopLossPercent) {
+                rules.stopLossPercent = Math.round(atrStopPct * 10) / 10;
+                rules.takeProfitPercent = Math.round(atrTpPct * 10) / 10;
+            }
+        }
         // 5. Stop-loss / Take-profit (safety net — always fires regardless of aiMode)
         // In full_ai mode, only hard stop-loss fires as emergency protection.
         // Take-profit is left to AI so it can ride winners longer when confident.
@@ -685,6 +709,17 @@ export async function processSymbol(opts) {
                 console.warn('[BotEngine] Trailing stop Redis error:', err.message);
             }
         }
+        // 5c. Regime circuit breaker — block new BUY entries in crash/extreme-volatility conditions
+        if (regime.blockEntry && !existingPos) {
+            const regimeDecision = {
+                action: 'HOLD', confidence: 80,
+                reasoning: `Entry blocked: ${regime.blockReason}`,
+                indicators: formatIndicators(snap), aiCalled: false, tokensCost: 0,
+                price: priceData.price, symbol,
+            };
+            await logDecision(regimeDecision, opts);
+            return regimeDecision;
+        }
         // 6. Check cooldown (full_ai bypasses cooldown — AI controls its own pacing via confidence)
         const lastDec = lastDecisionCache.get(cacheKey);
         if (!isFullAI && lastDec && lastDec.action !== 'HOLD' && Date.now() - lastDec.time < rules.cooldownMinutes * 60000) {
@@ -713,7 +748,7 @@ export async function processSymbol(opts) {
         // holdCount tracking
         const currentHolds = holdCountCache.get(cacheKey) ?? 0;
         const maxHolds = opts.maxHoldsBeforeAI;
-        const forcedByHoldCount = maxHolds !== undefined && currentHolds >= maxHolds && !effectiveRuleOnly && checkAIRateLimit(botId);
+        const forcedByHoldCount = maxHolds !== undefined && currentHolds >= maxHolds && !effectiveRuleOnly && checkAIRateLimit(botId, symbol);
         if (forcedByHoldCount) {
             triggerCheck.reasons.push(`Forced AI after ${currentHolds} consecutive HOLDs`);
         }
@@ -751,10 +786,10 @@ export async function processSymbol(opts) {
         // hybrid: call AI when triggers fire, rules partially match, or forced by hold count.
         // rules_only: never call AI.
         const shouldCallAI = effectiveFullAI
-            ? checkAIRateLimit(botId) // full_ai: always, just rate-limited
+            ? checkAIRateLimit(botId, symbol) // full_ai: always, just rate-limited
             : (!effectiveRuleOnly
                 && (forcedByHoldCount || (triggerCheck.triggered && (entryResult.score > minScore || exitResult.score > minScore)))
-                && checkAIRateLimit(botId));
+                && checkAIRateLimit(botId, symbol));
         if (shouldCallAI) {
             // AI call (only for non-DCA/Grid strategies, rate limited)
             let trainingContext = '';
@@ -1029,15 +1064,6 @@ export async function executeLiveTrade(decision, userId, botId, subscriptionId, 
             tradeValue = amount * decision.price;
             console.log(`[BotEngine] SELL ${decision.symbol}: liveBalance=${amount} ${base}, value=$${tradeValue.toFixed(2)}`);
         }
-        // Minimum order size check
-        const subMinOrder = parseFloat(sub?.minOrderValue ?? '0');
-        const MIN_ORDER_VALUE = subMinOrder > 0
-            ? subMinOrder
-            : isStock ? (env.MIN_STOCK_ORDER_USD ?? 1) : (env.MIN_CRYPTO_ORDER_USD ?? 10);
-        if (tradeValue < MIN_ORDER_VALUE) {
-            await adapter.disconnect();
-            return { success: false, error: `Trade value $${tradeValue.toFixed(2)} below min $${MIN_ORDER_VALUE} for ${decision.symbol}` };
-        }
         if (amount <= 0) {
             await adapter.disconnect();
             return { success: false, error: `Insufficient balance for ${decision.symbol}` };
@@ -1107,6 +1133,36 @@ export async function executeLiveTrade(decision, userId, botId, subscriptionId, 
 // ─── Public API ─────────────────────────────────────────────────────────────
 export function invalidateRulesCache(botId) {
     rulesCache.delete(`rules:${botId}`);
+}
+/**
+ * Called by trainer's promotePendingChanges() after applying an improved strategy.
+ * Instead of just deleting the cache (forcing a new LLM generateRules call next cycle),
+ * we merge the trainer's config changes directly into the cached rules immediately.
+ * This means the very next trade cycle (30s away) uses the improved parameters
+ * without waiting for another AI call to regenerate rules.
+ *
+ * configChanges matches trainer's pendingConfig shape:
+ *   { stopLoss?, takeProfit?, aiMode?, tradingFrequency?, maxPositionPct? }
+ */
+export function applyTrainerConfigToRulesCache(botId, configChanges) {
+    const key = `rules:${botId}`;
+    const cached = rulesCache.get(key);
+    if (!cached)
+        return; // cache already empty — next cycle will regenerate fresh
+    const updated = { ...cached.rules };
+    if (configChanges.stopLoss != null)
+        updated.stopLossPercent = Number(configChanges.stopLoss);
+    if (configChanges.takeProfit != null)
+        updated.takeProfitPercent = Number(configChanges.takeProfit);
+    if (configChanges.maxPositionPct != null)
+        updated.maxPositionPercent = Number(configChanges.maxPositionPct);
+    // Tighter cooldown for aggressive mode, wider for conservative
+    if (configChanges.tradingFrequency != null) {
+        const freqMap = { conservative: 60, balanced: 30, aggressive: 10, max: 5 };
+        updated.cooldownMinutes = freqMap[configChanges.tradingFrequency] ?? updated.cooldownMinutes;
+    }
+    // Reset generatedAt so the merged rules stay valid for the next full TTL window
+    rulesCache.set(key, { rules: updated, generatedAt: Date.now() });
 }
 // ─── Cross-Session Learning Summary ─────────────────────────────────────────
 export async function summarizeSessionLearnings(botId) {

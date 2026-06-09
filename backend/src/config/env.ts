@@ -99,8 +99,9 @@ const envSchema = z.object({
   MIN_STOCK_ORDER_USD: z.coerce.number().default(1),
   // Limit order slippage buffer in percent (e.g. 0.1 = 0.1%)
   LIMIT_ORDER_SLIPPAGE_PCT: z.coerce.number().default(0.1),
-  // Max AI calls per bot per hour before falling back to rule-based engine
-  AI_RATE_LIMIT_PER_HOUR: z.coerce.number().default(30),
+  // Max AI calls per bot PER SYMBOL per hour before falling back to rule-based engine.
+  // Rate-limited per botId:symbol so a bot trading 5 symbols gets 120 calls each, not 120 shared.
+  AI_RATE_LIMIT_PER_HOUR: z.coerce.number().default(120),
 });
 
 const parsed = envSchema.safeParse(process.env);

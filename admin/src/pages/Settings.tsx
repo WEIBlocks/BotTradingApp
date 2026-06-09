@@ -1,19 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Settings2, RefreshCw, Activity, Lock, Mail, Brain, Eye, EyeOff, CheckCircle, Zap, AlertTriangle } from 'lucide-react';
+import { Settings2, RefreshCw, Activity, Lock, Mail, Brain, Eye, EyeOff, CheckCircle } from 'lucide-react';
 import { adminService, type SystemSettings, type SystemHealth, type AiConfig } from '../services/admin';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
-
-interface TrainerBotStatus {
-  botId: string;
-  botName: string;
-  trainerScore: number | null;
-  trainerStatus: string;
-  lastRetrainAt: string | null;
-  totalTrades: number;
-  winRate: number;
-  needsAttention: boolean;
-}
 
 function Toggle({
   checked,
@@ -139,25 +128,6 @@ export default function Settings() {
       setAiSaving(false);
     }
   };
-
-  // Trainer overview state
-  const [trainerBots, setTrainerBots] = useState<TrainerBotStatus[]>([]);
-  const [trainerLoading, setTrainerLoading] = useState(false);
-  const [retrainingBotId, setRetrainingBotId] = useState<string | null>(null);
-
-  const loadTrainerStatuses = useCallback(async () => {
-    setTrainerLoading(true);
-    try {
-      const res = await api.get('/admin/trainer/statuses');
-      setTrainerBots((res.data as any)?.data ?? []);
-    } catch {
-      // trainer endpoint may not exist yet — silently ignore
-    } finally {
-      setTrainerLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadTrainerStatuses(); }, [loadTrainerStatuses]);
 
   // Account state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -793,56 +763,6 @@ export default function Settings() {
             </div>
           </div>
         ) : null}
-      </div>
-      {/* ── AI Trainer Overview ── */}
-      <div className="bg-[#161B22] border border-white/[0.06] rounded-2xl p-6">
-        <div className="flex items-center justify-between mb-5">
-          <div className="flex items-center gap-2">
-            <Zap size={16} className="text-violet-400" />
-            <h2 className="text-lg font-semibold text-white">AI Trainer Overview</h2>
-          </div>
-          <button onClick={loadTrainerStatuses} disabled={trainerLoading} className="text-white/40 hover:text-white/70 transition-colors">
-            <RefreshCw size={15} className={trainerLoading ? 'animate-spin' : ''} />
-          </button>
-        </div>
-
-        {trainerLoading ? (
-          <p className="text-white/40 text-sm">Loading trainer statuses…</p>
-        ) : trainerBots.length === 0 ? (
-          <p className="text-white/30 text-sm">No approved bots found — trainer activates after bots are approved.</p>
-        ) : (
-          <div className="space-y-2">
-            {trainerBots.map((b: TrainerBotStatus) => {
-              const scoreColor = (b.trainerScore ?? 0) >= 70 ? 'text-emerald-400' : (b.trainerScore ?? 0) >= 50 ? 'text-yellow-400' : 'text-red-400';
-              const statusBadge = b.trainerStatus === 'retraining' ? 'bg-yellow-500/15 text-yellow-400' :
-                b.trainerStatus === 'shadow_validating' ? 'bg-blue-500/15 text-blue-400' :
-                b.trainerStatus === 'monitoring' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-white/5 text-white/40';
-              return (
-                <div key={b.botId} className={`flex items-center gap-4 p-3 rounded-xl border ${b.needsAttention ? 'border-red-500/20 bg-red-500/5' : 'border-white/[0.05] bg-white/[0.02]'}`}>
-                  {b.needsAttention && <AlertTriangle size={14} className="text-red-400 shrink-0" />}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-medium truncate">{b.botName}</p>
-                    <p className="text-white/30 text-xs mt-0.5">{b.totalTrades} trades · WR {b.winRate.toFixed(0)}%{b.lastRetrainAt ? ` · retrained ${new Date(b.lastRetrainAt).toLocaleDateString()}` : ''}</p>
-                  </div>
-                  <span className={`text-xs font-semibold px-2 py-1 rounded-lg ${statusBadge}`}>{b.trainerStatus}</span>
-                  <span className={`text-sm font-bold w-12 text-right ${scoreColor}`}>{b.trainerScore ?? '—'}/100</span>
-                  <button
-                    disabled={!!retrainingBotId || b.trainerStatus === 'retraining'}
-                    onClick={async () => {
-                      setRetrainingBotId(b.botId);
-                      try { await api.post(`/bots/${b.botId}/trainer/retrain`, {}); await loadTrainerStatuses(); }
-                      catch { /* ignore */ }
-                      finally { setRetrainingBotId(null); }
-                    }}
-                    className="text-xs text-violet-400 border border-violet-400/30 rounded-lg px-3 py-1.5 hover:bg-violet-400/10 transition-colors disabled:opacity-40 shrink-0"
-                  >
-                    {retrainingBotId === b.botId ? '…' : 'Retrain'}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
       </div>
     </div>
   );

@@ -105,7 +105,6 @@ export const shadowModeBodySchema = z.object({
     durationMinutes: z.number().int().positive().optional(),
     enableRiskLimits: z.boolean().optional(),
     enableRealisticFees: z.boolean().optional(),
-    minOrderValue: z.number().positive().optional(),
     compounding: shadowCompoundingSchema.optional(),
 }).refine(data => (data.durationDays && data.durationDays > 0) || (data.durationMinutes && data.durationMinutes > 0), {
     message: 'Either durationDays or durationMinutes must be provided',
@@ -143,7 +142,6 @@ export const updateShadowUserConfigBodySchema = z.object({
     autoStopDays: z.number().int().min(1).optional(),
     autoStopLossPercent: z.number().min(0).max(100).optional(),
     autoStopBalance: z.number().min(0).optional(),
-    minOrderValue: z.number().min(0).optional(),
     compounding: shadowCompoundingSchema.optional(),
 });
 export const trainerConfigBodySchema = z.object({

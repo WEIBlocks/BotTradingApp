@@ -332,11 +332,6 @@ export async function startShadowMode(userId, botId, config) {
     }
     // Store durationDays — for minute-based durations store 1 as minimum display value
     const storedDays = durationDays > 0 ? durationDays : Math.max(1, Math.ceil(durationMinutes / 1440));
-    // No floor on user input — pass minOrderValue through verbatim. The bot
-    // engine will silently skip individual trades whose calculated size falls
-    // below the exchange's accepted minimum (separate concern, see bot-engine).
-    // We default to 10 only when the user didn't supply a value at all.
-    const resolvedMinOrder = config.minOrderValue && config.minOrderValue > 0 ? config.minOrderValue : 10;
     // Seed userConfig with pre-run compounding settings if the user configured them
     const initialUserConfig = config.compounding ? { compounding: config.compounding } : undefined;
     // Create shadow session
@@ -352,7 +347,6 @@ export async function startShadowMode(userId, botId, config) {
         status: 'running',
         enableRiskLimits: config.enableRiskLimits ?? true,
         enableRealisticFees: config.enableRealisticFees ?? true,
-        minOrderValue: String(resolvedMinOrder),
         ...(initialUserConfig ? { userConfig: initialUserConfig } : {}),
     })
         .returning();
@@ -1038,7 +1032,6 @@ export async function getShadowSessionConfig(userId, sessionId) {
     return {
         sessionId: session.id,
         userConfig: session.userConfig ?? {},
-        minOrderValue: session.minOrderValue,
         virtualBalance: session.virtualBalance,
         enableRiskLimits: session.enableRiskLimits,
         enableRealisticFees: session.enableRealisticFees,
@@ -1051,19 +1044,13 @@ export async function updateShadowSessionConfig(userId, sessionId, data) {
         throw new NotFoundError('Shadow session');
     const existing = session.userConfig ?? {};
     const merged = { ...existing, ...data };
-    // minOrderValue is a real column — update it directly if provided
-    const updatePayload = { userConfig: merged };
-    if (data.minOrderValue !== undefined) {
-        updatePayload.minOrderValue = String(data.minOrderValue);
-    }
     const [updated] = await db.update(shadowSessions)
-        .set(updatePayload)
+        .set({ userConfig: merged })
         .where(eq(shadowSessions.id, sessionId))
         .returning();
     return {
         sessionId: updated.id,
         userConfig: updated.userConfig ?? {},
-        minOrderValue: updated.minOrderValue,
     };
 }
 export async function updateUserConfig(userId, subscriptionId, data) {

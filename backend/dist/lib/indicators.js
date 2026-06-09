@@ -105,6 +105,54 @@ export function atr(highs, lows, closes, period = 14) {
     }
     return atrVal;
 }
+export function detectMarketRegime(prices, currentPrice, high24h, low24h, change24h) {
+    const ema20Val = ema(prices, 20);
+    const ema50Val = ema(prices, 50);
+    // ATR proxy: (24h range / price) / 24 = per-hour volatility %
+    const atrProxy = high24h > 0 && low24h > 0
+        ? ((high24h - low24h) / currentPrice) * 100 / 24
+        : null;
+    // ADX proxy using EMA spread
+    let adxProxy = 0;
+    if (ema20Val && ema50Val && ema50Val > 0) {
+        adxProxy = Math.min(100, Math.abs((ema20Val - ema50Val) / ema50Val) * 5000);
+    }
+    // Trend direction
+    let trend = 'ranging';
+    if (ema20Val && ema50Val) {
+        if (ema20Val > ema50Val * 1.002 && currentPrice > ema20Val)
+            trend = 'up';
+        else if (ema20Val < ema50Val * 0.998 && currentPrice < ema20Val)
+            trend = 'down';
+    }
+    // Volatility level based on ATR proxy
+    let volatility = 'normal';
+    if (atrProxy !== null) {
+        if (atrProxy > 0.5)
+            volatility = 'high';
+        else if (atrProxy < 0.1)
+            volatility = 'low';
+    }
+    // Circuit breaker: block ALL new entries in these conditions
+    let blockEntry = false;
+    let blockReason = '';
+    // Crash detection: >5% drop in 24h AND current near low
+    if (change24h < -5 && high24h > 0 && (currentPrice - low24h) / (high24h - low24h + 0.0001) < 0.25) {
+        blockEntry = true;
+        blockReason = `Crash protection: ${change24h.toFixed(1)}% drop, price near 24h low`;
+    }
+    // Extreme volatility: ATR > 0.6% per hour is too noisy for reliable signals
+    if (atrProxy !== null && atrProxy > 0.6 && !blockEntry) {
+        blockEntry = true;
+        blockReason = `High volatility circuit breaker: ATR ${atrProxy.toFixed(2)}%/hr`;
+    }
+    // Extreme 24h move either direction (> 12%) — chase risk
+    if (Math.abs(change24h) > 12 && !blockEntry) {
+        blockEntry = true;
+        blockReason = `Extreme 24h move: ${change24h.toFixed(1)}% — chase risk`;
+    }
+    return { trend, volatility, adxProxy, atrProxy, blockEntry, blockReason };
+}
 // ─── Compute Full Snapshot ──────────────────────────────────────────────────
 export function computeIndicators(prices, currentPrice, high24h, low24h, volume, prevVolume) {
     return {
@@ -114,6 +162,10 @@ export function computeIndicators(prices, currentPrice, high24h, low24h, volume,
         macd: macd(prices),
         bollingerBands: bollingerBands(prices),
         atr: null, // ATR needs OHLC data; use when available
+        atrProxy: high24h > 0 && low24h > 0
+            ? ((high24h - low24h) / currentPrice) * 100 / 24
+            : null,
+        regime: null, // populated by caller after detectMarketRegime
         priceChangePercent: prices.length >= 2
             ? ((currentPrice - prices[prices.length - 2]) / prices[prices.length - 2]) * 100
             : null,
