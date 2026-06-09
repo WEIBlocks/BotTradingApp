@@ -6,6 +6,7 @@ import { activityLog } from '../db/schema/training.js';
 import { botDecisions } from '../db/schema/decisions.js';
 import { getPrice, isUSMarketOpen } from './price-sync.job.js';
 import { processSymbol } from '../lib/bot-engine.js';
+import { sendNotification } from '../lib/notify.js';
 
 interface BotConfig {
   pairs?: string[];
@@ -64,7 +65,8 @@ async function processShadowTrades() {
 
         const config = (bot.config ?? {}) as BotConfig;
 
-        // Fetch subscriber overrides
+        // Build effective userConfig: session-level settings override subscription defaults.
+        // Shadow users who never subscribed (no sub row) still get their shadow settings.
         const [subRow] = await db
           .select({ userConfig: botSubscriptions.userConfig })
           .from(botSubscriptions)
@@ -73,7 +75,13 @@ async function processShadowTrades() {
             eq(botSubscriptions.botId, session.botId!),
           ))
           .limit(1);
-        const userConfig = (subRow?.userConfig ?? {}) as UserConfig;
+        const subConfig = (subRow?.userConfig ?? {}) as UserConfig;
+        const sessionConfig = (session.userConfig as UserConfig | null) ?? {};
+        // Session-level keys win — shadow settings modal writes here
+        const userConfig: UserConfig = { ...subConfig, ...sessionConfig };
+
+        // minOrderValue from session column (set at session creation + updatable via settings)
+        const minOrderValue = session.minOrderValue ? parseFloat(session.minOrderValue) : 10;
 
         const isStockBot = bot.category === 'Stocks';
         const defaultPairs = isStockBot ? ['AAPL'] : ['BTC/USDT', 'ETH/USDT'];
@@ -198,9 +206,16 @@ async function processShadowTrades() {
           // Skip if engine didn't produce a valid trade (e.g. price data missing)
           if (!tradeAmount || !tradeValue || tradeAmount <= 0 || tradeValue <= 0) continue;
 
+          // Skip BUY trades below user's minOrderValue threshold (don't skip SELLs — closing is always valid)
+          if (decision.action === 'BUY' && tradeValue < minOrderValue) {
+            console.log(`[ShadowTrade] Skipping BUY ${pair} — tradeValue $${tradeValue.toFixed(2)} < minOrderValue $${minOrderValue}`);
+            continue;
+          }
+
           const fee = tradeValue * feeRate;
           let pnl: number | null = null;
           let pnlPercent: number | null = null;
+          let isWin = false;
 
           if (decision.action === 'SELL') {
             // decision.pnl is from closePosition() — already fee-inclusive via feeRate param
@@ -208,7 +223,7 @@ async function processShadowTrades() {
             pnlPercent = decision.pnlPercent ?? null;
             if (pnl !== null) {
               balanceDelta += pnl;
-              if (pnl > 0) newWins++;
+              if (pnl > 0) { newWins++; isWin = true; }
             }
           } else {
             // BUY: no realised PnL, deduct fee from virtual balance only
@@ -233,6 +248,27 @@ async function processShadowTrades() {
           });
 
           newTrades++;
+
+          // Shadow trade notification — respect user's notificationLevel setting
+          const notifLevel = userConfig.notificationLevel ?? 'all';
+          const isSell = decision.action === 'SELL';
+          const shouldNotify =
+            notifLevel === 'all' ||
+            (notifLevel === 'wins_only' && isSell && isWin) ||
+            (notifLevel === 'losses_only' && isSell && !isWin && pnl !== null) ||
+            notifLevel === 'summary'; // summary: suppressed here, sent as daily digest elsewhere
+
+          if (shouldNotify && notifLevel !== 'summary') {
+            const priceDisplay = priceData.price >= 1000
+              ? `$${priceData.price.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+              : `$${priceData.price.toFixed(2)}`;
+            const pnlStr = pnl !== null ? ` (${pnl >= 0 ? '+' : ''}$${pnl.toFixed(2)})` : '';
+            await sendNotification(session.userId, {
+              type: 'trade',
+              title: `Shadow ${decision.action} ${pair} @ ${priceDisplay}${pnlStr}`,
+              body: `${bot.name}: ${decision.reasoning}`,
+            }).catch(() => {});
+          }
         }
 
         // Update session balance — cap to prevent DB numeric overflow

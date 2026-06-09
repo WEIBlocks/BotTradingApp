@@ -361,14 +361,31 @@ async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
             if (result.success) {
               console.log(`[LiveTrade] Order filled: ${result.orderId}`);
               refreshUserPortfolio(subscription.userId).catch(() => {});
-              const priceDisplay = decision.price >= 1000
-                ? `$${decision.price.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
-                : `$${decision.price.toFixed(2)}`;
-              await sendNotification(subscription.userId, {
-                type: 'trade',
-                title: `${decision.action} ${pair} @ ${priceDisplay}`,
-                body: `${bot.name}: ${decision.reasoning}`,
-              }).catch(() => {});
+
+              // Respect user's notificationLevel — default 'all'
+              const notifLevel = userConfig.notificationLevel ?? 'all';
+              const isSell = decision.action === 'SELL';
+              // decision.pnl is set by the engine for SELL decisions (closePosition result)
+              const decisionPnl = decision.pnl ?? null;
+              const tradeIsWin = isSell && decisionPnl !== null && decisionPnl > 0;
+              const tradeIsLoss = isSell && decisionPnl !== null && decisionPnl < 0;
+              const shouldNotify =
+                notifLevel === 'all' ||
+                (notifLevel === 'wins_only' && tradeIsWin) ||
+                (notifLevel === 'losses_only' && tradeIsLoss) ||
+                notifLevel === 'summary'; // summary: suppressed per-trade, sent as daily digest elsewhere
+
+              if (shouldNotify && notifLevel !== 'summary') {
+                const priceDisplay = decision.price >= 1000
+                  ? `$${decision.price.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+                  : `$${decision.price.toFixed(2)}`;
+                const pnlStr = decisionPnl !== null ? ` (${decisionPnl >= 0 ? '+' : ''}$${decisionPnl.toFixed(2)})` : '';
+                await sendNotification(subscription.userId, {
+                  type: 'trade',
+                  title: `${decision.action} ${pair} @ ${priceDisplay}${pnlStr}`,
+                  body: `${bot.name}: ${decision.reasoning}`,
+                }).catch(() => {});
+              }
             } else {
               // Persistent failure — notify only, do NOT insert a trade record (keeps stats clean)
               console.error(`[LiveTrade] Order failed after retry: ${result.error}`);
