@@ -45,6 +45,8 @@ import {
   getPublicLiveStats,
   getShadowSessionLiveStats,
   getMyLiveStats,
+  getShadowSessionConfig,
+  updateShadowSessionConfig,
 } from './bots.service.js';
 import {
   botIdParamsSchema,
@@ -57,6 +59,7 @@ import {
   paperTradingSetupBodySchema,
   dataResponseSchema,
   updateUserConfigBodySchema,
+  updateShadowUserConfigBodySchema,
   subscriptionIdParamsSchema,
   trainerConfigBodySchema,
   compoundingBodySchema,
@@ -505,6 +508,33 @@ export async function botsRoutes(app: FastifyInstance) {
   }, async (request, reply) => {
     const { id } = request.params;
     const result = await getShadowSessionLiveStats(request.user.userId, id);
+    return { data: result };
+  });
+
+  // GET /shadow-sessions/:id/config - Get shadow session user config
+  zApp.get('/shadow-sessions/:id/config', {
+    schema: {
+      params: botIdParamsSchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await getShadowSessionConfig(request.user.userId, id);
+    return { data: result };
+  });
+
+  // PATCH /shadow-sessions/:id/user-config - Update shadow session user config
+  zApp.patch('/shadow-sessions/:id/user-config', {
+    schema: {
+      params: botIdParamsSchema,
+      body: updateShadowUserConfigBodySchema,
+      response: { 200: dataResponseSchema },
+      security: [{ bearerAuth: [] }],
+    },
+  }, async (request, reply) => {
+    const { id } = request.params;
+    const result = await updateShadowSessionConfig(request.user.userId, id, request.body as Record<string, any>);
     return { data: result };
   });
 

@@ -1,4 +1,4 @@
-import {
+﻿import {
   pgTable,
   pgEnum,
   uuid,
@@ -10,8 +10,8 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users.js";
-import { bots, botSubscriptions } from "./bots.js";
+import { users } from "./users";
+import { bots, botSubscriptions } from "./bots";
 
 export const positionSideEnum = pgEnum("position_side", ["long", "short"]);
 export const positionStatusEnum = pgEnum("position_status", [
@@ -62,3 +62,4 @@ export const botPositions = pgTable(
     botSymbolIdx: index("positions_bot_symbol_idx").on(t.botId, t.symbol, t.status),
   })
 );
+

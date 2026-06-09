@@ -1,4 +1,4 @@
-import {
+﻿import {
   pgTable,
   pgEnum,
   uuid,
@@ -10,7 +10,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users.js";
+import { users } from "./users";
 
 export const notificationTypeEnum = pgEnum("notification_type", [
   "trade",
@@ -63,3 +63,4 @@ export const notificationSettings = pgTable("notification_settings", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+

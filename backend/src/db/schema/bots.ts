@@ -1,4 +1,4 @@
-import {
+﻿import {
   pgTable,
   pgEnum,
   uuid,
@@ -13,7 +13,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users.js";
+import { users } from "./users";
 
 export const botCategoryEnum = pgEnum("bot_category", [
   "Crypto",
@@ -107,7 +107,7 @@ export const botVersions = pgTable("bot_versions", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
-// ─── Trainer config stored on each bot (creator-level settings) ────────────
+// â”€â”€â”€ Trainer config stored on each bot (creator-level settings) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // trainerConfig JSONB shape:
 // {
 //   autoRetrain: boolean,
@@ -224,6 +224,7 @@ export const shadowSessions = pgTable(
     enableRiskLimits: boolean("enable_risk_limits").default(true),
     enableRealisticFees: boolean("enable_realistic_fees").default(true),
     minOrderValue: numeric("min_order_value", { precision: 10, scale: 2 }).default("10"),
+    userConfig: jsonb("user_config"),
     dailyPerformance: jsonb("daily_performance"),
     totalTrades: integer("total_trades").default(0),
     winCount: integer("win_count").default(0),
@@ -288,7 +289,7 @@ export const reviews = pgTable(
   })
 );
 
-// User favorites — many-to-many between users and bots. (userId, botId) is
+// User favorites â€” many-to-many between users and bots. (userId, botId) is
 // unique so the toggle endpoint can rely on insert-or-noop / delete semantics
 // and the "is this bot favorited" lookup is cheap.
 export const botFavorites = pgTable(
@@ -305,3 +306,4 @@ export const botFavorites = pgTable(
     botIdIdx: index("bot_favorites_bot_id_idx").on(t.botId),
   })
 );
+

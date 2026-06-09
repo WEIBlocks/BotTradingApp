@@ -1,4 +1,4 @@
-import {
+﻿import {
   pgTable,
   pgEnum,
   uuid,
@@ -10,8 +10,8 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users.js";
-import { botSubscriptions, shadowSessions } from "./bots.js";
+import { users } from "./users";
+import { botSubscriptions, shadowSessions } from "./bots";
 
 export const tradeSideEnum = pgEnum("trade_side", ["BUY", "SELL"]);
 
@@ -64,3 +64,4 @@ export const trades = pgTable(
     ),
   })
 );
+

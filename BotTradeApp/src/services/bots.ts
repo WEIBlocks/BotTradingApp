@@ -255,6 +255,22 @@ export const botsService = {
     return api.get<{data: any}>(`/bots/shadow-sessions/${sessionId}/live-stats`);
   },
 
+  /** Get shadow session user config */
+  getShadowSessionConfig(sessionId: string) {
+    return api.get<{data: any}>(`/bots/shadow-sessions/${sessionId}/config`);
+  },
+
+  /** Update shadow session user config (notificationLevel, autoStopDays, autoStopLossPercent, autoStopBalance, minOrderValue) */
+  updateShadowSessionConfig(sessionId: string, config: {
+    notificationLevel?: 'all' | 'wins_only' | 'losses_only' | 'summary';
+    autoStopDays?: number;
+    autoStopLossPercent?: number;
+    autoStopBalance?: number;
+    minOrderValue?: number;
+  }) {
+    return api.patch<{data: any}>(`/bots/shadow-sessions/${sessionId}/user-config`, config as Record<string, unknown>);
+  },
+
   // ─── Compounding ──────────────────────────────────────────────────────────
 
   /** Get compounding settings for a subscription */

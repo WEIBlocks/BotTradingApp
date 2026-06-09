@@ -1,4 +1,4 @@
-import {
+﻿import {
   pgTable,
   pgEnum,
   uuid,
@@ -11,7 +11,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users.js";
+import { users } from "./users";
 
 export const exchangeMethodEnum = pgEnum("exchange_method", [
   "oauth",
@@ -79,7 +79,7 @@ export const exchangeAssets = pgTable("exchange_assets", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
-// Portfolio snapshots for equity history chart — daily and hourly granularity
+// Portfolio snapshots for equity history chart â€” daily and hourly granularity
 export const portfolioSnapshots = pgTable(
   "portfolio_snapshots",
   {
@@ -101,3 +101,4 @@ export const portfolioSnapshots = pgTable(
     userGranularityIdx: index("portfolio_snapshots_user_gran_idx").on(t.userId, t.granularity),
   })
 );
+

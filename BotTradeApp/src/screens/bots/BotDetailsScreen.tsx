@@ -1,5 +1,5 @@
-import React, {useCallback, useState} from 'react';
-import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, Dimensions, ActivityIndicator, RefreshControl, Modal, TextInput, KeyboardAvoidingView, Platform} from 'react-native';
+import React, {useCallback, useState, useTransition} from 'react';
+import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, Dimensions, ActivityIndicator, Animated, RefreshControl, Modal, TextInput, KeyboardAvoidingView, Platform, InteractionManager} from 'react-native';
 import {NativeStackScreenProps} from '@react-navigation/native-stack';
 import {useFocusEffect} from '@react-navigation/native';
 import Svg, {Circle as SvgCircle, Path} from 'react-native-svg';
@@ -26,6 +26,31 @@ import {useMarketKline, type ExchangeId, CRYPTO_INTERVALS, STOCK_INTERVALS, DEFA
 
 const {width} = Dimensions.get('window');
 const CHART_W = width - 40;
+
+// Module-level cache — survives navigation, cleared after 30s TTL
+const _cache: Map<string, {data: any; ts: number}> = new Map();
+const CACHE_TTL = 30_000;
+function cacheGet(key: string): any | null {
+  const entry = _cache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL) { _cache.delete(key); return null; }
+  return entry.data;
+}
+function cacheSet(key: string, data: any) { _cache.set(key, {data, ts: Date.now()}); }
+
+const SkeletonBlock = React.memo(({width: w, height: h, borderRadius: br = 6, style: s}: {width?: number | string; height: number; borderRadius?: number; style?: any}) => {
+  const shimmer = React.useRef(new Animated.Value(0)).current;
+  React.useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(shimmer, {toValue: 1, duration: 900, useNativeDriver: true}),
+      Animated.timing(shimmer, {toValue: 0, duration: 900, useNativeDriver: true}),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [shimmer]);
+  const opacity = shimmer.interpolate({inputRange: [0, 1], outputRange: [0.06, 0.14]});
+  return <Animated.View style={[{height: h, borderRadius: br, backgroundColor: '#FFFFFF', opacity}, w !== undefined ? {width: w as any} : {flex: 1}, s]} />;
+});
 
 // Format position size: stocks show integer or 4dp shares, crypto shows up to 6dp
 function formatAmount(amount: number | null | undefined, symbol: string): string {
@@ -64,6 +89,17 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   // attempts to update unmounted state, which Hermes (release/TestFlight
   // builds) can promote from a warning to a hard crash.
   const mountedRef = React.useRef(true);
+  const hasFetchedRef = React.useRef(false);
+  const pagerRef = React.useRef<ScrollView>(null);
+  const livePulse = React.useRef(new Animated.Value(1)).current;
+  React.useEffect(() => {
+    const loop = Animated.loop(Animated.sequence([
+      Animated.timing(livePulse, {toValue: 0.35, duration: 700, useNativeDriver: true}),
+      Animated.timing(livePulse, {toValue: 1, duration: 700, useNativeDriver: true}),
+    ]));
+    loop.start();
+    return () => loop.stop();
+  }, [livePulse]);
   React.useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
@@ -85,12 +121,13 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const [virtualBalance, setVirtualBalance] = useState('10000');
   const [shadowMinOrder, setShadowMinOrder] = useState('10');
 
-  // Stats tabs: 'live' = public live, 'my' = personal (shadow or live), shown when user has any active relationship
   const [activeStatsTab, setActiveStatsTab] = useState<'live' | 'my'>('live');
+  const [, startTabTransition] = useTransition();
   const [publicLiveStats, setPublicLiveStats] = useState<any>(null);
   const [shadowSessionStats, setShadowSessionStats] = useState<any>(null);
   const [myLiveStats, setMyLiveStats] = useState<any>(null);
-  const [statsTabLoading, setStatsTabLoading] = useState(false);
+  const [liveStatsLoading, setLiveStatsLoading] = useState(false);
+  const [myStatsLoading, setMyStatsLoading] = useState(false);
 
   // Subscriber customization
   const [subUserConfig, setSubUserConfig] = useState<{
@@ -105,6 +142,13 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const [savingConfig, setSavingConfig] = useState(false);
   const [configPanelExpanded, setConfigPanelExpanded] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [shadowUserConfig, setShadowUserConfig] = useState<{
+    notificationLevel: string;
+    autoStopDays: string;
+    autoStopLossPercent: string;
+    autoStopBalance: string;
+    minOrderValue: string;
+  }>({notificationLevel: 'all', autoStopDays: '', autoStopLossPercent: '', autoStopBalance: '', minOrderValue: '10'});
   const [strategyExpanded, setStrategyExpanded] = useState(false);
 
   // Compounding settings (per subscription)
@@ -151,11 +195,65 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   ];
 
   const fetchData = useCallback(async () => {
+    const botId = route.params.botId;
+    const isRefresh = refreshing;
+
+    // ── Cache hit: restore instantly, skip skeleton on revisit ──────────────
+    if (!isRefresh) {
+      const cached = cacheGet(`bot:${botId}`);
+      if (cached) {
+        setBot(cached.bot);
+        setPublicLiveStats(cached.publicLiveStats);
+        setUserBotState(cached.userBotState);
+        if (cached.shadowSessionStats) setShadowSessionStats(cached.shadowSessionStats);
+        if (cached.myLiveStats) setMyLiveStats(cached.myLiveStats);
+        if (cached.trainerStatus) setTrainerStatus(cached.trainerStatus);
+        const pairs = cached.bot?.config?.pairs ?? ['BTC/USDT'];
+        if (pairs.length > 0 && !selectedPair) {
+          setSelectedPair(pairs[0]);
+          setChartTF(cached.bot?.category === 'Stocks' ? DEFAULT_STOCK_TF : DEFAULT_CRYPTO_TF);
+          fetchTradeMarkers(pairs[0]);
+        }
+        setLoading(false);
+        return; // cached data shown instantly — background refresh handled by pull-to-refresh
+      }
+    }
+
     try {
-      // Fetch bot details first — sets chart pair immediately without waiting for other calls
-      const botData = await marketplaceApi.getBotDetails(route.params.botId).catch(() => null);
+      // ── Fix #1: fire ALL requests simultaneously ─────────────────────────
+      const [botData, activeBots, shadowSessions, decisionsData] = await Promise.all([
+        marketplaceApi.getBotDetails(botId).catch(() => null),
+        botsService.getActive().then((res: any) => {
+          const items = Array.isArray(res?.data) ? res.data : Array.isArray(res?.subscriptions) ? res.subscriptions : [];
+          return items;
+        }).catch(() => []),
+        botsService.getShadowSessions().then((res: any) => {
+          return Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+        }).catch(() => []),
+        botsService.getDecisions(botId, 100).then((res: any) => {
+          return Array.isArray(res?.data) ? res.data : [];
+        }).catch(() => []),
+      ]);
+
+      if (!mountedRef.current) return;
+
+      // ── Fix #4: single setBot with equity data merged in one pass ────────
       if (botData) {
-        setBot(botData);
+        if (decisionsData.length > 0) {
+          const equityPoints = decisionsData
+            .filter((d: any) => d.price)
+            .reverse()
+            .map((d: any) => ({
+              time: new Date(d.createdAt).getTime(),
+              open: parseFloat(d.price),
+              high: parseFloat(d.price) * 1.002,
+              low: parseFloat(d.price) * 0.998,
+              close: parseFloat(d.price),
+              volume: d.action !== 'HOLD' ? 1000 : 100,
+            }));
+          if (equityPoints.length > 2) botData.equityData = equityPoints;
+        }
+        setBot(botData); // single render
         const pairs = botData.config?.pairs ?? ['BTC/USDT'];
         if (pairs.length > 0 && !selectedPair) {
           setSelectedPair(pairs[0]);
@@ -164,56 +262,79 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         }
       }
 
-      // Now fetch the rest in parallel (non-blocking for chart)
-      const [activeBots, shadowSessions, decisionsData] = await Promise.all([
-        botsService.getActive().then((res: any) => {
-          const items = Array.isArray(res?.data) ? res.data : Array.isArray(res?.subscriptions) ? res.subscriptions : [];
-          return items;
-        }).catch(() => []),
-        botsService.getShadowSessions().then((res: any) => {
-          return Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
-        }).catch(() => []),
-        botsService.getDecisions(route.params.botId, 100).then((res: any) => {
-          return Array.isArray(res?.data) ? res.data : [];
-        }).catch(() => []),
-      ]);
+      // ── Resolve user state ───────────────────────────────────────────────
+      const sub = activeBots.find((s: any) => s.botId === botId);
+      const shadowRunning  = shadowSessions.find((s: any) => s.botId === botId && s.status === 'running');
+      const shadowCompleted = shadowSessions.find((s: any) => s.botId === botId && s.status === 'completed');
+      const shadowPaused   = shadowSessions.find((s: any) => s.botId === botId && s.status === 'paused');
 
-      // Build real equity data from decisions if available
-      if (botData && decisionsData.length > 0) {
-        const equityPoints = decisionsData
-          .filter((d: any) => d.price)
-          .reverse()
-          .map((d: any) => ({
-            time: new Date(d.createdAt).getTime(),
-            open: parseFloat(d.price),
-            high: parseFloat(d.price) * 1.002,
-            low: parseFloat(d.price) * 0.998,
-            close: parseFloat(d.price),
-            volume: d.action !== 'HOLD' ? 1000 : 100,
-          }));
-        if (equityPoints.length > 2) {
-          botData.equityData = equityPoints;
-          setBot({...botData}); // re-set with equity data added
+      let resolvedState: UserBotState = {status: 'none'};
+      if (sub && (sub.subscriptionStatus === 'active' || sub.status === 'active')) {
+        resolvedState = {status: 'active', subscriptionId: sub.subscriptionId || sub.id, mode: sub.subscriptionMode || sub.mode};
+      } else if (sub && (sub.subscriptionStatus === 'paused' || sub.status === 'paused')) {
+        resolvedState = {status: 'paused', subscriptionId: sub.subscriptionId || sub.id};
+      } else if ((sub && (sub.subscriptionStatus === 'shadow' || sub.status === 'shadow')) || shadowRunning || shadowCompleted || shadowPaused) {
+        if (shadowRunning) {
+          resolvedState = {status: 'shadow_running', subscriptionId: sub?.subscriptionId || sub?.id, shadowSessionId: shadowRunning.id};
+        } else if (shadowPaused) {
+          resolvedState = {status: 'shadow_paused', subscriptionId: sub?.subscriptionId || sub?.id, shadowSessionId: shadowPaused.id};
+        } else if (shadowCompleted) {
+          resolvedState = {status: 'shadow_completed', subscriptionId: sub?.subscriptionId || sub?.id, shadowSessionId: shadowCompleted.id};
+        } else {
+          resolvedState = {status: 'shadow_running', subscriptionId: sub?.subscriptionId || sub?.id};
         }
+      } else if (sub && (sub.subscriptionStatus === 'stopped' || sub.status === 'stopped')) {
+        resolvedState = {status: 'stopped', subscriptionId: sub.subscriptionId || sub.id};
+      }
+      setUserBotState(resolvedState);
+
+      const isActiveLive = sub && (sub.subscriptionStatus === 'active' || sub.status === 'active') && (sub.subscriptionMode === 'live' || sub.mode === 'live');
+      const shadowId = shadowRunning?.id ?? shadowPaused?.id ?? shadowCompleted?.id;
+
+      // ── Fix #2: independent loading flags per section ────────────────────
+      // Public live stats (Live tab — traders card + equity chart)
+      setLiveStatsLoading(true);
+      botsService.getPublicLiveStats(botId)
+        .then((res: any) => {
+          if (!mountedRef.current) return;
+          const d = res?.data ?? null;
+          setPublicLiveStats(d);
+          const cached = cacheGet(`bot:${botId}`);
+          if (cached) cacheSet(`bot:${botId}`, {...cached, publicLiveStats: d});
+        })
+        .catch(() => {})
+        .finally(() => { if (mountedRef.current) setLiveStatsLoading(false); });
+
+      // My stats (My tab only)
+      if (isActiveLive) {
+        setMyStatsLoading(true);
+        botsService.getMyLiveStats(botId)
+          .then((res: any) => { if (mountedRef.current) setMyLiveStats(res?.data ?? null); })
+          .catch(() => {})
+          .finally(() => { if (mountedRef.current) setMyStatsLoading(false); });
+      }
+      if (shadowId) {
+        setMyStatsLoading(true);
+        botsService.getShadowSessionLiveStats(shadowId)
+          .then((res: any) => { if (mountedRef.current) setShadowSessionStats(res?.data ?? null); })
+          .catch(() => {})
+          .finally(() => { if (mountedRef.current) setMyStatsLoading(false); });
+        // Load shadow session user config
+        botsService.getShadowSessionConfig(shadowId).then((res: any) => {
+          if (!mountedRef.current) return;
+          const cfg = res?.data?.userConfig ?? {};
+          const minOrd = res?.data?.minOrderValue;
+          setShadowUserConfig({
+            notificationLevel: cfg.notificationLevel ?? 'all',
+            autoStopDays: cfg.autoStopDays !== undefined ? String(cfg.autoStopDays) : '',
+            autoStopLossPercent: cfg.autoStopLossPercent !== undefined ? String(cfg.autoStopLossPercent) : '',
+            autoStopBalance: cfg.autoStopBalance !== undefined ? String(cfg.autoStopBalance) : '',
+            minOrderValue: minOrd !== undefined ? String(parseFloat(minOrd)) : '10',
+          });
+        }).catch(() => {});
       }
 
-      // Determine user's relationship with this bot
-      const botId = route.params.botId;
-
-      // Check active subscription
-      const sub = activeBots.find((s: any) => s.botId === botId);
-      // Check shadow sessions — find the most relevant one
-      const shadowRunning = shadowSessions.find(
-        (s: any) => s.botId === botId && s.status === 'running',
-      );
-      const shadowCompleted = shadowSessions.find(
-        (s: any) => s.botId === botId && s.status === 'completed',
-      );
-      const shadowPaused = shadowSessions.find(
-        (s: any) => s.botId === botId && s.status === 'paused',
-      );
-
-      // Load subscriber userConfig if they have a subscription
+      // Subscriber config + compounding (fire-and-forget, no spinner needed)
       if (sub) {
         const subId = sub.subscriptionId || sub.id;
         botsService.getSubscription(subId).then((res: any) => {
@@ -228,7 +349,6 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             compoundProfits: uc.compoundProfits ?? false,
             notificationLevel: uc.notificationLevel ?? 'all',
           });
-          // Also load compounding settings for this subscription
           botsService.getCompounding(subId).then((cr: any) => {
             if (!mountedRef.current) return;
             if (cr?.data?.compounding) setCompounding(cr.data.compounding);
@@ -236,61 +356,30 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         }).catch(() => {});
       }
 
-      // Load trainer status (visible to creator + all subscribers)
+      // Trainer (fire-and-forget)
       botsService.getTrainerStatus(botId).then((tr: any) => {
         if (!mountedRef.current) return;
         if (tr?.data) setTrainerStatus(tr.data);
       }).catch(() => {});
 
-      if (sub && (sub.subscriptionStatus === 'active' || sub.status === 'active')) {
-        setUserBotState({status: 'active', subscriptionId: sub.subscriptionId || sub.id, mode: sub.subscriptionMode || sub.mode});
-      } else if (sub && (sub.subscriptionStatus === 'paused' || sub.status === 'paused')) {
-        setUserBotState({status: 'paused', subscriptionId: sub.subscriptionId || sub.id});
-      } else if (sub && (sub.subscriptionStatus === 'shadow' || sub.status === 'shadow') || shadowRunning || shadowCompleted || shadowPaused) {
-        // Determine shadow sub-status
-        if (shadowRunning) {
-          setUserBotState({status: 'shadow_running', subscriptionId: sub?.subscriptionId || sub?.id, shadowSessionId: shadowRunning.id});
-        } else if (shadowPaused) {
-          setUserBotState({status: 'shadow_paused', subscriptionId: sub?.subscriptionId || sub?.id, shadowSessionId: shadowPaused.id});
-        } else if (shadowCompleted) {
-          setUserBotState({status: 'shadow_completed', subscriptionId: sub?.subscriptionId || sub?.id, shadowSessionId: shadowCompleted.id});
-        } else {
-          setUserBotState({status: 'shadow_running', subscriptionId: sub?.subscriptionId || sub?.id});
-        }
-      } else if (sub && (sub.subscriptionStatus === 'stopped' || sub.status === 'stopped')) {
-        setUserBotState({status: 'stopped', subscriptionId: sub.subscriptionId || sub.id});
-      } else {
-        setUserBotState({status: 'none'});
-      }
-      // Always fetch public live stats for LIVE tab (includes equity curve + recent trades)
-      setStatsTabLoading(true);
-      botsService.getPublicLiveStats(route.params.botId)
-        .then((res: any) => { if (mountedRef.current) setPublicLiveStats(res?.data ?? null); })
-        .catch(() => {})
-        .finally(() => { if (mountedRef.current) setStatsTabLoading(false); });
+      // ── Fix #3: write cache after primary data is ready ──────────────────
+      // Store what we have now; secondary calls (.then) update state directly
+      cacheSet(`bot:${botId}`, {
+        bot: botData,
+        publicLiveStats: null, // updated by the .then above
+        userBotState: resolvedState,
+        shadowSessionStats: null,
+        myLiveStats: null,
+        trainerStatus: null,
+      });
 
-      // Determine who the current user is relative to this bot
-      const isActiveLive = sub && (sub.subscriptionStatus === 'active' || sub.status === 'active') && (sub.subscriptionMode === 'live' || sub.mode === 'live');
-      const shadowId = shadowRunning?.id ?? shadowPaused?.id ?? shadowCompleted?.id;
-
-      // Fetch user's personal live stats if running live
-      if (isActiveLive) {
-        botsService.getMyLiveStats(route.params.botId)
-          .then((res: any) => { if (mountedRef.current) setMyLiveStats(res?.data ?? null); })
-          .catch(() => {});
-      }
-
-      // Fetch shadow session stats if user has a shadow session
-      if (shadowId) {
-        botsService.getShadowSessionLiveStats(shadowId)
-          .then((res: any) => { if (mountedRef.current) setShadowSessionStats(res?.data ?? null); })
-          .catch(() => {});
-      }
     } catch {
-      // Bot details fetch failed
+      // silently ignore — skeleton stays until setLoading(false)
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (mountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [route.params.botId]);
 
@@ -315,8 +404,10 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   }, []);
 
   useFocusEffect(useCallback(() => {
-    fetchData();
-    // No more setInterval — live data comes from WebSocket hooks
+    if (!hasFetchedRef.current) {
+      hasFetchedRef.current = true;
+      fetchData();
+    }
     return () => {};
   }, [fetchData]));
 
@@ -549,12 +640,69 @@ export default function BotDetailsScreen({navigation, route}: Props) {
     }
   }, [userBotState.subscriptionId, subUserConfig]);
 
+  const handleSaveShadowConfig = useCallback(async () => {
+    const sessionId = userBotState.shadowSessionId;
+    if (!sessionId) return;
+    setSavingConfig(true);
+    try {
+      await botsService.updateShadowSessionConfig(sessionId, {
+        notificationLevel: shadowUserConfig.notificationLevel as any,
+        autoStopDays: shadowUserConfig.autoStopDays ? parseInt(shadowUserConfig.autoStopDays, 10) : undefined,
+        autoStopLossPercent: shadowUserConfig.autoStopLossPercent ? parseFloat(shadowUserConfig.autoStopLossPercent) : undefined,
+        autoStopBalance: shadowUserConfig.autoStopBalance ? parseFloat(shadowUserConfig.autoStopBalance) : undefined,
+        minOrderValue: shadowUserConfig.minOrderValue ? parseFloat(shadowUserConfig.minOrderValue) : undefined,
+      });
+      showAlert('Settings Saved', 'Shadow session preferences updated.');
+    } catch {
+      showAlert('Error', 'Failed to save shadow settings.');
+    } finally {
+      setSavingConfig(false);
+    }
+  }, [userBotState.shadowSessionId, shadowUserConfig]);
+
   // ─── Render ──────────────────────────────────────────────────────────────
+
+  const statCells = React.useMemo(() => {
+    if (!bot) return [];
+    return [
+      {label: '30D RETURN', value: `${bot.returnPercent >= 0 ? '+' : ''}${bot.returnPercent.toFixed(1)}%`, color: bot.returnPercent >= 0 ? '#10B981' : '#EF4444'},
+      {label: 'WIN RATE', value: `${bot.winRate}%`, color: '#0D7FF2'},
+      {label: 'MAX DRAWDOWN', value: `${bot.maxDrawdown.toFixed(1)}%`, color: '#EF4444'},
+      {label: 'SHARPE RATIO', value: `${bot.sharpeRatio.toFixed(2)}`, color: '#10B981'},
+    ];
+  }, [bot?.returnPercent, bot?.winRate, bot?.maxDrawdown, bot?.sharpeRatio]);
 
   if (loading) {
     return (
-      <View style={[styles.container, {alignItems: 'center', justifyContent: 'center'}]}>
-        <ActivityIndicator size="large" color="#10B981" />
+      <View style={styles.container}>
+        <View style={[styles.header, {justifyContent: 'space-between'}]}>
+          <SkeletonBlock width={36} height={36} borderRadius={10} />
+          <SkeletonBlock width={80} height={16} />
+          <SkeletonBlock width={36} height={36} borderRadius={10} />
+        </View>
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          <View style={{flexDirection: 'row', gap: 12, marginBottom: 16}}>
+            <SkeletonBlock width={52} height={52} borderRadius={14} />
+            <View style={{flex: 1, gap: 8}}>
+              <SkeletonBlock width={80} height={10} />
+              <SkeletonBlock width={160} height={16} />
+              <View style={{flexDirection: 'row', gap: 6}}>
+                <SkeletonBlock width={60} height={22} borderRadius={5} />
+                <SkeletonBlock width={50} height={22} borderRadius={5} />
+                <SkeletonBlock width={55} height={22} borderRadius={5} />
+              </View>
+            </View>
+          </View>
+          <View style={{flexDirection: 'row', gap: 6, marginBottom: 14}}>
+            <SkeletonBlock height={62} borderRadius={12} />
+            <SkeletonBlock height={62} borderRadius={12} />
+            <SkeletonBlock height={62} borderRadius={12} />
+            <SkeletonBlock height={62} borderRadius={12} />
+          </View>
+          <SkeletonBlock height={160} borderRadius={14} style={{marginBottom: 12}} />
+          <SkeletonBlock height={260} borderRadius={14} style={{marginBottom: 12}} />
+          <SkeletonBlock height={140} borderRadius={14} style={{marginBottom: 12}} />
+        </ScrollView>
       </View>
     );
   }
@@ -572,13 +720,6 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
   const isCreator = !!user && !!bot.creatorId && user.id === bot.creatorId;
 
-  const statCells = [
-    {label: '30D RETURN', value: `${bot.returnPercent >= 0 ? '+' : ''}${bot.returnPercent.toFixed(1)}%`, color: bot.returnPercent >= 0 ? '#10B981' : '#EF4444'},
-    {label: 'WIN RATE', value: `${bot.winRate}%`, color: '#0D7FF2'},
-    {label: 'MAX DRAWDOWN', value: `${bot.maxDrawdown.toFixed(1)}%`, color: '#EF4444'},
-    {label: 'SHARPE RATIO', value: `${bot.sharpeRatio.toFixed(2)}`, color: '#10B981'},
-  ];
-
   const isRunning = userBotState.status === 'active' || userBotState.status === 'shadow_running';
   const feedMode = userBotState.status === 'active' ? 'live' : 'paper';
   const isLiveActive = userBotState.status === 'active' || userBotState.status === 'paused' || userBotState.status === 'stopped';
@@ -592,25 +733,31 @@ export default function BotDetailsScreen({navigation, route}: Props) {
 
   return (
     <View style={styles.container}>
-      {/* Header with Live Feed action */}
+      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.iconBtn}>
           <ChevronLeftIcon size={22} color="#FFFFFF" />
         </TouchableOpacity>
         <View style={{flex: 1}} />
         <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
-          {isRunning && (
-            <TouchableOpacity
-              style={styles.headerLiveFeedBtn}
-              activeOpacity={0.7}
-              onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: feedMode})}>
-              <View style={[styles.headerLiveDot, {backgroundColor: userBotState.status === 'active' ? '#10B981' : '#3B82F6'}]} />
-              <Text style={[styles.headerLiveFeedText, {color: userBotState.status === 'active' ? '#10B981' : '#3B82F6'}]}>
-                Live Feed
-              </Text>
-            </TouchableOpacity>
-          )}
-          {(userBotState.status === 'active' || userBotState.status === 'paused') && (
+          {/* Pulsing live feed icon — replaces the banner */}
+          {isRunning && (() => {
+            const liveColor = userBotState.status === 'active' ? '#10B981' : '#3B82F6';
+            const liveBg = userBotState.status === 'active' ? 'rgba(16,185,129,0.12)' : 'rgba(59,130,246,0.12)';
+            const liveBorder = userBotState.status === 'active' ? 'rgba(16,185,129,0.3)' : 'rgba(59,130,246,0.3)';
+            return (
+              <TouchableOpacity
+                style={[styles.iconBtn, {backgroundColor: liveBg, borderWidth: 1, borderColor: liveBorder, width: 44, height: 40}]}
+                activeOpacity={0.7}
+                onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: feedMode})}>
+                <Animated.View style={{opacity: livePulse, width: 8, height: 8, borderRadius: 4, backgroundColor: liveColor, position: 'absolute', top: 8, right: 9}} />
+                <Svg width={18} height={18} viewBox="0 0 24 24" fill="none">
+                  <Path d="M22 12h-4l-3 9L9 3l-3 9H2" stroke={liveColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                </Svg>
+              </TouchableOpacity>
+            );
+          })()}
+          {(userBotState.status === 'active' || userBotState.status === 'paused' || userBotState.status === 'shadow_running' || userBotState.status === 'shadow_paused') && (
             <TouchableOpacity
               style={styles.iconBtn}
               onPress={() => setSettingsModalVisible(true)}
@@ -636,113 +783,119 @@ export default function BotDetailsScreen({navigation, route}: Props) {
         </View>
       </View>
 
-      {/* Active status bar (shown when bot is live or shadow running) */}
-      {isRunning && (
-        <TouchableOpacity
-          style={[styles.activeStatusBar, {backgroundColor: userBotState.status === 'active' ? 'rgba(16,185,129,0.08)' : 'rgba(59,130,246,0.08)', borderColor: userBotState.status === 'active' ? 'rgba(16,185,129,0.2)' : 'rgba(59,130,246,0.2)'}]}
-          activeOpacity={0.7}
-          onPress={() => navigation.navigate('BotLiveFeed', {botId: bot.id, botName: bot.name, mode: feedMode})}>
-          <View style={[styles.activeStatusDot, {backgroundColor: userBotState.status === 'active' ? '#10B981' : '#3B82F6'}]} />
-          <Text style={[styles.activeStatusText, {color: userBotState.status === 'active' ? '#10B981' : '#3B82F6'}]}>
-            {userBotState.status === 'active' ? 'Bot is Live — Trading with real funds' : 'Shadow Mode — AI analyzing markets'}
-          </Text>
-          <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-            <Path d="M9 18l6-6-6-6" stroke={userBotState.status === 'active' ? '#10B981' : '#3B82F6'} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-          </Svg>
-        </TouchableOpacity>
-      )}
-
-      {/* ── Tab bar (sticky, outside ScrollView) ── shown when user has any personal relationship */}
-      {hasPersonalTab && (
-        <View style={styles.tabBarWrap}>
-          <Pressable
-            style={[styles.tabBarBtn, activeStatsTab === 'live' && styles.tabBarBtnLiveActive]}
-            onPress={() => setActiveStatsTab('live')}>
-            <View style={[styles.tabBarDot, {backgroundColor: activeStatsTab === 'live' ? '#10B981' : 'rgba(255,255,255,0.2)'}]} />
-            <Text style={[styles.tabBarBtnText, activeStatsTab === 'live' && {color: '#10B981'}]}>PUBLIC LIVE</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.tabBarBtn, activeStatsTab === 'my' && (isLiveActive ? styles.tabBarBtnLiveActive : styles.tabBarBtnShadowActive)]}
-            onPress={() => setActiveStatsTab('my')}>
-            <View style={[styles.tabBarDot, {backgroundColor: activeStatsTab === 'my' ? (isLiveActive ? '#10B981' : '#3B82F6') : 'rgba(255,255,255,0.2)'}]} />
-            <Text style={[styles.tabBarBtnText, activeStatsTab === 'my' && {color: isLiveActive ? '#10B981' : '#3B82F6'}]}>{myTabLabel}</Text>
-          </Pressable>
+      {/* ── Hero — always visible above tabs ── */}
+      <View style={styles.heroCard}>
+        <View style={styles.heroRow}>
+          <View style={[styles.heroAvatarRing, {borderColor: bot.avatarColor ? `${bot.avatarColor}55` : 'rgba(255,255,255,0.1)'}]}>
+            <BotAvatar
+              size={46}
+              avatarUrl={bot.avatarUrl}
+              avatarColor={bot.avatarColor}
+              avatarLetter={bot.avatarLetter}
+              borderRadius={12}
+            />
+          </View>
+          <View style={styles.heroMeta}>
+            <View style={styles.heroCreatorRow}>
+              <View style={styles.heroCreatorDot} />
+              <Text style={styles.botCreator} numberOfLines={1}>
+                {isCreator ? 'Created by you' : (bot.creatorName || bot.subtitle || 'Creator')}
+              </Text>
+            </View>
+            <View style={{flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1}}>
+              <Text style={styles.botName}>{bot.name}</Text>
+              {isCreator && <Badge label="YOURS" variant="purple" size="sm" />}
+            </View>
+            <Text style={[styles.activeUsers, {marginTop: 4}]}>{bot.activeUsers.toLocaleString()} traders active</Text>
+          </View>
         </View>
-      )}
+        {!isRunning && (userBotState.status === 'shadow_paused' || userBotState.status === 'shadow_completed' || userBotState.status === 'paused') && (
+          <View style={[styles.badgesRow, {marginTop: 10}]}>
+            {userBotState.status === 'shadow_paused' && <Badge label="SHADOW PAUSED" variant="orange" size="sm" />}
+            {userBotState.status === 'shadow_completed' && <Badge label="SHADOW COMPLETE" variant="green" size="sm" />}
+            {userBotState.status === 'paused' && <Badge label="PAUSED" variant="orange" size="sm" />}
+          </View>
+        )}
+      </View>
+
+      {/* ── Tab bar ── */}
+      {hasPersonalTab && (() => {
+        const myColor = isLiveActive ? '#10B981' : '#3B82F6';
+        return (
+          <View style={styles.tabBarWrap}>
+            <Pressable
+              unstable_pressDelay={0}
+              style={styles.tabBarTab}
+              onPress={() => {
+                setActiveStatsTab('live');
+                pagerRef.current?.scrollTo({x: 0, animated: false});
+              }}>
+              <Text style={[styles.tabBarBtnText, {color: activeStatsTab === 'live' ? '#FFFFFF' : 'rgba(255,255,255,0.3)'}]}>Public</Text>
+              {activeStatsTab === 'live' && <View style={[styles.tabBarUnderline, {backgroundColor: '#10B981'}]} />}
+            </Pressable>
+            <Pressable
+              unstable_pressDelay={0}
+              style={styles.tabBarTab}
+              onPress={() => {
+                setActiveStatsTab('my');
+                pagerRef.current?.scrollTo({x: width, animated: false});
+              }}>
+              <Text style={[styles.tabBarBtnText, {color: activeStatsTab === 'my' ? '#FFFFFF' : 'rgba(255,255,255,0.3)'}]}>
+                {isLiveActive ? 'My Live' : 'My Shadow'}
+              </Text>
+              {activeStatsTab === 'my' && <View style={[styles.tabBarUnderline, {backgroundColor: myColor}]} />}
+            </Pressable>
+          </View>
+        );
+      })()}
 
       <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scroll}
-        scrollEnabled={!chartTouching}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => { setRefreshing(true); fetchData(); }}
-            tintColor="#10B981"
-            colors={['#10B981']}
-            progressBackgroundColor="#161B22"
-          />
-        }>
-        {/* Bot hero — compact inline style */}
-        <View style={styles.heroCard}>
-          <View style={styles.heroTop}>
-            <View style={{flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10}}>
-              <BotAvatar
-                size={52}
-                avatarUrl={bot.avatarUrl}
-                avatarColor={bot.avatarColor}
-                avatarLetter={bot.avatarLetter}
-                borderRadius={14}
-              />
-              <View style={{flex: 1}}>
-                <Text style={styles.botCreator} numberOfLines={1}>{isCreator ? 'Created by you' : (bot.subtitle ? `by ${bot.subtitle}` : 'by Creator')}</Text>
-                <View style={styles.heroNameRow}>
-                  <Text style={styles.botName}>{bot.name}</Text>
-                  {isCreator && <Badge label="YOURS" variant="purple" size="sm" />}
-                </View>
-              </View>
-            </View>
-            <View style={styles.ratingRow}>
-              {[1,2,3,4,5].map(i => (
-                <StarIcon key={i} size={11} filled={i <= Math.round(bot.rating)} color="#EAB308" />
-              ))}
-              <Text style={styles.ratingText}> {bot.rating.toFixed(1)} ({bot.reviewCount})</Text>
-              <Text style={styles.activeUsers}>  •  {bot.activeUsers.toLocaleString()} traders</Text>
-            </View>
-          </View>
-
-          {/* Status badges */}
-          {!isRunning && (userBotState.status === 'shadow_paused' || userBotState.status === 'shadow_completed' || userBotState.status === 'paused') && (
-            <View style={styles.badgesRow}>
-              {userBotState.status === 'shadow_paused' && <Badge label="SHADOW PAUSED" variant="orange" size="sm" />}
-              {userBotState.status === 'shadow_completed' && <Badge label="SHADOW COMPLETE" variant="green" size="sm" />}
-              {userBotState.status === 'paused' && <Badge label="PAUSED" variant="orange" size="sm" />}
-            </View>
-          )}
-        </View>
-
+        ref={pagerRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        scrollEnabled={false}
+        style={{flex: 1}}
+        nestedScrollEnabled={false}
+      >
+        {/* ══ PAGE 0 — Public Live ══ */}
+        <ScrollView
+          style={{width}}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scroll}
+          scrollEnabled={!chartTouching}
+          removeClippedSubviews={true}
+          keyboardShouldPersistTaps="handled"
+          overScrollMode="never"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => { setRefreshing(true); fetchData(); }}
+              tintColor="#10B981"
+              colors={['#10B981']}
+              progressBackgroundColor="#161B22"
+            />
+          }
+        >
         {/* ══ PUBLIC LIVE TAB — complete screen ══ */}
-        <View style={{display: (!hasPersonalTab || activeStatsTab === 'live') ? 'flex' : 'none'}}>
-            {/* Stats single-row grid */}
+        <View>
+            {/* Stats single-row grid — individual cards */}
             <View style={styles.statsGrid}>
-              <View style={styles.statsGridInner}>
-                {statCells.map((cell, idx) => (
-                  <React.Fragment key={cell.label}>
-                    {idx > 0 && <View style={styles.statCellDivider} />}
-                    <View style={styles.statCell}>
-                      <Text style={styles.statCellLabel}>{cell.label}</Text>
-                      <Text style={[styles.statCellValue, {color: cell.color}]}>{cell.value}</Text>
-                    </View>
-                  </React.Fragment>
-                ))}
-              </View>
+              {statCells.map((cell) => (
+                <View key={cell.label} style={styles.statCell}>
+                  <Text style={styles.statCellLabel}>{cell.label}</Text>
+                  <Text style={[styles.statCellValue, {color: cell.color}]}>{cell.value}</Text>
+                </View>
+              ))}
             </View>
 
             {/* Live community stats */}
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>LIVE TRADERS STATS</Text>
-              {statsTabLoading ? (
-                <ActivityIndicator size="small" color="#10B981" style={{marginVertical: 16}} />
+              {liveStatsLoading ? (
+                <View style={{gap: 1, backgroundColor: '#161B22', borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 16}}>
+                  {[0,1,2,3,4].map(i => <View key={i} style={{flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: i < 4 ? 1 : 0, borderBottomColor: 'rgba(255,255,255,0.04)'}}><SkeletonBlock width={100} height={12} /><SkeletonBlock width={50} height={12} /></View>)}
+                </View>
               ) : (
                 <View style={styles.metricsCard}>
                   <View style={styles.metricRow}>
@@ -790,8 +943,8 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             {/* Bot P&L Equity Curve — cumulative live P&L across all users */}
             <View style={styles.chartSection}>
               <Text style={styles.chartSectionLabel}>LIVE PERFORMANCE (P&L)</Text>
-              {statsTabLoading ? (
-                <ActivityIndicator size="small" color="#10B981" style={{marginVertical: 40}} />
+              {liveStatsLoading ? (
+                <SkeletonBlock height={200} borderRadius={14} />
               ) : (
                 <PortfolioLineChart
                   data={publicLiveStats?.equityCurve?.length >= 2 ? publicLiveStats.equityCurve : [0, publicLiveStats?.totalPnl ?? 0]}
@@ -1552,29 +1705,45 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </View>
             )}
         </View>
-        {/* ══ MY TAB — personal live or shadow stats ══ */}
+        <View style={{height: 120}} />
+        </ScrollView>
+        {/* ══ PAGE 1 — My Live / Shadow (only mounted when user has personal tab) ══ */}
         {hasPersonalTab && (
-        <View style={{display: activeStatsTab === 'my' ? 'flex' : 'none'}}>
-            {myTabStats ? (
+        <ScrollView
+          style={{width}}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scroll}
+          removeClippedSubviews={true}
+          keyboardShouldPersistTaps="handled"
+          overScrollMode="never"
+        >
+            {myStatsLoading && !myTabStats ? (
+              <View style={{gap: 12}}>
+                <View style={{flexDirection: 'row', gap: 6}}>
+                  <SkeletonBlock height={62} borderRadius={12} />
+                  <SkeletonBlock height={62} borderRadius={12} />
+                  <SkeletonBlock height={62} borderRadius={12} />
+                  <SkeletonBlock height={62} borderRadius={12} />
+                </View>
+                <SkeletonBlock height={80} borderRadius={14} />
+                <SkeletonBlock height={260} borderRadius={14} />
+                <SkeletonBlock height={120} borderRadius={14} />
+              </View>
+            ) : myTabStats ? (
               <View>
-                {/* Single-row stat grid */}
+                {/* Single-row stat grid — individual cards */}
                 <View style={styles.statsGrid}>
-                  <View style={styles.statsGridInner}>
-                    {[
-                      {label: 'RETURN', value: `${(myTabStats.totalReturn ?? 0) >= 0 ? '+' : ''}${(myTabStats.totalReturn ?? 0).toFixed(1)}%`, color: (myTabStats.totalReturn ?? 0) >= 0 ? '#10B981' : '#EF4444'},
-                      {label: 'WIN RATE', value: `${(myTabStats.winRate ?? 0).toFixed(0)}%`, color: isLiveActive ? '#10B981' : '#3B82F6'},
-                      {label: 'DRAWDOWN', value: `-${(myTabStats.maxDrawdown ?? 0).toFixed(1)}%`, color: '#EF4444'},
-                      {label: 'TRADES', value: `${myTabStats.totalTrades ?? 0}`, color: '#FFFFFF'},
-                    ].map((cell, idx) => (
-                      <React.Fragment key={cell.label}>
-                        {idx > 0 && <View style={styles.statCellDivider} />}
-                        <View style={styles.statCell}>
-                          <Text style={styles.statCellLabel}>{cell.label}</Text>
-                          <Text style={[styles.statCellValue, {color: cell.color}]}>{cell.value}</Text>
-                        </View>
-                      </React.Fragment>
-                    ))}
-                  </View>
+                  {[
+                    {label: 'RETURN', value: `${(myTabStats.totalReturn ?? 0) >= 0 ? '+' : ''}${(myTabStats.totalReturn ?? 0).toFixed(1)}%`, color: (myTabStats.totalReturn ?? 0) >= 0 ? '#10B981' : '#EF4444'},
+                    {label: 'WIN RATE', value: `${(myTabStats.winRate ?? 0).toFixed(0)}%`, color: isLiveActive ? '#10B981' : '#3B82F6'},
+                    {label: 'DRAWDOWN', value: `-${(myTabStats.maxDrawdown ?? 0).toFixed(1)}%`, color: '#EF4444'},
+                    {label: 'TRADES', value: `${myTabStats.totalTrades ?? 0}`, color: '#FFFFFF'},
+                  ].map((cell) => (
+                    <View key={cell.label} style={styles.statCell}>
+                      <Text style={styles.statCellLabel}>{cell.label}</Text>
+                      <Text style={[styles.statCellValue, {color: cell.color}]}>{cell.value}</Text>
+                    </View>
+                  ))}
                 </View>
 
                 {/* Status row — shadow only */}
@@ -1741,10 +1910,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 </Text>
               </View>
             )}
-        </View>
-        )}
-
         <View style={{height: 120}} />
+        </ScrollView>
+        )}
       </ScrollView>
 
       {/* ─── Bot Settings Modal (gear icon) ──────────────────────────── */}
@@ -1760,13 +1928,13 @@ export default function BotDetailsScreen({navigation, route}: Props) {
             <View style={modalStyles.handle} />
             <View style={modalStyles.headerRow}>
               <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-                <View style={{width: 32, height: 32, borderRadius: 10, backgroundColor: 'rgba(139,92,246,0.15)', alignItems: 'center', justifyContent: 'center'}}>
+                <View style={{width: 32, height: 32, borderRadius: 10, backgroundColor: hasShadowSession ? 'rgba(59,130,246,0.15)' : 'rgba(139,92,246,0.15)', alignItems: 'center', justifyContent: 'center'}}>
                   <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-                    <Path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke="#8B5CF6" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
-                    <Path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke="#8B5CF6" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                    <Path d="M12 15a3 3 0 100-6 3 3 0 000 6z" stroke={hasShadowSession ? '#3B82F6' : '#8B5CF6'} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+                    <Path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" stroke={hasShadowSession ? '#3B82F6' : '#8B5CF6'} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
                   </Svg>
                 </View>
-                <Text style={modalStyles.title}>Bot Settings</Text>
+                <Text style={modalStyles.title}>{hasShadowSession ? 'Shadow Settings' : 'Bot Settings'}</Text>
               </View>
               <TouchableOpacity onPress={() => setSettingsModalVisible(false)} style={modalStyles.closeBtn}>
                 <XIcon size={18} color="rgba(255,255,255,0.5)" />
@@ -1780,81 +1948,151 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               keyboardDismissMode="on-drag"
               showsVerticalScrollIndicator={false}>
 
-              {/* Risk Multiplier */}
-              <View>
-                <Text style={[modalStyles.label, {marginBottom: 10}]}>RISK MULTIPLIER</Text>
-                <View style={{flexDirection: 'row', gap: 8}}>
-                  {([0.5, 1, 1.5, 2] as const).map(v => (
-                    <TouchableOpacity key={v} activeOpacity={0.7}
-                      style={{flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: subUserConfig.riskMultiplier === v ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.08)', alignItems: 'center'}}
-                      onPress={() => setSubUserConfig(c => ({...c, riskMultiplier: v}))}>
-                      <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{v}x</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
+              {hasShadowSession ? (
+                /* ── Shadow session settings ── */
+                <>
+                  {/* Min Order Value */}
+                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                    <View style={{flex: 1}}>
+                      <Text style={modalStyles.label}>MIN ORDER VALUE</Text>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Skip trades below this virtual $ amount</Text>
+                    </View>
+                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
+                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={shadowUserConfig.minOrderValue} onChangeText={v => setShadowUserConfig(c => ({...c, minOrderValue: v}))} placeholder="10" placeholderTextColor="rgba(255,255,255,0.3)" />
+                    </View>
+                  </View>
 
-              {/* Notifications */}
-              <View>
-                <Text style={[modalStyles.label, {marginBottom: 10}]}>NOTIFICATIONS</Text>
-                <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
-                  {(['all', 'wins_only', 'losses_only', 'summary'] as const).map(n => (
-                    <TouchableOpacity key={n} activeOpacity={0.7}
-                      style={{paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, backgroundColor: subUserConfig.notificationLevel === n ? 'rgba(59,130,246,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.08)'}}
-                      onPress={() => setSubUserConfig(c => ({...c, notificationLevel: n}))}>
-                      <Text style={{fontFamily: 'Inter-Medium', fontSize: 13, color: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.5)'}}>{n === 'all' ? 'All Trades' : n === 'wins_only' ? 'Wins Only' : n === 'losses_only' ? 'Losses Only' : 'Summary'}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
+                  {/* Notifications */}
+                  <View>
+                    <Text style={[modalStyles.label, {marginBottom: 10}]}>NOTIFICATIONS</Text>
+                    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+                      {(['all', 'wins_only', 'losses_only', 'summary'] as const).map(n => (
+                        <TouchableOpacity key={n} activeOpacity={0.7}
+                          style={{paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, backgroundColor: shadowUserConfig.notificationLevel === n ? 'rgba(59,130,246,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: shadowUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.08)'}}
+                          onPress={() => setShadowUserConfig(c => ({...c, notificationLevel: n}))}>
+                          <Text style={{fontFamily: 'Inter-Medium', fontSize: 13, color: shadowUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.5)'}}>{n === 'all' ? 'All Trades' : n === 'wins_only' ? 'Wins Only' : n === 'losses_only' ? 'Losses Only' : 'Summary'}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
 
-              {/* Max Daily Loss */}
-              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                <View style={{flex: 1}}>
-                  <Text style={modalStyles.label}>MAX DAILY LOSS</Text>
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop trading if this % is lost in a day</Text>
-                </View>
-                <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                  <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.maxDailyLoss ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, maxDailyLoss: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
-                </View>
-              </View>
+                  {/* Auto-Stop Loss % */}
+                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                    <View style={{flex: 1}}>
+                      <Text style={modalStyles.label}>AUTO-STOP LOSS %</Text>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop shadow if virtual portfolio drops this %</Text>
+                    </View>
+                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={shadowUserConfig.autoStopLossPercent} onChangeText={v => setShadowUserConfig(c => ({...c, autoStopLossPercent: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
+                    </View>
+                  </View>
 
-              {/* Auto-Stop Loss */}
-              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                <View style={{flex: 1}}>
-                  <Text style={modalStyles.label}>AUTO-STOP LOSS %</Text>
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop bot if portfolio drops this %</Text>
-                </View>
-                <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                  <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopLossPercent ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopLossPercent: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
-                </View>
-              </View>
+                  {/* Auto-Stop Balance */}
+                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                    <View style={{flex: 1}}>
+                      <Text style={modalStyles.label}>AUTO-STOP BALANCE</Text>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop if virtual balance falls below $</Text>
+                    </View>
+                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
+                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={shadowUserConfig.autoStopBalance} onChangeText={v => setShadowUserConfig(c => ({...c, autoStopBalance: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                    </View>
+                  </View>
 
-              {/* Auto-Stop Balance */}
-              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                <View style={{flex: 1}}>
-                  <Text style={modalStyles.label}>AUTO-STOP BALANCE</Text>
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop if balance falls below $</Text>
-                </View>
-                <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
-                  <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopBalance ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopBalance: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                </View>
-              </View>
+                  {/* Auto-Stop Days */}
+                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                    <View style={{flex: 1}}>
+                      <Text style={modalStyles.label}>AUTO-STOP DAYS</Text>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>End shadow session after N days</Text>
+                    </View>
+                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="number-pad" value={shadowUserConfig.autoStopDays} onChangeText={v => setShadowUserConfig(c => ({...c, autoStopDays: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 6}}>days</Text>
+                    </View>
+                  </View>
+                </>
+              ) : (
+                /* ── Live subscription settings ── */
+                <>
+                  {/* Risk Multiplier */}
+                  <View>
+                    <Text style={[modalStyles.label, {marginBottom: 10}]}>RISK MULTIPLIER</Text>
+                    <View style={{flexDirection: 'row', gap: 8}}>
+                      {([0.5, 1, 1.5, 2] as const).map(v => (
+                        <TouchableOpacity key={v} activeOpacity={0.7}
+                          style={{flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: subUserConfig.riskMultiplier === v ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.08)', alignItems: 'center'}}
+                          onPress={() => setSubUserConfig(c => ({...c, riskMultiplier: v}))}>
+                          <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: subUserConfig.riskMultiplier === v ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{v}x</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
 
-              {/* Auto-Stop Days */}
-              <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                <View style={{flex: 1}}>
-                  <Text style={modalStyles.label}>AUTO-STOP DAYS</Text>
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Automatically stop bot after N days</Text>
-                </View>
-                <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
-                  <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="number-pad" value={subUserConfig.autoStopDays ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopDays: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
-                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 6}}>days</Text>
-                </View>
-              </View>
+                  {/* Notifications */}
+                  <View>
+                    <Text style={[modalStyles.label, {marginBottom: 10}]}>NOTIFICATIONS</Text>
+                    <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8}}>
+                      {(['all', 'wins_only', 'losses_only', 'summary'] as const).map(n => (
+                        <TouchableOpacity key={n} activeOpacity={0.7}
+                          style={{paddingHorizontal: 14, paddingVertical: 9, borderRadius: 10, backgroundColor: subUserConfig.notificationLevel === n ? 'rgba(59,130,246,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.08)'}}
+                          onPress={() => setSubUserConfig(c => ({...c, notificationLevel: n}))}>
+                          <Text style={{fontFamily: 'Inter-Medium', fontSize: 13, color: subUserConfig.notificationLevel === n ? '#3B82F6' : 'rgba(255,255,255,0.5)'}}>{n === 'all' ? 'All Trades' : n === 'wins_only' ? 'Wins Only' : n === 'losses_only' ? 'Losses Only' : 'Summary'}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  {/* Max Daily Loss */}
+                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                    <View style={{flex: 1}}>
+                      <Text style={modalStyles.label}>MAX DAILY LOSS</Text>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop trading if this % is lost in a day</Text>
+                    </View>
+                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.maxDailyLoss ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, maxDailyLoss: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
+                    </View>
+                  </View>
+
+                  {/* Auto-Stop Loss */}
+                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                    <View style={{flex: 1}}>
+                      <Text style={modalStyles.label}>AUTO-STOP LOSS %</Text>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop bot if portfolio drops this %</Text>
+                    </View>
+                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopLossPercent ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopLossPercent: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
+                    </View>
+                  </View>
+
+                  {/* Auto-Stop Balance */}
+                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                    <View style={{flex: 1}}>
+                      <Text style={modalStyles.label}>AUTO-STOP BALANCE</Text>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Stop if balance falls below $</Text>
+                    </View>
+                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
+                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={subUserConfig.autoStopBalance ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopBalance: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                    </View>
+                  </View>
+
+                  {/* Auto-Stop Days */}
+                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                    <View style={{flex: 1}}>
+                      <Text style={modalStyles.label}>AUTO-STOP DAYS</Text>
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Automatically stop bot after N days</Text>
+                    </View>
+                    <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                      <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="number-pad" value={subUserConfig.autoStopDays ?? ''} onChangeText={v => setSubUserConfig(c => ({...c, autoStopDays: v}))} placeholder="—" placeholderTextColor="rgba(255,255,255,0.3)" />
+                      <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', marginLeft: 6}}>days</Text>
+                    </View>
+                  </View>
+                </>
+              )}
 
             </ScrollView>
 
@@ -1863,7 +2101,14 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 style={[modalStyles.confirmBtn, {opacity: savingConfig ? 0.6 : 1}]}
                 activeOpacity={0.85}
                 disabled={savingConfig}
-                onPress={async () => { await handleSaveUserConfig(); setSettingsModalVisible(false); }}>
+                onPress={async () => {
+                  if (hasShadowSession) {
+                    await handleSaveShadowConfig();
+                  } else {
+                    await handleSaveUserConfig();
+                  }
+                  setSettingsModalVisible(false);
+                }}>
                 {savingConfig
                   ? <ActivityIndicator size="small" color="#FFFFFF" />
                   : <Text style={modalStyles.confirmText}>Save Settings</Text>}
@@ -2110,47 +2355,51 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   headerTitle: {flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 16, color: '#FFFFFF', textAlign: 'center', marginHorizontal: 8, display: 'none'},
-  scroll: {paddingHorizontal: 20},
+  scroll: {paddingHorizontal: 20, paddingTop: 14},
   headerLiveFeedBtn: {flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(16,185,129,0.1)', gap: 5},
   headerLiveDot: {width: 6, height: 6, borderRadius: 3},
   headerLiveFeedText: {fontFamily: 'Inter-SemiBold', fontSize: 12},
   activeStatusBar: {flexDirection: 'row', alignItems: 'center', marginHorizontal: 20, marginBottom: 4, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10, borderWidth: 1, gap: 8},
   activeStatusDot: {width: 8, height: 8, borderRadius: 4},
   activeStatusText: {fontFamily: 'Inter-Medium', fontSize: 12, flex: 1},
-  tabBarWrap: {flexDirection: 'row', backgroundColor: '#161B22', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.06)', paddingHorizontal: 20, paddingVertical: 8, gap: 8},
+  tabBarWrap: {flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)'},
+  tabBarTab: {flex: 1, alignItems: 'center', paddingVertical: 12, position: 'relative'},
+  tabBarUnderline: {position: 'absolute', bottom: 0, left: '20%', right: '20%', height: 2, borderRadius: 2},
+  tabBarTrack: {flexDirection: 'row', gap: 8},
+  tabBarPill: {flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 7, borderRadius: 10, borderWidth: 1, borderColor: 'transparent'},
+  tabBarSep: {width: 1, backgroundColor: 'rgba(255,255,255,0.08)', alignSelf: 'stretch'},
   tabBarBtn: {flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 7, borderRadius: 10},
   tabBarBtnLiveActive: {backgroundColor: 'rgba(16,185,129,0.12)', borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)'},
   tabBarBtnShadowActive: {backgroundColor: 'rgba(59,130,246,0.12)', borderWidth: 1, borderColor: 'rgba(59,130,246,0.3)'},
   tabBarDot: {width: 7, height: 7, borderRadius: 3.5},
-  tabBarBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 11, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.5},
-  heroCard: {marginBottom: 12, marginTop: 8},
-  heroTop: {},
+  tabBarBtnText: {fontFamily: 'Inter-SemiBold', fontSize: 13, color: 'rgba(255,255,255,0.4)', letterSpacing: 0.2},
+  heroCard: {marginBottom: 0, paddingHorizontal: 20, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)'},
+  heroRow: {flexDirection: 'row', alignItems: 'center', gap: 12},
+  heroAvatarRing: {width: 52, height: 52, borderRadius: 14, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden'},
+  heroMeta: {flexShrink: 1, flexGrow: 0},
+  heroCreatorRow: {flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 2},
+  heroCreatorDot: {width: 5, height: 5, borderRadius: 3, backgroundColor: '#10B981', marginTop: 1},
   heroInfo: {flex: 1},
   heroNameRow: {flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2},
   heroSection: {alignItems: 'center', paddingVertical: 16},
   botAvatar: {width: 72, height: 72, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 12},
   botAvatarWrap: {marginBottom: 0},
   botAvatarText: {fontFamily: 'Inter-Bold', fontSize: 28, color: '#FFFFFF'},
-  badgesRow: {flexDirection: 'row', gap: 6, marginTop: 10},
-  botName: {fontFamily: 'Inter-Bold', fontSize: 17, color: '#FFFFFF', letterSpacing: -0.4, flexShrink: 1},
-  botCreator: {fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginBottom: 3},
+  badgesRow: {flexDirection: 'row', gap: 6},
+  botName: {fontFamily: 'Inter-Bold', fontSize: 15, color: '#FFFFFF', letterSpacing: -0.3, flexWrap: 'wrap'},
+  botCreator: {fontFamily: 'Inter-SemiBold', fontSize: 10, color: 'rgba(255,255,255,0.45)', letterSpacing: 0.1},
   ratingRow: {flexDirection: 'row', alignItems: 'center'},
   ratingText: {fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.4)'},
-  activeUsers: {fontFamily: 'Inter-Medium', fontSize: 10, color: 'rgba(255,255,255,0.35)'},
-  statsGrid: {flexDirection: 'row', gap: 0, marginBottom: 14},
-  statsGridInner: {
-    flex: 1, flexDirection: 'row',
-    backgroundColor: '#161B22', borderRadius: 14,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
-    overflow: 'hidden',
-  },
-  statCellDivider: {width: 1, backgroundColor: 'rgba(255,255,255,0.06)'},
+  activeUsers: {fontFamily: 'Inter-Medium', fontSize: 10, color: 'rgba(255,255,255,0.4)'},
+  statsGrid: {flexDirection: 'row', gap: 6, marginBottom: 14},
+  statsGridInner: {flex: 1, flexDirection: 'row', gap: 6},
+  statCellDivider: {width: 0},
   statCell: {
-    flex: 1,
-    alignItems: 'center', paddingVertical: 10, paddingHorizontal: 4,
+    flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 6,
+    backgroundColor: '#161B22', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)',
   },
-  statCellLabel: {fontFamily: 'Inter-Medium', fontSize: 9, letterSpacing: 0.8, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', marginBottom: 5, textAlign: 'center'},
-  statCellValue: {fontFamily: 'Inter-Bold', fontSize: 16, letterSpacing: -0.5, textAlign: 'center'},
+  statCellLabel: {fontFamily: 'Inter-Medium', fontSize: 8.5, letterSpacing: 0.7, color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', marginBottom: 4, textAlign: 'center'},
+  statCellValue: {fontFamily: 'Inter-Bold', fontSize: 15, letterSpacing: -0.5, textAlign: 'center'},
   chartSection: {marginBottom: 16},
   chartSectionLabel: {fontFamily: 'Inter-SemiBold', fontSize: 9, letterSpacing: 1.2, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase' as const, marginBottom: 10},
   pairChip: {paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.06)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)'},

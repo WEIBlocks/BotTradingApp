@@ -1,4 +1,4 @@
-import {
+﻿import {
   pgTable,
   pgEnum,
   uuid,
@@ -10,8 +10,8 @@ import {
   jsonb,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users.js";
-import { bots } from "./bots.js";
+import { users } from "./users";
+import { bots } from "./bots";
 
 export const uploadTypeEnum = pgEnum("upload_type", [
   "image",
@@ -65,3 +65,4 @@ export const activityLog = pgTable("activity_log", {
   amount: numeric("amount", { precision: 12, scale: 2 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
+

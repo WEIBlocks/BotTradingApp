@@ -11,8 +11,8 @@ import {
   unique,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users.js";
-import { bots } from "./bots.js";
+import { users } from "./users";
+import { bots } from "./bots";
 
 // Creator engagement metrics - daily snapshots
 export const creatorAnalytics = pgTable(

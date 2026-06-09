@@ -1,4 +1,4 @@
-import {
+﻿import {
   pgTable,
   pgEnum,
   uuid,
@@ -9,7 +9,7 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { users } from "./users.js";
+import { users } from "./users";
 
 export const planTierEnum = pgEnum("plan_tier", ["free", "pro"]);
 export const planPeriodEnum = pgEnum("plan_period", ["monthly", "yearly"]);
@@ -72,3 +72,4 @@ export const userSubscriptions = pgTable("user_subscriptions", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
