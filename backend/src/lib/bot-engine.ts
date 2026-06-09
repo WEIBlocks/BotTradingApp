@@ -955,59 +955,90 @@ export async function processSymbol(opts: {
         trainingContext = knowledge.map(k => k.content).join('\n---\n');
       } catch {}
 
-      // Get past decision outcomes for learning
+      // FIX 1: Decision memory — fetch recent decisions WITH their trade outcomes
+      // Each BUY/SELL decision is matched to its resulting position P&L so the AI
+      // learns which setups actually made money vs which ones didn't.
       const pastOutcomes = await db
-        .select({ action: botDecisions.action, reasoning: botDecisions.reasoning })
+        .select({
+          action: botDecisions.action,
+          reasoning: botDecisions.reasoning,
+          confidence: botDecisions.confidence,
+          createdAt: botDecisions.createdAt,
+        })
         .from(botDecisions)
         .where(and(eq(botDecisions.botId, botId), eq(botDecisions.symbol, symbol)))
         .orderBy(desc(botDecisions.createdAt))
         .limit(20);
-      const recentStr = pastOutcomes.map(d => `${d.action}: ${d.reasoning}`).join('\n');
 
-      // Get closed position outcomes for learning
+      // Fetch closed positions with full entry context for outcome pairing
       const closedPositions = await db
-        .select({ pnl: botPositions.pnl, pnlPercent: botPositions.pnlPercent, entryReasoning: botPositions.entryReasoning })
+        .select({
+          pnl: botPositions.pnl,
+          pnlPercent: botPositions.pnlPercent,
+          entryReasoning: botPositions.entryReasoning,
+          exitReasoning: botPositions.exitReasoning,
+          openedAt: botPositions.openedAt,
+          closedAt: botPositions.closedAt,
+        })
         .from(botPositions)
         .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'closed')))
         .orderBy(desc(botPositions.closedAt))
         .limit(20);
-      let learningStr = closedPositions.length > 0
-        ? '\nPast results: ' + closedPositions.map(p => `P&L:${p.pnlPercent}% (${p.entryReasoning?.slice(0, 40)})`).join('; ')
-        : '';
 
-      // Build performance summary from closed positions
-      if (closedPositions.length > 0) {
-        const wins = closedPositions.filter(p => parseFloat(p.pnl ?? '0') > 0);
-        const losses = closedPositions.filter(p => parseFloat(p.pnl ?? '0') <= 0);
-        const avgWin = wins.length > 0 ? wins.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / wins.length : 0;
-        const avgLoss = losses.length > 0 ? losses.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / losses.length : 0;
-
-        // Extract most common indicator keywords from reasoning
-        const extractIndicator = (reasoning: string | null): string => {
-          if (!reasoning) return 'unknown';
-          const lower = reasoning.toLowerCase();
-          const indicators = ['rsi', 'ema', 'macd', 'bollinger', 'momentum', 'trend', 'volume', 'support', 'resistance'];
-          for (const ind of indicators) {
-            if (lower.includes(ind)) return ind;
+      // Build outcome-paired decision memory: for each BUY decision, find the
+      // closest closed position opened around the same time and attach its P&L.
+      // This is what makes the AI actually learn — it sees "I bought because X → lost 2.1%"
+      const pairedOutcomes: string[] = [];
+      for (const d of pastOutcomes) {
+        if (d.action !== 'BUY' && d.action !== 'SELL') continue;
+        if (d.action === 'BUY' && d.createdAt) {
+          // Find the position opened closest to this BUY decision time
+          const decTime = new Date(d.createdAt).getTime();
+          const matchedPos = closedPositions.find(p => {
+            if (!p.openedAt) return false;
+            const diff = Math.abs(new Date(p.openedAt).getTime() - decTime);
+            return diff < 5 * 60 * 1000; // within 5 minutes
+          });
+          if (matchedPos) {
+            const pnl = parseFloat(matchedPos.pnlPercent ?? '0');
+            const outcome = pnl >= 0 ? `✓ WIN +${pnl.toFixed(2)}%` : `✗ LOSS ${pnl.toFixed(2)}%`;
+            pairedOutcomes.push(`BUY(conf:${d.confidence}) → ${outcome} | Setup: ${d.reasoning?.slice(0, 60)}`);
+          } else {
+            pairedOutcomes.push(`BUY(conf:${d.confidence}) → outcome unknown | ${d.reasoning?.slice(0, 50)}`);
           }
-          return 'mixed';
-        };
-
-        const winIndicators: Record<string, number> = {};
-        const lossIndicators: Record<string, number> = {};
-        for (const w of wins) {
-          const ind = extractIndicator(w.entryReasoning);
-          winIndicators[ind] = (winIndicators[ind] ?? 0) + 1;
         }
-        for (const l of losses) {
-          const ind = extractIndicator(l.entryReasoning);
-          lossIndicators[ind] = (lossIndicators[ind] ?? 0) + 1;
+      }
+
+      // Aggregate win/loss statistics with indicator pattern analysis
+      const wins = closedPositions.filter(p => parseFloat(p.pnl ?? '0') > 0);
+      const losses = closedPositions.filter(p => parseFloat(p.pnl ?? '0') <= 0);
+      const avgWin = wins.length > 0 ? wins.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / wins.length : 0;
+      const avgLoss = losses.length > 0 ? losses.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / losses.length : 0;
+
+      const extractIndicator = (reasoning: string | null): string => {
+        if (!reasoning) return 'unknown';
+        const lower = reasoning.toLowerCase();
+        for (const ind of ['rsi', 'ema', 'macd', 'bollinger', 'momentum', 'trend', 'volume']) {
+          if (lower.includes(ind)) return ind;
         }
+        return 'mixed';
+      };
+      const winIndicators: Record<string, number> = {};
+      const lossIndicators: Record<string, number> = {};
+      for (const w of wins) { const ind = extractIndicator(w.entryReasoning); winIndicators[ind] = (winIndicators[ind] ?? 0) + 1; }
+      for (const l of losses) { const ind = extractIndicator(l.entryReasoning); lossIndicators[ind] = (lossIndicators[ind] ?? 0) + 1; }
+      const bestSetup = Object.entries(winIndicators).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'N/A';
+      const worstSetup = Object.entries(lossIndicators).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'N/A';
 
-        const bestSetup = Object.entries(winIndicators).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'N/A';
-        const worstSetup = Object.entries(lossIndicators).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'N/A';
+      // Build the full learning string passed to getAIDecision
+      // This includes: individual outcome-paired decisions + aggregate stats
+      const recentStr = pairedOutcomes.length > 0
+        ? `MY LAST ${pairedOutcomes.length} TRADES (learn from these):\n${pairedOutcomes.join('\n')}`
+        : pastOutcomes.slice(0, 5).map(d => `${d.action}(${d.confidence}): ${d.reasoning?.slice(0, 50)}`).join('\n');
 
-        learningStr += `\nPerformance: ${wins.length}W/${losses.length}L, avgWin:${avgWin >= 0 ? '+' : ''}${avgWin.toFixed(1)}%, avgLoss:${avgLoss.toFixed(1)}%. Best setups: ${bestSetup}. Worst: ${worstSetup}.`;
+      let learningStr = '';
+      if (closedPositions.length > 0) {
+        learningStr = `\nOverall: ${wins.length}W/${losses.length}L, avgWin:${avgWin >= 0 ? '+' : ''}${avgWin.toFixed(1)}%, avgLoss:${avgLoss.toFixed(1)}%. Best signal: ${bestSetup}. Worst: ${worstSetup}.`;
       }
 
       // Fetch cross-session learnings from Redis

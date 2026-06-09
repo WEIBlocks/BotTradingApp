@@ -149,16 +149,69 @@ export async function runTrainerAgent(botId) {
     if (!bot)
         return null;
     const perf = await analyzeBotPerformance(botId);
-    // Load recent decisions (last 50)
+    // FIX 2: Load individual closed trade records with entry conditions + actual P&L outcome.
+    // This is what real learning requires — not aggregate stats but specific examples of
+    // "I entered because RSI=72 MACD=positive → lost 2.3%" so Claude can find patterns.
+    const closedTrades = await db.select({
+        pnl: botPositions.pnl,
+        pnlPercent: botPositions.pnlPercent,
+        entryReasoning: botPositions.entryReasoning,
+        exitReasoning: botPositions.exitReasoning,
+        symbol: botPositions.symbol,
+        openedAt: botPositions.openedAt,
+        closedAt: botPositions.closedAt,
+    }).from(botPositions)
+        .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'closed')))
+        .orderBy(desc(botPositions.closedAt))
+        .limit(30);
+    // Load recent decisions (last 50) — used for pattern correlation
     const recentDecisions = await db.select({
         action: botDecisions.action,
         reasoning: botDecisions.reasoning,
         symbol: botDecisions.symbol,
         confidence: botDecisions.confidence,
+        createdAt: botDecisions.createdAt,
     }).from(botDecisions)
         .where(eq(botDecisions.botId, botId))
         .orderBy(desc(botDecisions.createdAt))
         .limit(50);
+    // Build trade-outcome examples: each line = entry context → outcome
+    // This is the core learning material — specific setups with their actual results
+    const tradeExamples = closedTrades.map(t => {
+        const pnl = parseFloat(t.pnlPercent ?? '0');
+        const outcome = pnl >= 0 ? `WIN +${pnl.toFixed(2)}%` : `LOSS ${pnl.toFixed(2)}%`;
+        const holdTime = t.openedAt && t.closedAt
+            ? Math.round((new Date(t.closedAt).getTime() - new Date(t.openedAt).getTime()) / 60000) + 'min'
+            : '?';
+        return `${outcome} [held ${holdTime}] ${t.symbol}: Entry — ${t.entryReasoning?.slice(0, 80) ?? 'unknown'} | Exit — ${t.exitReasoning?.slice(0, 40) ?? 'unknown'}`;
+    }).join('\n');
+    // Identify win patterns vs loss patterns from entry reasoning keywords
+    const wins = closedTrades.filter(t => parseFloat(t.pnl ?? '0') > 0);
+    const losses = closedTrades.filter(t => parseFloat(t.pnl ?? '0') <= 0);
+    const INDICATORS = ['rsi', 'ema', 'macd', 'bollinger', 'momentum', 'trend', 'support', 'resistance', 'volume'];
+    const winPatterns = {};
+    const lossPatterns = {};
+    for (const t of wins) {
+        for (const ind of INDICATORS) {
+            if (t.entryReasoning?.toLowerCase().includes(ind))
+                winPatterns[ind] = (winPatterns[ind] ?? 0) + 1;
+        }
+    }
+    for (const t of losses) {
+        for (const ind of INDICATORS) {
+            if (t.entryReasoning?.toLowerCase().includes(ind))
+                lossPatterns[ind] = (lossPatterns[ind] ?? 0) + 1;
+        }
+    }
+    const topWinSignal = Object.entries(winPatterns).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'none identified';
+    const topLossSignal = Object.entries(lossPatterns).sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'none identified';
+    // Average hold time for wins vs losses
+    const avgHoldWins = wins.length > 0
+        ? wins.filter(t => t.openedAt && t.closedAt).reduce((s, t) => s + (new Date(t.closedAt).getTime() - new Date(t.openedAt).getTime()), 0) / wins.length / 60000
+        : 0;
+    const avgHoldLosses = losses.length > 0
+        ? losses.filter(t => t.openedAt && t.closedAt).reduce((s, t) => s + (new Date(t.closedAt).getTime() - new Date(t.openedAt).getTime()), 0) / losses.length / 60000
+        : 0;
     const config = (bot.trainerConfig ?? {});
     const previousActions = (config.insights ?? [])
         .filter((i) => i.type === 'retrain' || i.type === 'improvement')
@@ -171,7 +224,7 @@ export async function runTrainerAgent(botId) {
         marketContext = (await redisConnection.get(`trainer:market-context:${bot.id}`)) ?? '';
     }
     catch { }
-    // Build comprehensive analysis prompt
+    // Build comprehensive analysis prompt with real trade examples
     const analysisPrompt = `
 Bot: "${bot.name}" | Strategy: ${bot.strategy} | Risk: ${bot.riskLevel}
 Current Prompt: ${bot.prompt ?? 'None'}
@@ -190,13 +243,23 @@ PERFORMANCE METRICS (${perf.totalTrades} total trades):
 - Health Score: ${perf.trainerScore}/100
 - Retrain Reason: ${perf.retrainReason ?? 'Manual/scheduled'}
 
+PATTERN ANALYSIS (from ${closedTrades.length} closed trades):
+- Top signal in winning trades: ${topWinSignal}
+- Top signal in losing trades: ${topLossSignal}
+- Avg hold time — wins: ${avgHoldWins.toFixed(0)}min, losses: ${avgHoldLosses.toFixed(0)}min
+${avgHoldLosses > avgHoldWins * 1.5 ? '⚠ HOLDING LOSERS TOO LONG — consider tighter stops' : ''}
+${avgHoldWins < 10 ? '⚠ EXITS TOO EARLY — wins avg only ' + avgHoldWins.toFixed(0) + 'min, may be cutting profits' : ''}
+
+INDIVIDUAL TRADE EXAMPLES (most recent ${closedTrades.length} — find the pattern):
+${tradeExamples || 'No closed trades yet.'}
+
 Current Config:
 ${JSON.stringify(bot.config ?? {}, null, 2)}
 
 Recent Decision Pattern (last ${recentDecisions.length}):
 ${recentDecisions.slice(0, 10).map(d => `${d.action}(${d.confidence}) ${d.symbol}: ${d.reasoning?.slice(0, 60)}`).join('\n')}
 
-Generate an improved strategy that addresses the performance issues above.`;
+Analyze the individual trade examples above to find what entry conditions consistently lead to wins vs losses. Generate a refined strategy that exploits the winning pattern and avoids the losing one.`;
     try {
         const response = await llmChat([{ role: 'user', content: analysisPrompt }], { system: TRAINER_SYSTEM, maxTokens: 2048, temperature: 0.3, cacheSystem: true });
         let text = response.text;
