@@ -12,6 +12,65 @@ import { processSymbol, executeLiveTrade } from '../lib/bot-engine.js';
 import { sendNotification } from '../lib/notify.js';
 import { refreshUserPortfolio } from './portfolio-update.job.js';
 import { isUSMarketOpen, getPrice } from './price-sync.job.js';
+const DEFAULT_COMPOUNDING = {
+    enabled: false,
+    reinvestmentRate: 50,
+    reinvestmentMode: 'free_balance',
+    compoundFrequency: 'each_trade',
+    maxPositionSizeUSD: null,
+    minProfitThresholdUSD: 0,
+    maxCompoundMultiplier: 3,
+    withdrawalReservePct: 20,
+    riskReductionEnabled: false,
+    riskReductionRate: 10,
+    totalCompounded: 0,
+    lastCompoundAt: null,
+};
+// ── Apply compounding: increase allocatedAmount after a profitable SELL ───────
+async function applyCompounding(subscriptionId, tradePnl, allocatedAmount, cs) {
+    if (!cs.enabled || tradePnl <= 0)
+        return;
+    if (tradePnl < (cs.minProfitThresholdUSD ?? 0))
+        return;
+    // Check frequency gate
+    if (cs.compoundFrequency !== 'each_trade' && cs.lastCompoundAt) {
+        const last = new Date(cs.lastCompoundAt).getTime();
+        const hoursSince = (Date.now() - last) / (1000 * 60 * 60);
+        if (cs.compoundFrequency === 'daily' && hoursSince < 24)
+            return;
+        if (cs.compoundFrequency === 'weekly' && hoursSince < 168)
+            return;
+    }
+    // How much to reinvest
+    const reservePct = (cs.withdrawalReservePct ?? 20) / 100;
+    const reinvestPct = (cs.reinvestmentRate / 100) * (1 - reservePct);
+    const toReinvest = tradePnl * reinvestPct;
+    if (toReinvest <= 0)
+        return;
+    // Max multiplier cap: don't grow beyond maxCompoundMultiplier × original
+    // We track this via totalCompounded — if already at cap, stop
+    const originalAlloc = allocatedAmount - (cs.totalCompounded ?? 0);
+    const maxAlloc = originalAlloc * (cs.maxCompoundMultiplier ?? 3);
+    const headroom = Math.max(0, maxAlloc - allocatedAmount);
+    const actualReinvest = Math.min(toReinvest, headroom);
+    if (actualReinvest <= 0)
+        return;
+    const newAlloc = allocatedAmount + actualReinvest;
+    const newTotalCompounded = (cs.totalCompounded ?? 0) + actualReinvest;
+    const updatedCs = {
+        ...cs,
+        totalCompounded: Math.round(newTotalCompounded * 100) / 100,
+        lastCompoundAt: new Date().toISOString(),
+    };
+    await db.update(botSubscriptions)
+        .set({
+        allocatedAmount: newAlloc.toFixed(2),
+        compoundingSettings: updatedCs,
+        updatedAt: new Date(),
+    })
+        .where(eq(botSubscriptions.id, subscriptionId));
+    console.log(`[LiveTrade] Compounded $${actualReinvest.toFixed(2)} → allocatedAmount now $${newAlloc.toFixed(2)} (sub ${subscriptionId})`);
+}
 async function processLiveTrades(frequencyFilter) {
     const label = frequencyFilter === 'fast' ? 'aggressive/max' : 'balanced/conservative';
     console.log(`[LiveTrade] Processing ${label} live subscriptions...`);
@@ -41,6 +100,10 @@ async function processLiveTrades(frequencyFilter) {
                 // Determine if this is a stock or crypto bot
                 const config = (bot.config ?? {});
                 const userConfig = (subscription.userConfig ?? {});
+                const compoundingSettings = {
+                    ...DEFAULT_COMPOUNDING,
+                    ...(subscription.compoundingSettings ?? {}),
+                };
                 const pairs = config.pairs?.length ? config.pairs : ['BTC/USDT'];
                 const isStockBot = bot.category === 'Stocks' || pairs.some(p => p.endsWith('/USD') && !p.endsWith('/USDT'));
                 // Get the RIGHT exchange connection — Alpaca for stocks, any crypto exchange for crypto
@@ -272,6 +335,10 @@ async function processLiveTrades(frequencyFilter) {
                         if (result.success) {
                             console.log(`[LiveTrade] Order filled: ${result.orderId}`);
                             refreshUserPortfolio(subscription.userId).catch(() => { });
+                            // Apply compounding if this was a profitable SELL
+                            if (decision.action === 'SELL' && decision.pnl !== undefined && decision.pnl > 0) {
+                                await applyCompounding(subscription.id, decision.pnl, allocatedAmount, compoundingSettings).catch(e => console.warn('[LiveTrade] Compounding failed:', e.message));
+                            }
                             // Respect user's notificationLevel — default 'all'
                             const notifLevel = userConfig.notificationLevel ?? 'all';
                             const isSell = decision.action === 'SELL';

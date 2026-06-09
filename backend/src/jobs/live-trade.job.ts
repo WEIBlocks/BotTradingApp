@@ -3,7 +3,7 @@
  * Uses the hybrid AI engine + real exchange execution
  */
 
-import { eq, and, sql, lt, sum } from 'drizzle-orm';
+import { eq, and, sql, lt, sum, gte } from 'drizzle-orm';
 import { db } from '../config/database.js';
 import { bots, botSubscriptions } from '../db/schema/bots.js';
 import { exchangeConnections } from '../db/schema/exchanges.js';
@@ -40,6 +40,87 @@ interface UserConfig {
   autoStopLossPercent?: number;
   compoundProfits?: boolean;
   notificationLevel?: string;
+}
+
+interface CompoundingSettings {
+  enabled: boolean;
+  reinvestmentRate: number;         // 0-100
+  reinvestmentMode: 'free_balance' | 'total_balance' | 'fixed';
+  compoundFrequency: 'each_trade' | 'daily' | 'weekly' | 'manual';
+  maxPositionSizeUSD: number | null;
+  minProfitThresholdUSD: number;
+  maxCompoundMultiplier: number;
+  withdrawalReservePct: number;
+  riskReductionEnabled: boolean;
+  riskReductionRate: number;
+  totalCompounded: number;
+  lastCompoundAt: string | null;
+}
+
+const DEFAULT_COMPOUNDING: CompoundingSettings = {
+  enabled: false,
+  reinvestmentRate: 50,
+  reinvestmentMode: 'free_balance',
+  compoundFrequency: 'each_trade',
+  maxPositionSizeUSD: null,
+  minProfitThresholdUSD: 0,
+  maxCompoundMultiplier: 3,
+  withdrawalReservePct: 20,
+  riskReductionEnabled: false,
+  riskReductionRate: 10,
+  totalCompounded: 0,
+  lastCompoundAt: null,
+};
+
+// ── Apply compounding: increase allocatedAmount after a profitable SELL ───────
+async function applyCompounding(
+  subscriptionId: string,
+  tradePnl: number,
+  allocatedAmount: number,
+  cs: CompoundingSettings,
+): Promise<void> {
+  if (!cs.enabled || tradePnl <= 0) return;
+  if (tradePnl < (cs.minProfitThresholdUSD ?? 0)) return;
+
+  // Check frequency gate
+  if (cs.compoundFrequency !== 'each_trade' && cs.lastCompoundAt) {
+    const last = new Date(cs.lastCompoundAt).getTime();
+    const hoursSince = (Date.now() - last) / (1000 * 60 * 60);
+    if (cs.compoundFrequency === 'daily' && hoursSince < 24) return;
+    if (cs.compoundFrequency === 'weekly' && hoursSince < 168) return;
+  }
+
+  // How much to reinvest
+  const reservePct = (cs.withdrawalReservePct ?? 20) / 100;
+  const reinvestPct = (cs.reinvestmentRate / 100) * (1 - reservePct);
+  const toReinvest = tradePnl * reinvestPct;
+  if (toReinvest <= 0) return;
+
+  // Max multiplier cap: don't grow beyond maxCompoundMultiplier × original
+  // We track this via totalCompounded — if already at cap, stop
+  const originalAlloc = allocatedAmount - (cs.totalCompounded ?? 0);
+  const maxAlloc = originalAlloc * (cs.maxCompoundMultiplier ?? 3);
+  const headroom = Math.max(0, maxAlloc - allocatedAmount);
+  const actualReinvest = Math.min(toReinvest, headroom);
+  if (actualReinvest <= 0) return;
+
+  const newAlloc = allocatedAmount + actualReinvest;
+  const newTotalCompounded = (cs.totalCompounded ?? 0) + actualReinvest;
+  const updatedCs: CompoundingSettings = {
+    ...cs,
+    totalCompounded: Math.round(newTotalCompounded * 100) / 100,
+    lastCompoundAt: new Date().toISOString(),
+  };
+
+  await db.update(botSubscriptions)
+    .set({
+      allocatedAmount: newAlloc.toFixed(2),
+      compoundingSettings: updatedCs as any,
+      updatedAt: new Date(),
+    })
+    .where(eq(botSubscriptions.id, subscriptionId));
+
+  console.log(`[LiveTrade] Compounded $${actualReinvest.toFixed(2)} → allocatedAmount now $${newAlloc.toFixed(2)} (sub ${subscriptionId})`);
 }
 
 async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
@@ -81,6 +162,10 @@ async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
         // Determine if this is a stock or crypto bot
         const config = (bot.config ?? {}) as BotConfig;
         const userConfig = (subscription.userConfig ?? {}) as UserConfig;
+        const compoundingSettings: CompoundingSettings = {
+          ...DEFAULT_COMPOUNDING,
+          ...((subscription.compoundingSettings as Partial<CompoundingSettings>) ?? {}),
+        };
         const pairs = config.pairs?.length ? config.pairs : ['BTC/USDT'];
         const isStockBot = bot.category === 'Stocks' || pairs.some(p => p.endsWith('/USD') && !p.endsWith('/USDT'));
 
@@ -361,6 +446,16 @@ async function processLiveTrades(frequencyFilter?: 'fast' | 'normal') {
             if (result.success) {
               console.log(`[LiveTrade] Order filled: ${result.orderId}`);
               refreshUserPortfolio(subscription.userId).catch(() => {});
+
+              // Apply compounding if this was a profitable SELL
+              if (decision.action === 'SELL' && decision.pnl !== undefined && decision.pnl > 0) {
+                await applyCompounding(
+                  subscription.id,
+                  decision.pnl,
+                  allocatedAmount,
+                  compoundingSettings,
+                ).catch(e => console.warn('[LiveTrade] Compounding failed:', e.message));
+              }
 
               // Respect user's notificationLevel — default 'all'
               const notifLevel = userConfig.notificationLevel ?? 'all';

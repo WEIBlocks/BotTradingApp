@@ -142,6 +142,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
   const [savingConfig, setSavingConfig] = useState(false);
   const [configPanelExpanded, setConfigPanelExpanded] = useState(false);
   const [settingsModalVisible, setSettingsModalVisible] = useState(false);
+  const [settingsModalTab, setSettingsModalTab] = useState<'settings' | 'compounding'>('settings');
   const [shadowUserConfig, setShadowUserConfig] = useState<{
     notificationLevel: string;
     autoStopDays: string;
@@ -760,7 +761,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
           {(userBotState.status === 'active' || userBotState.status === 'paused' || userBotState.status === 'shadow_running' || userBotState.status === 'shadow_paused') && (
             <TouchableOpacity
               style={styles.iconBtn}
-              onPress={() => setSettingsModalVisible(true)}
+              onPress={() => { setSettingsModalTab('settings'); setSettingsModalVisible(true); }}
               accessibilityRole="button"
               accessibilityLabel="Bot Settings">
               <Svg width={20} height={20} viewBox="0 0 24 24" fill="none">
@@ -802,9 +803,9 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                 {isCreator ? 'Created by you' : (bot.creatorName || bot.subtitle || 'Creator')}
               </Text>
             </View>
-            <View style={{flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 1}}>
+            <View style={{flexDirection: 'row',  alignItems: 'center', gap: 6, marginTop: 1}}>
               <Text style={styles.botName}>{bot.name}</Text>
-              {isCreator && <Badge label="YOURS" variant="purple" size="sm" />}
+              {/* {isCreator && <Badge label="YOURS" variant="purple" size="sm" />} */}
             </View>
             <Text style={[styles.activeUsers, {marginTop: 4}]}>{bot.activeUsers.toLocaleString()} traders active</Text>
           </View>
@@ -1203,116 +1204,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </View>
             </View>
 
-            {/* Subscriber Settings — now accessed via gear icon in header */}
-
-            {/* ── Compounding Settings Card ── */}
-              {compounding !== null && (
-                <View style={[styles.section, {marginTop: 12}]}>
-                  <TouchableOpacity style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: compoundingExpanded ? 14 : 0}} activeOpacity={0.7} onPress={() => setCompoundingExpanded(v => !v)}>
-                    <View style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
-                      <View style={{width: 28, height: 28, borderRadius: 8, backgroundColor: 'rgba(16,185,129,0.15)', alignItems: 'center', justifyContent: 'center'}}>
-                        <Svg width={14} height={14} viewBox="0 0 24 24" fill="none">
-                          <Path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" stroke="#10B981" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
-                        </Svg>
-                      </View>
-                      <View>
-                        <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: '#FFFFFF'}}>Compounding Settings</Text>
-                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.4)', marginTop: 1}}>
-                          {compounding.enabled ? `${compounding.reinvestmentRate}% reinvest · ${compounding.compoundFrequency.replace('_', ' ')}` : 'Off — tap to configure'}
-                        </Text>
-                      </View>
-                    </View>
-                    <Svg width={16} height={16} viewBox="0 0 24 24" fill="none">
-                      <Path d={compoundingExpanded ? 'M18 15l-6-6-6 6' : 'M6 9l6 6 6-6'} stroke="rgba(255,255,255,0.4)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                    </Svg>
-                  </TouchableOpacity>
-
-                  {compoundingExpanded && (
-                    <View style={{gap: 14}}>
-                      {/* Enable/Disable */}
-                      <View style={[styles.metricRow, {alignItems: 'center', paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)'}]}>
-                        <View style={{flex: 1}}>
-                          <Text style={styles.metricLabel}>AUTO-COMPOUND</Text>
-                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2}}>Reinvest profits automatically</Text>
-                        </View>
-                        <TouchableOpacity activeOpacity={0.7} style={{width: 48, height: 26, borderRadius: 13, backgroundColor: compounding.enabled ? '#10B981' : '#2D3748', justifyContent: 'center', paddingHorizontal: 3}} onPress={() => setCompounding(c => c ? {...c, enabled: !c.enabled} : c)}>
-                          <View style={{width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF', alignSelf: compounding.enabled ? 'flex-end' : 'flex-start'}} />
-                        </TouchableOpacity>
-                      </View>
-
-                      {compounding.enabled && (<>
-                        {/* Reinvestment Rate */}
-                        <View style={[styles.metricRow, {alignItems: 'center', paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)'}]}>
-                          <View style={{flex: 1}}>
-                            <Text style={styles.metricLabel}>REINVESTMENT RATE</Text>
-                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.35)', marginTop: 2}}>% of profit to reinvest</Text>
-                          </View>
-                          <View style={{flexDirection: 'row', gap: 6}}>
-                            {([25, 50, 75, 100] as const).map(v => (
-                              <TouchableOpacity key={v} activeOpacity={0.7} style={{paddingHorizontal: 12, paddingVertical: 7, borderRadius: 9, backgroundColor: compounding.reinvestmentRate === v ? 'rgba(16,185,129,0.18)' : '#1C2333', borderWidth: 1, borderColor: compounding.reinvestmentRate === v ? '#10B981' : 'rgba(255,255,255,0.08)'}} onPress={() => setCompounding(c => c ? {...c, reinvestmentRate: v} : c)}>
-                                <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: compounding.reinvestmentRate === v ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{v}%</Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        </View>
-
-                        {/* Compound Frequency */}
-                        <View style={[styles.metricRow, {flexDirection: 'column', gap: 10, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)'}]}>
-                          <Text style={styles.metricLabel}>COMPOUND FREQUENCY</Text>
-                          <View style={{flexDirection: 'row', gap: 8, flexWrap: 'wrap'}}>
-                            {(['each_trade', 'daily', 'weekly'] as const).map(f => (
-                              <TouchableOpacity key={f} activeOpacity={0.7} style={{paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10, backgroundColor: compounding.compoundFrequency === f ? 'rgba(16,185,129,0.18)' : '#1C2333', borderWidth: 1, borderColor: compounding.compoundFrequency === f ? '#10B981' : 'rgba(255,255,255,0.08)'}} onPress={() => setCompounding(c => c ? {...c, compoundFrequency: f} : c)}>
-                                <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 12, color: compounding.compoundFrequency === f ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{f.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        </View>
-
-                        {/* Max Multiplier + Withdrawal Reserve */}
-                        <View style={{flexDirection: 'row', gap: 10}}>
-                          <View style={{flex: 1, backgroundColor: '#1C2333', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)'}}>
-                            <Text style={[styles.metricLabel, {marginBottom: 8}]}>MAX GROWTH</Text>
-                            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                              <TextInput style={{flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 16, color: '#10B981', textAlign: 'center'}} keyboardType="decimal-pad" value={String(compounding.maxCompoundMultiplier)} onChangeText={v => setCompounding(c => c ? {...c, maxCompoundMultiplier: parseFloat(v) || 3} : c)} />
-                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)'}}>×</Text>
-                            </View>
-                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4, textAlign: 'center'}}>max multiplier</Text>
-                          </View>
-                          <View style={{flex: 1, backgroundColor: '#1C2333', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)'}}>
-                            <Text style={[styles.metricLabel, {marginBottom: 8}]}>KEEP AS CASH</Text>
-                            <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                              <TextInput style={{flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 16, color: '#F59E0B', textAlign: 'center'}} keyboardType="number-pad" value={String(compounding.withdrawalReservePct)} onChangeText={v => setCompounding(c => c ? {...c, withdrawalReservePct: parseInt(v, 10) || 20} : c)} />
-                              <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.4)'}}>%</Text>
-                            </View>
-                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4, textAlign: 'center'}}>of profit reserved</Text>
-                          </View>
-                        </View>
-
-                        {/* Stats */}
-                        {(compounding.totalCompounded ?? 0) > 0 && (
-                          <View style={{backgroundColor: 'rgba(16,185,129,0.07)', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(16,185,129,0.15)'}}>
-                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.5)'}}>Total compounded to date</Text>
-                            <Text style={{fontFamily: 'Inter-Bold', fontSize: 20, color: '#10B981', marginTop: 4}}>${(compounding.totalCompounded ?? 0).toFixed(2)}</Text>
-                          </View>
-                        )}
-                      </>)}
-
-                      <TouchableOpacity style={{backgroundColor: '#10B981', borderRadius: 14, paddingVertical: 13, alignItems: 'center', opacity: savingCompounding ? 0.6 : 1}} activeOpacity={0.8} disabled={savingCompounding} onPress={async () => {
-                        const sub = userBotState.subscriptionId;
-                        if (!sub || !compounding) return;
-                        setSavingCompounding(true);
-                        try {
-                          await botsService.updateCompounding(sub, compounding);
-                          showToast('success', 'Compounding settings saved!');
-                        } catch { showToast('error', 'Failed to save compounding settings'); }
-                        finally { setSavingCompounding(false); }
-                      }}>
-                        {savingCompounding ? <ActivityIndicator size="small" color="#FFF" /> : <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF'}}>Save Compounding</Text>}
-                      </TouchableOpacity>
-                    </View>
-                  )}
-                </View>
-              )}
+            {/* Compounding settings moved to settings modal gear icon */}
 
             {/* ── AI Trainer Panel ── */}
             {trainerStatus && (() => {
@@ -1941,6 +1833,24 @@ export default function BotDetailsScreen({navigation, route}: Props) {
               </TouchableOpacity>
             </View>
 
+            {/* Tab bar — only for live users (shadow has a single settings tab) */}
+            {!hasShadowSession && (
+              <View style={{flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.07)'}}>
+                {(['settings', 'compounding'] as const).map(tab => (
+                  <TouchableOpacity key={tab} activeOpacity={0.7}
+                    style={{flex: 1, alignItems: 'center', paddingVertical: 11, position: 'relative'}}
+                    onPress={() => setSettingsModalTab(tab)}>
+                    <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 13, color: settingsModalTab === tab ? '#FFFFFF' : 'rgba(255,255,255,0.35)', letterSpacing: 0.2}}>
+                      {tab === 'settings' ? 'Settings' : 'Compounding'}
+                    </Text>
+                    {settingsModalTab === tab && (
+                      <View style={{position: 'absolute', bottom: 0, left: '20%', right: '20%', height: 2, borderRadius: 2, backgroundColor: '#8B5CF6'}} />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
             <ScrollView
               style={modalStyles.body}
               contentContainerStyle={[modalStyles.bodyContent, {gap: 20}]}
@@ -2013,7 +1923,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                     </View>
                   </View>
                 </>
-              ) : (
+              ) : settingsModalTab === 'settings' ? (
                 /* ── Live subscription settings ── */
                 <>
                   {/* Risk Multiplier */}
@@ -2092,26 +2002,148 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                     </View>
                   </View>
                 </>
+              ) : (
+                /* ── Compounding tab (live users only) ── */
+                <>
+                  {compounding && (<>
+                    {/* Enable toggle */}
+                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                      <View style={{flex: 1}}>
+                        <Text style={modalStyles.label}>AUTO-COMPOUND</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Reinvest profits automatically</Text>
+                      </View>
+                      <TouchableOpacity activeOpacity={0.7}
+                        style={{width: 48, height: 26, borderRadius: 13, backgroundColor: compounding.enabled ? '#10B981' : '#2D3748', justifyContent: 'center', paddingHorizontal: 3}}
+                        onPress={() => setCompounding(c => c ? {...c, enabled: !c.enabled} : c)}>
+                        <View style={{width: 20, height: 20, borderRadius: 10, backgroundColor: '#FFFFFF', alignSelf: compounding.enabled ? 'flex-end' : 'flex-start'}} />
+                      </TouchableOpacity>
+                    </View>
+
+                    {compounding.enabled && (<>
+                      {/* Reinvestment Rate */}
+                      <View>
+                        <Text style={[modalStyles.label, {marginBottom: 10}]}>REINVESTMENT RATE</Text>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginBottom: 10}}>% of profit to reinvest each time</Text>
+                        <View style={{flexDirection: 'row', gap: 8}}>
+                          {([25, 50, 75, 100] as const).map(v => (
+                            <TouchableOpacity key={v} activeOpacity={0.7}
+                              style={{flex: 1, paddingVertical: 10, borderRadius: 10, backgroundColor: compounding.reinvestmentRate === v ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: compounding.reinvestmentRate === v ? '#10B981' : 'rgba(255,255,255,0.08)', alignItems: 'center'}}
+                              onPress={() => setCompounding(c => c ? {...c, reinvestmentRate: v} : c)}>
+                              <Text style={{fontFamily: 'Inter-SemiBold', fontSize: 14, color: compounding.reinvestmentRate === v ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{v}%</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+
+                      {/* Compound Frequency */}
+                      <View>
+                        <Text style={[modalStyles.label, {marginBottom: 10}]}>COMPOUND FREQUENCY</Text>
+                        <View style={{flexDirection: 'row', gap: 8, flexWrap: 'wrap'}}>
+                          {([
+                            {key: 'each_trade', label: 'Each Trade'},
+                            {key: 'daily', label: 'Daily'},
+                            {key: 'weekly', label: 'Weekly'},
+                          ] as const).map(f => (
+                            <TouchableOpacity key={f.key} activeOpacity={0.7}
+                              style={{paddingHorizontal: 16, paddingVertical: 9, borderRadius: 10, backgroundColor: compounding.compoundFrequency === f.key ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: compounding.compoundFrequency === f.key ? '#10B981' : 'rgba(255,255,255,0.08)'}}
+                              onPress={() => setCompounding(c => c ? {...c, compoundFrequency: f.key} : c)}>
+                              <Text style={{fontFamily: 'Inter-Medium', fontSize: 13, color: compounding.compoundFrequency === f.key ? '#10B981' : 'rgba(255,255,255,0.5)'}}>{f.label}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+
+                      {/* Reinvestment Mode */}
+                      <View>
+                        <Text style={[modalStyles.label, {marginBottom: 10}]}>REINVEST FROM</Text>
+                        <View style={{flexDirection: 'row', gap: 8}}>
+                          {([
+                            {key: 'free_balance', label: 'Free Balance'},
+                            {key: 'total_balance', label: 'Total Balance'},
+                          ] as const).map(m => (
+                            <TouchableOpacity key={m.key} activeOpacity={0.7}
+                              style={{flex: 1, paddingVertical: 9, borderRadius: 10, backgroundColor: compounding.reinvestmentMode === m.key ? 'rgba(16,185,129,0.18)' : 'rgba(255,255,255,0.05)', borderWidth: 1, borderColor: compounding.reinvestmentMode === m.key ? '#10B981' : 'rgba(255,255,255,0.08)', alignItems: 'center'}}
+                              onPress={() => setCompounding(c => c ? {...c, reinvestmentMode: m.key} : c)}>
+                              <Text style={{fontFamily: 'Inter-Medium', fontSize: 12, color: compounding.reinvestmentMode === m.key ? '#10B981' : 'rgba(255,255,255,0.5)', textAlign: 'center'}}>{m.label}</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+
+                      {/* Max Multiplier + Keep as Cash */}
+                      <View style={{flexDirection: 'row', gap: 10}}>
+                        <View style={{flex: 1}}>
+                          <Text style={[modalStyles.label, {marginBottom: 8}]}>MAX GROWTH</Text>
+                          <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10}}>
+                            <TextInput style={{flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#10B981', textAlign: 'center'}} keyboardType="decimal-pad" value={String(compounding.maxCompoundMultiplier)} onChangeText={v => setCompounding(c => c ? {...c, maxCompoundMultiplier: parseFloat(v) || 3} : c)} />
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>×</Text>
+                          </View>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4, textAlign: 'center'}}>max multiplier</Text>
+                        </View>
+                        <View style={{flex: 1}}>
+                          <Text style={[modalStyles.label, {marginBottom: 8}]}>KEEP AS CASH</Text>
+                          <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10}}>
+                            <TextInput style={{flex: 1, fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#F59E0B', textAlign: 'center'}} keyboardType="number-pad" value={String(compounding.withdrawalReservePct)} onChangeText={v => setCompounding(c => c ? {...c, withdrawalReservePct: parseInt(v, 10) || 20} : c)} />
+                            <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginLeft: 4}}>%</Text>
+                          </View>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4, textAlign: 'center'}}>of profit reserved</Text>
+                        </View>
+                      </View>
+
+                      {/* Min profit threshold */}
+                      <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
+                        <View style={{flex: 1}}>
+                          <Text style={modalStyles.label}>MIN PROFIT THRESHOLD</Text>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>Only compound if profit ≥ $</Text>
+                        </View>
+                        <View style={{flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 14, paddingVertical: 10, minWidth: 90}}>
+                          <Text style={{fontFamily: 'Inter-Regular', fontSize: 14, color: 'rgba(255,255,255,0.4)', marginRight: 4}}>$</Text>
+                          <TextInput style={{fontFamily: 'Inter-SemiBold', fontSize: 15, color: '#FFFFFF', minWidth: 44, textAlign: 'right'}} keyboardType="decimal-pad" value={String(compounding.minProfitThresholdUSD ?? 0)} onChangeText={v => setCompounding(c => c ? {...c, minProfitThresholdUSD: parseFloat(v) || 0} : c)} placeholder="0" placeholderTextColor="rgba(255,255,255,0.3)" />
+                        </View>
+                      </View>
+                    </>)}
+
+                    {/* Total compounded stat */}
+                    {(compounding.totalCompounded ?? 0) > 0 && (
+                      <View style={{backgroundColor: 'rgba(16,185,129,0.07)', borderRadius: 12, padding: 12, borderWidth: 1, borderColor: 'rgba(16,185,129,0.15)'}}>
+                        <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.5)'}}>Total compounded to date</Text>
+                        <Text style={{fontFamily: 'Inter-Bold', fontSize: 20, color: '#10B981', marginTop: 4}}>${(compounding.totalCompounded ?? 0).toFixed(2)}</Text>
+                        {compounding.lastCompoundAt && <Text style={{fontFamily: 'Inter-Regular', fontSize: 11, color: 'rgba(255,255,255,0.3)', marginTop: 4}}>Last: {new Date(compounding.lastCompoundAt).toLocaleDateString()}</Text>}
+                      </View>
+                    )}
+                  </>)}
+                  {!compounding && <Text style={{fontFamily: 'Inter-Regular', fontSize: 13, color: 'rgba(255,255,255,0.4)', textAlign: 'center', paddingVertical: 20}}>Loading compounding settings...</Text>}
+                </>
               )}
 
             </ScrollView>
 
             <View style={modalStyles.footer}>
               <TouchableOpacity
-                style={[modalStyles.confirmBtn, {opacity: savingConfig ? 0.6 : 1}]}
+                style={[modalStyles.confirmBtn, {opacity: (savingConfig || savingCompounding) ? 0.6 : 1}]}
                 activeOpacity={0.85}
-                disabled={savingConfig}
+                disabled={savingConfig || savingCompounding}
                 onPress={async () => {
                   if (hasShadowSession) {
                     await handleSaveShadowConfig();
+                    setSettingsModalVisible(false);
+                  } else if (settingsModalTab === 'compounding') {
+                    const sub = userBotState.subscriptionId;
+                    if (!sub || !compounding) return;
+                    setSavingCompounding(true);
+                    try {
+                      await botsService.updateCompounding(sub, compounding);
+                      showAlert('Saved', 'Compounding settings updated.');
+                    } catch { showAlert('Error', 'Failed to save compounding settings.'); }
+                    finally { setSavingCompounding(false); }
                   } else {
                     await handleSaveUserConfig();
+                    setSettingsModalVisible(false);
                   }
-                  setSettingsModalVisible(false);
                 }}>
-                {savingConfig
+                {(savingConfig || savingCompounding)
                   ? <ActivityIndicator size="small" color="#FFFFFF" />
-                  : <Text style={modalStyles.confirmText}>Save Settings</Text>}
+                  : <Text style={modalStyles.confirmText}>{settingsModalTab === 'compounding' ? 'Save Compounding' : 'Save Settings'}</Text>}
               </TouchableOpacity>
             </View>
           </View>
