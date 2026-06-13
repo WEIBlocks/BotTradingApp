@@ -555,6 +555,142 @@ function evaluateRules(conditions: RuleCondition[], snap: IndicatorSnapshot, pre
   return { matched: score >= 0.5, score, matchedConditions };
 }
 
+// ─── Agentic Position Monitor ───────────────────────────────────────────────
+
+// Rate-limit: one monitor AI call per position per 5 minutes (separate from entry rate-limit)
+const positionMonitorCache: Map<string, number> = new Map(); // positionId → last call timestamp
+const MONITOR_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+const POSITION_MONITOR_SYSTEM = `You are an expert live trade manager. A position is currently open and you must decide what to do right now.
+
+Your goal: maximise profit, protect capital, and cut losses early when the market turns against you.
+
+ACTIONS available:
+- HOLD         — market is still favourable, keep the position open
+- EXIT_EARLY   — exit immediately, market has turned or risk is too high
+- TIGHTEN_SL   — position is winning, move stop-loss up to lock in gains
+- RIDE_WINNER  — strong momentum, relax any premature TP so this can run further
+
+DECISION RULES:
+- EXIT_EARLY when: RSI diverges (price up but RSI down), MACD histogram shrinks fast, regime flips bearish, or BTC is crashing (< -3% 24h). Also exit if P&L < -50% of stop-loss without recovery momentum.
+- TIGHTEN_SL when: P&L > 2% AND position held > 10 min AND indicators are still bullish. Set new SL at 50% of peak gain to lock in profits.
+- RIDE_WINNER when: strong trend, RSI 55-75, MACD expanding, BTC stable/up. Do NOT exit early — let it run.
+- HOLD by default when unsure — don't over-trade.
+
+LEARNING CONTEXT: Consider the bot's historical win/loss patterns provided. If similar setups previously led to reversals, apply EXIT_EARLY or TIGHTEN_SL earlier.
+
+Return ONLY valid JSON:
+{"action":"HOLD"|"EXIT_EARLY"|"TIGHTEN_SL"|"RIDE_WINNER","confidence":0-100,"newSlPercent":null|number,"reasoning":"Short explanation of WHY"}
+newSlPercent: only set for TIGHTEN_SL — the new SL distance from entry in percent (must be tighter than current SL).`;
+
+interface MonitorDecision {
+  action: 'HOLD' | 'EXIT_EARLY' | 'TIGHTEN_SL' | 'RIDE_WINNER';
+  confidence: number;
+  newSlPercent: number | null;
+  reasoning: string;
+  tokens: number;
+}
+
+async function monitorOpenPosition(opts: {
+  positionId: string;
+  botId: string;
+  symbol: string;
+  entryPrice: number;
+  currentPrice: number;
+  positionPnlPct: number;
+  stopLossPercent: number;
+  snap: IndicatorSnapshot;
+  botPrompt: string;
+  strategy: string;
+}): Promise<MonitorDecision | null> {
+  // Rate-limit: only call AI every 5 minutes per position
+  const lastCall = positionMonitorCache.get(opts.positionId) ?? 0;
+  if (Date.now() - lastCall < MONITOR_INTERVAL_MS) return null;
+  positionMonitorCache.set(opts.positionId, Date.now());
+
+  // Get peak P&L from trailing stop Redis key
+  let peakPnl = opts.positionPnlPct;
+  try {
+    const peakStr = await redisConnection.get(`trailing:${opts.positionId}`);
+    if (peakStr) peakPnl = Math.max(opts.positionPnlPct, parseFloat(peakStr));
+  } catch {}
+
+  // Get bot's learning summary
+  let learnings = '';
+  try {
+    learnings = (await redisConnection.get(`bot:learnings:${opts.botId}`)) ?? '';
+  } catch {}
+
+  // Get BTC 24h change for correlation context
+  let btcChange = '';
+  try {
+    const btcPrice = await getPrice('BTC/USDT');
+    if (btcPrice?.change24h != null) {
+      btcChange = `BTC 24h change: ${btcPrice.change24h >= 0 ? '+' : ''}${btcPrice.change24h.toFixed(2)}%`;
+    }
+  } catch {}
+
+  // Calculate hold time in minutes
+  const snap = opts.snap;
+  const regimeInfo = snap.regime
+    ? `Regime: ${snap.regime.trend.toUpperCase()}, volatility: ${snap.regime.volatility}, ADX-proxy: ${snap.regime.adxProxy.toFixed(0)}, ATR: ${snap.regime.atrProxy?.toFixed(3) ?? 'N/A'}%/hr`
+    : 'Regime: unknown';
+
+  const prompt = `OPEN POSITION — ${opts.symbol}
+Entry: $${opts.entryPrice.toFixed(4)} | Current: $${opts.currentPrice.toFixed(4)}
+P&L: ${opts.positionPnlPct >= 0 ? '+' : ''}${opts.positionPnlPct.toFixed(2)}% | Peak P&L: +${peakPnl.toFixed(2)}%
+Current SL: -${opts.stopLossPercent.toFixed(1)}%
+
+Indicators: RSI ${snap.rsi?.toFixed(1) ?? 'N/A'} | EMA20 ${snap.ema20?.toFixed(2) ?? 'N/A'} | MACD hist ${snap.macd?.histogram.toFixed(4) ?? 'N/A'}
+BB: ${snap.bollingerBands ? `${snap.bollingerBands.lower.toFixed(2)}-${snap.bollingerBands.upper.toFixed(2)}` : 'N/A'} | 24h: $${snap.high24h.toFixed(2)}/$${snap.low24h.toFixed(2)}
+${regimeInfo}
+${btcChange}
+
+Bot strategy: ${opts.strategy || 'Balanced'}
+Bot instructions: ${opts.botPrompt?.slice(0, 200) || 'Standard approach'}
+${learnings ? `Historical performance: ${learnings.slice(0, 300)}` : ''}
+
+Decide what to do with this open position RIGHT NOW.`;
+
+  try {
+    const response = await engineLLMChat(
+      [{ role: 'user', content: prompt }],
+      { system: POSITION_MONITOR_SYSTEM, maxTokens: 350, temperature: 0.15, cacheSystem: true },
+    );
+    let text = response.text;
+    const cb = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (cb) text = cb[1].trim();
+    const jm = text.match(/\{[\s\S]*\}/);
+    if (!jm) throw new Error('No JSON in monitor response');
+    const result = JSON.parse(jm[0]);
+    const validActions = ['HOLD', 'EXIT_EARLY', 'TIGHTEN_SL', 'RIDE_WINNER'];
+    const tokens = (response.usage?.inputTokens ?? 0) + (response.usage?.outputTokens ?? 0);
+    return {
+      action: (validActions.includes(result.action) ? result.action : 'HOLD') as MonitorDecision['action'],
+      confidence: Math.min(100, Math.max(0, result.confidence ?? 50)),
+      newSlPercent: result.newSlPercent != null ? Math.abs(parseFloat(result.newSlPercent)) : null,
+      reasoning: result.reasoning || 'Monitor decision',
+      tokens,
+    };
+  } catch (err) {
+    console.warn('[BotEngine] Position monitor AI failed:', (err as Error).message);
+    positionMonitorCache.delete(opts.positionId); // allow retry next tick
+    return null;
+  }
+}
+
+// Write a post-trade note to Redis for the trainer to pick up in next cycle
+async function writePostTradeNote(botId: string, symbol: string, note: string): Promise<void> {
+  try {
+    const key = `bot:posttrade:${botId}`;
+    const existing = await redisConnection.get(key);
+    const notes: string[] = existing ? JSON.parse(existing) : [];
+    notes.unshift(`[${symbol}] ${note}`);
+    // Keep last 10 post-trade notes
+    await redisConnection.set(key, JSON.stringify(notes.slice(0, 10)), 'EX', 86400 * 3);
+  } catch {}
+}
+
 // ─── AI Decision ────────────────────────────────────────────────────────────
 
 const AI_DECISION_SYSTEM = `You are a trading decision engine. Given market data and strategy, decide BUY, SELL, or HOLD.
@@ -765,6 +901,62 @@ export async function processSymbol(opts: {
       }
     }
 
+    // 4b. Agentic position monitor — AI actively manages the open position mid-trade
+    // Only runs in hybrid/full_ai mode; skipped for rules_only strategies.
+    // Rate-limited: one AI call per position per 5 minutes.
+    const isRuleOnly = isRuleOnlyStrategy(strategy) || (opts.aiMode === 'rules_only');
+    if (existingPos && positionPnlPct !== null && !isRuleOnly && (opts.aiMode === 'hybrid' || opts.aiMode === 'full_ai')) {
+      try {
+        const monitorResult = await monitorOpenPosition({
+          positionId: existingPos.id,
+          botId,
+          symbol,
+          entryPrice: parseFloat(existingPos.entryPrice),
+          currentPrice: priceData.price,
+          positionPnlPct,
+          stopLossPercent: rules.stopLossPercent,
+          snap,
+          botPrompt: opts.botPrompt,
+          strategy,
+        });
+
+        if (monitorResult && monitorResult.action !== 'HOLD') {
+          if (monitorResult.action === 'EXIT_EARLY') {
+            const closed = await closePosition(existingPos.id, priceData.price, `AI early exit: ${monitorResult.reasoning}`, undefined, opts.feeRate ?? 0);
+            await redisConnection.del(`trailing:${existingPos.id}`).catch(() => {});
+            positionMonitorCache.delete(existingPos.id);
+            const pnlStr = closed ? ` | P&L: ${closed.pnlPercentNum >= 0 ? '+' : ''}${closed.pnlPercentNum.toFixed(2)}% ($${closed.pnlNum.toFixed(2)})` : '';
+            await writePostTradeNote(botId, symbol, `EXIT_EARLY at ${positionPnlPct.toFixed(2)}% — ${monitorResult.reasoning}`);
+            const exitDecision: EngineDecision = {
+              action: 'SELL', confidence: monitorResult.confidence,
+              reasoning: `[AI Monitor] EXIT_EARLY: ${monitorResult.reasoning}${pnlStr}`,
+              indicators: formatIndicators(snap), aiCalled: true, tokensCost: monitorResult.tokens,
+              price: priceData.price, symbol, sizePercent: 100,
+              pnl: closed?.pnlNum, pnlPercent: closed?.pnlPercentNum,
+            };
+            await logDecision(exitDecision, opts);
+            return exitDecision;
+
+          } else if (monitorResult.action === 'TIGHTEN_SL' && monitorResult.newSlPercent != null) {
+            // Only tighten SL if the new value is actually tighter (smaller distance from entry)
+            if (monitorResult.newSlPercent < rules.stopLossPercent) {
+              const newSlPrice = parseFloat(existingPos.entryPrice) * (1 - monitorResult.newSlPercent / 100);
+              await db.update(botPositions).set({ stopLoss: newSlPrice.toFixed(8) }).where(eq(botPositions.id, existingPos.id));
+              rules.stopLossPercent = monitorResult.newSlPercent; // also update in-memory for this tick
+              console.log(`[BotEngine] [${botId}] TIGHTEN_SL on ${symbol}: ${rules.stopLossPercent.toFixed(1)}% → ${monitorResult.newSlPercent.toFixed(1)}% (P&L: +${positionPnlPct.toFixed(2)}%)`);
+            }
+
+          } else if (monitorResult.action === 'RIDE_WINNER') {
+            // Extend safety TP cap — log the intent but no structural change needed;
+            // full_ai already skips TP enforcement; for hybrid we log so human knows
+            console.log(`[BotEngine] [${botId}] RIDE_WINNER on ${symbol}: AI says ride momentum (P&L: +${positionPnlPct.toFixed(2)}%)`);
+          }
+        }
+      } catch (monitorErr) {
+        console.warn('[BotEngine] Position monitor error:', (monitorErr as Error).message);
+      }
+    }
+
     // 5. Stop-loss / Take-profit (safety net — always fires regardless of aiMode)
     // In full_ai mode, only hard stop-loss fires as emergency protection.
     // Take-profit is left to AI so it can ride winners longer when confident.
@@ -772,6 +964,8 @@ export async function processSymbol(opts: {
     if (existingPos && positionPnlPct !== null) {
       if (positionPnlPct <= -rules.stopLossPercent) {
         const closed = await closePosition(existingPos.id, priceData.price, `Stop loss at ${positionPnlPct.toFixed(2)}%`, undefined, opts.feeRate ?? 0);
+        positionMonitorCache.delete(existingPos.id);
+        await writePostTradeNote(botId, symbol, `SL_HIT at ${positionPnlPct.toFixed(2)}% — SL was -${rules.stopLossPercent.toFixed(1)}%`);
         const decision: EngineDecision = {
           action: 'SELL', confidence: 100,
           reasoning: `Stop loss triggered at ${positionPnlPct.toFixed(2)}% (limit: -${rules.stopLossPercent}%)`,
@@ -786,6 +980,8 @@ export async function processSymbol(opts: {
       // Only enforce hard TP when it's 2x the target as an absolute safety cap.
       if (!isFullAI && positionPnlPct >= rules.takeProfitPercent) {
         const closed = await closePosition(existingPos.id, priceData.price, `Take profit at +${positionPnlPct.toFixed(2)}%`, undefined, opts.feeRate ?? 0);
+        positionMonitorCache.delete(existingPos.id);
+        await writePostTradeNote(botId, symbol, `TP_HIT at +${positionPnlPct.toFixed(2)}% — TP was +${rules.takeProfitPercent.toFixed(1)}%`);
         const decision: EngineDecision = {
           action: 'SELL', confidence: 100,
           reasoning: `Take profit at +${positionPnlPct.toFixed(2)}% (target: +${rules.takeProfitPercent}%)`,
@@ -799,6 +995,8 @@ export async function processSymbol(opts: {
       // Hard safety cap: even full_ai gets force-closed at 2x TP target
       if (isFullAI && positionPnlPct >= rules.takeProfitPercent * 2) {
         const closed = await closePosition(existingPos.id, priceData.price, `Hard safety TP at +${positionPnlPct.toFixed(2)}%`, undefined, opts.feeRate ?? 0);
+        positionMonitorCache.delete(existingPos.id);
+        await writePostTradeNote(botId, symbol, `TP_SAFETY at +${positionPnlPct.toFixed(2)}% — AI was riding winner past 2x TP`);
         const decision: EngineDecision = {
           action: 'SELL', confidence: 100,
           reasoning: `Safety take-profit at +${positionPnlPct.toFixed(2)}% (2x target: +${(rules.takeProfitPercent * 2).toFixed(1)}%). AI was riding this winner.`,
@@ -840,6 +1038,8 @@ export async function processSymbol(opts: {
           if (trailingTriggered) {
             const closed = await closePosition(existingPos.id, priceData.price, trailingReason, undefined, opts.feeRate ?? 0);
             await redisConnection.del(trailingKey).catch(() => {});
+            positionMonitorCache.delete(existingPos.id);
+            await writePostTradeNote(botId, symbol, `TRAILING_STOP at ${positionPnlPct.toFixed(2)}%, peak was +${peak.toFixed(2)}%`);
             const decision: EngineDecision = {
               action: 'SELL', confidence: 100,
               reasoning: trailingReason,
@@ -1115,9 +1315,11 @@ export async function processSymbol(opts: {
     if (decision.action === 'SELL' && existingPos) {
       const posAmount = parseFloat(existingPos.amount);
       const closed = await closePosition(existingPos.id, priceData.price, decision.reasoning, undefined, opts.feeRate ?? 0);
+      positionMonitorCache.delete(existingPos.id);
       if (closed) {
         decision.pnl = closed.pnlNum;
         decision.pnlPercent = closed.pnlPercentNum;
+        await writePostTradeNote(botId, symbol, `${closed.pnlPercentNum >= 0 ? 'WIN' : 'LOSS'} ${closed.pnlPercentNum >= 0 ? '+' : ''}${closed.pnlPercentNum.toFixed(2)}% — ${decision.reasoning.slice(0, 120)}`);
         decision.tradeAmount = posAmount;
         decision.tradeValue = posAmount * priceData.price;
         decision.reasoning += ` | P&L: ${closed.pnlPercentNum >= 0 ? '+' : ''}${closed.pnlPercentNum.toFixed(2)}% ($${closed.pnlNum.toFixed(2)})`;
@@ -1447,7 +1649,19 @@ export async function summarizeSessionLearnings(botId: string): Promise<string> 
     ? `Profitable hours: ${profitableHours[0]}-${profitableHours[profitableHours.length - 1]} UTC.`
     : '';
 
-  const summary = `Total: ${allClosed.length} trades, ${wins.length}W/${losses.length}L (${winRate.toFixed(0)}% win rate). Avg win: ${avgWin >= 0 ? '+' : ''}${avgWin.toFixed(1)}%, Avg loss: ${avgLoss.toFixed(1)}%. Best indicator: ${bestIndicator ? `${bestIndicator[0]} (${bestIndicator[1]} wins)` : 'N/A'}. Worst: ${worstIndicator ? `${worstIndicator[0]} (${worstIndicator[1]} losses)` : 'N/A'}. ${hoursStr}`;
+  // Include recent post-trade AI monitor notes (context about HOW trades closed)
+  let postTradeContext = '';
+  try {
+    const postTradeRaw = await redisConnection.get(`bot:posttrade:${botId}`);
+    if (postTradeRaw) {
+      const notes: string[] = JSON.parse(postTradeRaw);
+      if (notes.length > 0) {
+        postTradeContext = ` Recent trade outcomes: ${notes.slice(0, 5).join(' | ')}.`;
+      }
+    }
+  } catch {}
+
+  const summary = `Total: ${allClosed.length} trades, ${wins.length}W/${losses.length}L (${winRate.toFixed(0)}% win rate). Avg win: ${avgWin >= 0 ? '+' : ''}${avgWin.toFixed(1)}%, Avg loss: ${avgLoss.toFixed(1)}%. Best indicator: ${bestIndicator ? `${bestIndicator[0]} (${bestIndicator[1]} wins)` : 'N/A'}. Worst: ${worstIndicator ? `${worstIndicator[0]} (${worstIndicator[1]} losses)` : 'N/A'}. ${hoursStr}${postTradeContext}`;
 
   await redisConnection.set(`bot:learnings:${botId}`, summary, 'EX', 86400);
   return summary;

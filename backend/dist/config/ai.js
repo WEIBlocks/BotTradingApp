@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from '@google/genai';
 import OpenAI from 'openai';
 import fs from 'fs';
 import path from 'path';
@@ -206,8 +206,21 @@ async function callGemini(messages, opts, model) {
             systemInstruction: systemInstruction || undefined,
             maxOutputTokens: opts.maxTokens ?? 4096,
             temperature: opts.temperature,
+            // Disable safety filters for financial analysis — trading terms can false-positive
+            safetySettings: [
+                { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+                { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+            ],
         },
     });
+    // Check for safety stop or recitation
+    const candidate = response.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+    if (finishReason && finishReason !== 'STOP' && finishReason !== 'MAX_TOKENS') {
+        console.warn(`[AI] Gemini finish reason: ${finishReason} (may indicate truncated response)`);
+    }
     const text = response.text ?? '';
     return {
         text,

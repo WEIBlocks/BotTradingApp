@@ -1,37 +1,84 @@
 /**
  * Auto-Trainer Job
  *
- * Runs every 30 minutes:
- * 1. Checks all active bots for performance drift → triggers trainer agent
- * 2. FIX 3: Checks pending trainer suggestions whose shadow validation window
- *    has expired → compares post-change performance vs pre-change baseline →
- *    auto-promotes if improved, discards if not (for AUTO mode bots)
+ * Two independent timers:
+ *
+ * 1. ANALYSIS TIMER — every 30 min
+ *    For each bot with training ON:
+ *    - Skip if already retraining or shadow_validating
+ *    - Check triggers (first-time, schedule, performance drop)
+ *    - If triggered → run trainer agent → store pending in Redis
+ *
+ * 2. APPLY TIMER — every 10 min
+ *    For each bot with AUTO mode that has a pending improvement:
+ *    - Check if 30 min have passed since the pending was stored
+ *    - If yes → promote to live (update bot prompt + config)
+ *    - For SUGGESTIONS mode → just log that it's ready for creator review
+ *    - Shadow validation: compare WR/PF before vs after → discard if no improvement
  */
 import { db } from '../config/database.js';
 import { bots } from '../db/schema/bots.js';
 import { eq } from 'drizzle-orm';
 import { redisConnection } from '../config/queue.js';
-import { runAutoTrainerCheck, DEFAULT_TRAINER_CONFIG, analyzeBotPerformance, promotePendingChanges, } from '../modules/trainer/trainer.service.js';
-let intervalHandle = null;
-// ─── FIX 3: Shadow Validation Checker ────────────────────────────────────────
-// For every bot that has a pending trainer suggestion, check if the validation
-// deadline has passed. If so, compare current performance vs the stored baseline
-// (win rate + profit factor measured at the time the suggestion was generated).
-// Auto-promote for AUTO mode bots if performance improved; discard if not.
-// For SUGGESTIONS mode: just annotate the insight log with the comparison result
-// so the creator can make an informed decision.
-async function checkShadowValidations() {
+import { runAutoTrainerCheck, analyzeBotPerformance, promotePendingChanges, } from '../modules/trainer/trainer.service.js';
+let analysisTimer = null;
+let applyTimer = null;
+// ─── Timer 1: Analysis — every 30 min ────────────────────────────────────────
+async function runAnalysisCycle() {
     try {
-        const allBots = await db.select({
-            id: bots.id,
-            creatorId: bots.creatorId,
-            trainerConfig: bots.trainerConfig,
-        }).from(bots).where(eq(bots.status, 'approved'));
+        const allBots = await db
+            .select({ id: bots.id, trainerConfig: bots.trainerConfig })
+            .from(bots)
+            .where(eq(bots.status, 'approved'));
+        const activeBots = allBots.filter(bot => {
+            const cfg = bot.trainerConfig;
+            if (!cfg)
+                return false;
+            const mode = cfg.trainingMode ?? (cfg.autoRetrain ? 'suggestions' : 'off');
+            return mode !== 'off';
+        });
+        if (activeBots.length === 0)
+            return;
+        let fired = 0;
+        for (const bot of activeBots) {
+            try {
+                const r = await runAutoTrainerCheck(bot.id);
+                if (r.fired)
+                    fired++;
+            }
+            catch (err) {
+                console.error(`[AutoTrainer/Analysis] bot ${bot.id}:`, err.message);
+            }
+        }
+        if (fired > 0 || activeBots.length > 0) {
+            console.log(`[AutoTrainer/Analysis] ${activeBots.length} active bot(s), ${fired} cycle(s) fired`);
+        }
+    }
+    catch (err) {
+        console.error('[AutoTrainer/Analysis] Batch error:', err.message);
+    }
+}
+// ─── Timer 2: Apply pending — every 10 min ───────────────────────────────────
+// Separate from analysis so apply doesn't need to wait a full 30-min cycle.
+// A training improvement generated at minute 0 will be applied at minute 30-40
+// (whenever this timer fires after the 30-min shadow window closes).
+const SHADOW_WINDOW_MS = 30 * 60 * 1000; // 30 minutes
+async function runApplyCycle() {
+    try {
+        const allBots = await db
+            .select({ id: bots.id, creatorId: bots.creatorId, trainerConfig: bots.trainerConfig })
+            .from(bots)
+            .where(eq(bots.status, 'approved'));
         for (const bot of allBots) {
-            const config = (bot.trainerConfig ?? DEFAULT_TRAINER_CONFIG);
-            if (!config.pendingPrompt && !config.pendingConfig)
+            const cfg = bot.trainerConfig;
+            if (!cfg)
                 continue;
-            // Check if there is a pending validation entry in Redis
+            const mode = cfg.trainingMode ?? (cfg.autoRetrain ? 'suggestions' : 'off');
+            if (mode === 'off')
+                continue;
+            if (!cfg.pendingPrompt && !cfg.pendingConfig)
+                continue;
+            // Load Redis state for this pending improvement
             let pendingRaw = null;
             try {
                 pendingRaw = await redisConnection.get(`trainer:pending:${bot.id}`);
@@ -39,8 +86,20 @@ async function checkShadowValidations() {
             catch {
                 continue;
             }
-            if (!pendingRaw)
+            const now = Date.now();
+            if (!pendingRaw) {
+                // Redis TTL expired but DB still has pending — apply immediately (stale state)
+                if (mode === 'auto') {
+                    try {
+                        await promotePendingChanges(bot.id, bot.creatorId);
+                        console.log(`[AutoTrainer/Apply] AUTO — applied stale pending for bot ${bot.id} (Redis key gone)`);
+                    }
+                    catch (err) {
+                        console.error(`[AutoTrainer/Apply] Promote failed for ${bot.id}:`, err.message);
+                    }
+                }
                 continue;
+            }
             let pending;
             try {
                 pending = JSON.parse(pendingRaw);
@@ -48,115 +107,134 @@ async function checkShadowValidations() {
             catch {
                 continue;
             }
-            // Not past deadline yet — skip
-            if (new Date(pending.validationDeadlineAt).getTime() > Date.now())
+            const startedAt = new Date(pending.startedAt).getTime();
+            const elapsed = now - startedAt;
+            // Shadow window not elapsed yet — skip
+            if (elapsed < SHADOW_WINDOW_MS)
                 continue;
-            // Deadline has passed — compare current performance vs baseline
-            let currentPerf;
-            try {
-                currentPerf = await analyzeBotPerformance(bot.id);
-            }
-            catch {
-                continue;
-            }
-            const winRateDelta = currentPerf.winRate - pending.baselineWinRate;
-            const pfDelta = currentPerf.profitFactor - pending.baselinePF;
-            const improved = winRateDelta > 2 || pfDelta > 0.1 || (winRateDelta > 0 && pfDelta > 0);
-            const mode = config.trainingMode
-                ?? (config.autoRetrain ? 'suggestions' : 'off');
-            const validationMsg = improved
-                ? `Shadow validation PASSED (${pending.validationDeadlineAt.slice(0, 10)}): WR ${pending.baselineWinRate.toFixed(1)}%→${currentPerf.winRate.toFixed(1)}%, PF ${pending.baselinePF.toFixed(2)}→${currentPerf.profitFactor.toFixed(2)}`
-                : `Shadow validation FAILED (${pending.validationDeadlineAt.slice(0, 10)}): WR ${pending.baselineWinRate.toFixed(1)}%→${currentPerf.winRate.toFixed(1)}%, PF ${pending.baselinePF.toFixed(2)}→${currentPerf.profitFactor.toFixed(2)} — no improvement detected`;
-            console.log(`[AutoTrainer] Shadow validation for bot ${bot.id}: ${improved ? 'PASSED' : 'FAILED'}`);
-            if (mode === 'auto' && improved) {
-                // AUTO + improved → promote immediately
+            // ── Shadow validation: check if performance improved ──────────────────
+            // We compare WR + PF at decision time vs now.
+            // Only discard if there's clear evidence of decline (not just stale/no-trades).
+            let shouldApply = true;
+            let validationNote = '';
+            if (pending.baselineWinRate != null && pending.baselinePF != null) {
                 try {
-                    await promotePendingChanges(bot.id, bot.creatorId);
-                    console.log(`[AutoTrainer] Auto-promoted trainer changes for bot ${bot.id} after shadow validation`);
+                    const currentPerf = await analyzeBotPerformance(bot.id);
+                    const wrDelta = currentPerf.winRate - pending.baselineWinRate;
+                    const pfDelta = currentPerf.profitFactor - pending.baselinePF;
+                    // Need at least 5 new trades since the decision to have a meaningful comparison
+                    // Without enough new trades, we default to applying (give it a chance)
+                    const hasEnoughNewData = currentPerf.totalTrades >= 5;
+                    if (hasEnoughNewData) {
+                        const declined = wrDelta < -10 || pfDelta < -0.3;
+                        if (declined) {
+                            shouldApply = false;
+                            validationNote = `Shadow validation FAILED: WR ${pending.baselineWinRate.toFixed(1)}%→${currentPerf.winRate.toFixed(1)}% (${wrDelta > 0 ? '+' : ''}${wrDelta.toFixed(1)}pts), PF ${pending.baselinePF.toFixed(2)}→${currentPerf.profitFactor.toFixed(2)}`;
+                        }
+                        else {
+                            validationNote = `Shadow validation OK: WR ${pending.baselineWinRate.toFixed(1)}%→${currentPerf.winRate.toFixed(1)}%, PF ${pending.baselinePF.toFixed(2)}→${currentPerf.profitFactor.toFixed(2)}`;
+                        }
+                    }
+                    else {
+                        validationNote = `Applied after 30-min shadow period (${currentPerf.totalTrades} trades — not enough for validation comparison yet)`;
+                    }
                 }
-                catch (err) {
-                    console.error(`[AutoTrainer] Auto-promote failed for ${bot.id}:`, err.message);
-                }
+                catch { /* validation failed — still apply */ }
             }
-            else if (!improved) {
-                // Not improved — discard pending changes regardless of mode
+            if (!shouldApply) {
+                // Discard the pending improvement — log it
+                console.log(`[AutoTrainer/Apply] Shadow validation FAILED for bot ${bot.id} — discarding pending`);
                 const discardInsight = {
                     ts: new Date().toISOString(),
                     type: 'warning',
-                    message: validationMsg + ' — pending suggestion discarded.',
+                    message: `[${new Date().toISOString().slice(0, 16).replace('T', ' ')}] ⚠ ${validationNote} — pending improvement discarded, keeping current strategy.`,
                 };
+                const freshBot = await db.select({ trainerConfig: bots.trainerConfig }).from(bots).where(eq(bots.id, bot.id)).limit(1);
+                const freshCfg = (freshBot[0]?.trainerConfig ?? cfg);
                 await db.update(bots).set({
                     trainerConfig: {
-                        ...config,
+                        ...freshCfg,
                         trainerStatus: 'monitoring',
                         pendingPrompt: null,
                         pendingConfig: null,
-                        insights: [discardInsight, ...(config.insights ?? [])].slice(0, 30),
+                        insights: [discardInsight, ...(freshCfg.insights ?? [])].slice(0, 30),
                     },
                     updatedAt: new Date(),
                 }).where(eq(bots.id, bot.id));
+                await redisConnection.del(`trainer:pending:${bot.id}`).catch(() => { });
+                continue;
             }
-            else {
-                // SUGGESTIONS mode + improved → add validation result to log so creator sees it
-                const resultInsight = {
+            if (mode === 'auto') {
+                // AUTO mode — apply now
+                try {
+                    await promotePendingChanges(bot.id, bot.creatorId);
+                    console.log(`[AutoTrainer/Apply] AUTO — applied pending for bot ${bot.id}: ${validationNote}`);
+                    // Add apply insight to log
+                    const applyInsight = {
+                        ts: new Date().toISOString(),
+                        type: 'improvement',
+                        message: `[${new Date().toISOString().slice(0, 16).replace('T', ' ')}] ✅ [AUTO] Trainer improvements applied after 30-min shadow period. ${validationNote}`,
+                        decision: 'changed',
+                    };
+                    const freshBot = await db.select({ trainerConfig: bots.trainerConfig }).from(bots).where(eq(bots.id, bot.id)).limit(1);
+                    const freshCfg = (freshBot[0]?.trainerConfig ?? cfg);
+                    await db.update(bots).set({
+                        trainerConfig: {
+                            ...freshCfg,
+                            insights: [applyInsight, ...(freshCfg.insights ?? [])].slice(0, 30),
+                        },
+                        updatedAt: new Date(),
+                    }).where(eq(bots.id, bot.id));
+                    await redisConnection.del(`trainer:pending:${bot.id}`).catch(() => { });
+                }
+                catch (err) {
+                    console.error(`[AutoTrainer/Apply] Promote failed for ${bot.id}:`, err.message);
+                }
+            }
+            else if (mode === 'suggestions') {
+                // SUGGESTIONS mode — just notify creator it's ready (they must manually apply)
+                console.log(`[AutoTrainer/Apply] SUGGESTIONS — 30-min shadow done for bot ${bot.id}, notifying creator`);
+                const readyInsight = {
                     ts: new Date().toISOString(),
                     type: 'improvement',
-                    message: validationMsg + ' — ready to apply.',
+                    message: `[${new Date().toISOString().slice(0, 16).replace('T', ' ')}] 💡 Trainer suggestion ready to apply. ${validationNote} Open the trainer panel to review and apply.`,
+                    action: 'Review and apply in trainer panel',
                 };
+                const freshBot = await db.select({ trainerConfig: bots.trainerConfig }).from(bots).where(eq(bots.id, bot.id)).limit(1);
+                const freshCfg = (freshBot[0]?.trainerConfig ?? cfg);
                 await db.update(bots).set({
                     trainerConfig: {
-                        ...config,
-                        insights: [resultInsight, ...(config.insights ?? [])].slice(0, 30),
+                        ...freshCfg,
+                        trainerStatus: 'monitoring',
+                        insights: [readyInsight, ...(freshCfg.insights ?? [])].slice(0, 30),
                     },
                     updatedAt: new Date(),
                 }).where(eq(bots.id, bot.id));
+                // Keep Redis key alive until creator applies or discards manually — don't delete
             }
-            // Clean up Redis key — validation is done
-            await redisConnection.del(`trainer:pending:${bot.id}`).catch(() => { });
         }
     }
     catch (err) {
-        console.error('[AutoTrainer] Shadow validation check error:', err.message);
+        console.error('[AutoTrainer/Apply] Batch error:', err.message);
     }
 }
-// ─── Performance Check Loop ───────────────────────────────────────────────────
-async function runTrainerChecks() {
-    try {
-        const allBots = await db.select({ id: bots.id, trainerConfig: bots.trainerConfig })
-            .from(bots)
-            .where(eq(bots.status, 'approved'));
-        let checked = 0;
-        for (const bot of allBots) {
-            const config = (bot.trainerConfig ?? DEFAULT_TRAINER_CONFIG);
-            const mode = config.trainingMode ?? (config.autoRetrain ? 'suggestions' : 'off');
-            if (mode === 'off')
-                continue;
-            try {
-                await runAutoTrainerCheck(bot.id);
-                checked++;
-            }
-            catch (err) {
-                console.error(`[AutoTrainer] Check failed for bot ${bot.id}:`, err.message);
-            }
-        }
-        if (checked > 0) {
-            console.log(`[AutoTrainer] Checked ${checked} bots`);
-        }
-        // Run shadow validation check after performance checks complete
-        await checkShadowValidations();
-    }
-    catch (err) {
-        console.error('[AutoTrainer] Batch check error:', err.message);
-    }
-}
+// ─── Start / Stop ─────────────────────────────────────────────────────────────
 export async function startAutoTrainerJob() {
-    setTimeout(runTrainerChecks, 15_000);
-    intervalHandle = setInterval(runTrainerChecks, 30 * 60 * 1000);
-    console.log('[AutoTrainer] Auto-trainer job started (30min interval, shadow validation enabled)');
+    // Fire analysis 20s after startup (give server time to fully initialize)
+    setTimeout(runAnalysisCycle, 20_000);
+    // Then every 30 min
+    analysisTimer = setInterval(runAnalysisCycle, 30 * 60 * 1000);
+    // Apply timer: every 10 min — catches pending improvements as soon as 30-min window closes
+    applyTimer = setInterval(runApplyCycle, 10 * 60 * 1000);
+    console.log('[AutoTrainer] Started — analysis every 30min, apply-check every 10min');
 }
 export async function stopAutoTrainerJob() {
-    if (intervalHandle) {
-        clearInterval(intervalHandle);
-        intervalHandle = null;
+    if (analysisTimer) {
+        clearInterval(analysisTimer);
+        analysisTimer = null;
+    }
+    if (applyTimer) {
+        clearInterval(applyTimer);
+        applyTimer = null;
     }
 }

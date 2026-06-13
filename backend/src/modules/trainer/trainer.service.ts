@@ -447,6 +447,18 @@ export async function runTrainerAgent(botId: string): Promise<{
     .orderBy(desc(botDecisions.createdAt))
     .limit(20);
 
+  // Fetch post-trade notes written by the agentic monitor (EXIT_EARLY, SL hits, TP hits, wins/losses)
+  let postTradeNotes = '';
+  try {
+    const ptRaw = await redisConnection.get(`bot:posttrade:${botId}`);
+    if (ptRaw) {
+      const notes: string[] = JSON.parse(ptRaw);
+      if (notes.length > 0) {
+        postTradeNotes = notes.slice(0, 8).join('\n  ');
+      }
+    }
+  } catch {}
+
   // Build full chunk details for prompt
   const chunkDetails = chunks.map(c => `
 === ${c.chunkLabel} ===
@@ -485,7 +497,7 @@ ${chunkDetails}
 
 RECENT BOT DECISIONS (last ${recentDecisions.length}):
 ${recentDecisions.slice(0, 8).map(d => `${d.action}(conf:${d.confidence}) ${d.symbol}: ${d.reasoning?.slice(0, 60)}`).join('\n')}
-
+${postTradeNotes ? `\nAGENTIC MONITOR TRADE NOTES (how positions actually closed — EXIT_EARLY, SL hits, trailing stops):\n  ${postTradeNotes}` : ''}
 TRAINER CYCLE: #${cycleNumber}
 TRIGGER REASON: ${perf.retrainReason ?? 'Scheduled analysis'}
 
