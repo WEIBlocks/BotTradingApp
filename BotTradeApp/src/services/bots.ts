@@ -324,9 +324,13 @@ export interface CompoundingSettings {
 
 export interface TrainerInsight {
   ts: string;
-  type: 'info' | 'warning' | 'improvement' | 'retrain';
+  type: 'info' | 'warning' | 'improvement' | 'retrain' | 'decision' | 'market';
   message: string;
   action?: string;
+  decision?: 'changed' | 'kept' | 'adjusted' | 'skipped';
+  changedFields?: string[];
+  beforeValues?: Record<string, any>;
+  afterValues?: Record<string, any>;
 }
 
 export interface TrainerConfig {
@@ -364,6 +368,9 @@ export interface BotPerformanceSnapshot {
   trainerScore: number;
   needsRetrain: boolean;
   retrainReason: string | null;
+  trendDirection?: 'improving' | 'declining' | 'stable';
+  recentPnlTrend?: number;
+  profitStreak?: number;
 }
 
 export interface TrainerStatusResponse {

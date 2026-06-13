@@ -1518,7 +1518,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                               }} />
                               <View style={{flex: 1}}>
                                 <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.7)', lineHeight: 18}}>{ins.message}</Text>
-                                <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>{new Date(ins.ts).toLocaleDateString()}</Text>
+                                <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>{(() => { const d = new Date(ins.ts); const pad = (n: number) => String(n).padStart(2,'0'); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; })()}</Text>
                               </View>
                             </View>
                           ))}
@@ -2099,7 +2099,7 @@ export default function BotDetailsScreen({navigation, route}: Props) {
                                 }} />
                                 <View style={{flex: 1}}>
                                   <Text style={{fontFamily: 'Inter-Regular', fontSize: 12, color: 'rgba(255,255,255,0.75)', lineHeight: 18}}>{ins.message}</Text>
-                                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>{new Date(ins.ts).toLocaleDateString()}</Text>
+                                  <Text style={{fontFamily: 'Inter-Regular', fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 3}}>{(() => { const d = new Date(ins.ts); const pad = (n: number) => String(n).padStart(2,'0'); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; })()}</Text>
                                 </View>
                               </View>
                             ))}

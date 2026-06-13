@@ -1,34 +1,29 @@
 /**
- * Trainer Agent Service
+ * Intelligent Trainer Agent Service
  *
- * Sits "on top" of the bot engine and continuously monitors performance.
- * When triggered, uses Claude to analyze trade history and generate
- * an improved bot prompt + config, then shadow-validates before promoting.
- *
- * Feature 2: Trainer on top of bot
- * Feature 4: Auto training and strategy fixing, automated
+ * A proper agentic AI trainer with:
+ * - Full trade history fed via chunked RAG-style passes (no 30-trade limit)
+ * - Planning loop: observe → diagnose → decide → act
+ * - Adaptive decisions: knows when to change vs when to leave alone
+ * - Live market context (price, regime, volatility)
+ * - Dynamic SL/TP trailing when bot is profitable
+ * - Human-readable timestamped insight logs
+ * - Trainer memory: remembers past decisions + outcomes
+ * - Retry/loop until confident or exhausted
  */
 
 import { db } from '../../config/database.js';
 import { redisConnection } from '../../config/queue.js';
 import { llmChat } from '../../config/ai.js';
-import { bots, botSubscriptions, botStatistics } from '../../db/schema/bots.js';
+import { bots } from '../../db/schema/bots.js';
 import { botPositions } from '../../db/schema/positions.js';
 import { botDecisions } from '../../db/schema/decisions.js';
-import { eq, and, desc, gte, sql } from 'drizzle-orm';
+import { eq, and, desc, asc } from 'drizzle-orm';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface TrainerConfig {
-  // trainingMode controls the entire trainer behaviour:
-  //   'auto'        — trainer fires automatically on performance drift, applies pending
-  //                   changes immediately after shadow validation (no manual confirm)
-  //   'suggestions' — trainer fires automatically, but NEVER promotes without creator
-  //                   pressing Confirm — changes stay as pending until confirmed
-  //   'off'         — trainer never runs, auto-retrain disabled entirely
   trainingMode: 'auto' | 'suggestions' | 'off';
-
-  // Kept for backward-compat; derived from trainingMode on save
   autoRetrain: boolean;
   retrainMode: 'time' | 'performance' | 'combined';
   retrainIntervalDays: number;
@@ -43,13 +38,38 @@ export interface TrainerConfig {
   pendingConfig: Record<string, any> | null;
   lastInsightAt: string | null;
   insights: TrainerInsight[];
+  // Trainer memory — persisted across cycles so the AI remembers past decisions
+  trainerMemory?: TrainerMemoryEntry[];
 }
 
 export interface TrainerInsight {
-  ts: string;
-  type: 'info' | 'warning' | 'improvement' | 'retrain';
+  ts: string;           // ISO string — full datetime always stored
+  type: 'info' | 'warning' | 'improvement' | 'retrain' | 'decision' | 'market';
   message: string;
   action?: string;
+  // Extra structured fields shown in UI
+  decision?: 'changed' | 'kept' | 'adjusted' | 'skipped';
+  changedFields?: string[];
+  beforeValues?: Record<string, any>;
+  afterValues?: Record<string, any>;
+}
+
+export interface TrainerMemoryEntry {
+  ts: string;
+  cycleNumber: number;
+  decision: 'changed' | 'kept' | 'adjusted' | 'skipped';
+  diagnosis: string;
+  changesSummary: string;
+  perfSnapshot: {
+    totalTrades: number;
+    winRate: number;
+    profitFactor: number;
+    trainerScore: number;
+    consecutiveLosses: number;
+  };
+  // outcome measured in next cycle
+  outcome?: 'improved' | 'declined' | 'stable' | 'pending';
+  outcomeMeasuredAt?: string;
 }
 
 export interface BotPerformanceSnapshot {
@@ -63,15 +83,19 @@ export interface BotPerformanceSnapshot {
   avgLossPct: number;
   maxDrawdown: number;
   consecutiveLosses: number;
-  recentWinRate: number;        // last 10 trades
+  recentWinRate: number;
   sharpeEstimate: number;
-  trainerScore: number;         // 0-100 health score
+  trainerScore: number;
   needsRetrain: boolean;
   retrainReason: string | null;
+  // Trend indicators
+  trendDirection: 'improving' | 'declining' | 'stable';
+  recentPnlTrend: number;   // avg pnl% of last 5 trades
+  profitStreak: number;     // current consecutive wins
 }
 
 export const DEFAULT_TRAINER_CONFIG: TrainerConfig = {
-  trainingMode: 'off',        // off by default — creator opts in
+  trainingMode: 'off',
   autoRetrain: false,
   retrainMode: 'combined',
   retrainIntervalDays: 7,
@@ -86,7 +110,36 @@ export const DEFAULT_TRAINER_CONFIG: TrainerConfig = {
   pendingConfig: null,
   lastInsightAt: null,
   insights: [],
+  trainerMemory: [],
 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtDateTime(ts: string | Date): string {
+  const d = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function extractJSON(text: string): Record<string, any> | null {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const clean = fenced ? fenced[1].trim() : text.trim();
+  const match = clean.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try { return JSON.parse(match[0]); } catch {
+    let depth = 0, start = match[0].indexOf('{');
+    for (let i = start; i < match[0].length; i++) {
+      if (match[0][i] === '{') depth++;
+      else if (match[0][i] === '}') {
+        depth--;
+        if (depth === 0) {
+          try { return JSON.parse(match[0].slice(start, i + 1)); } catch { continue; }
+        }
+      }
+    }
+    return null;
+  }
+}
 
 // ─── Performance Analysis ─────────────────────────────────────────────────────
 
@@ -99,7 +152,7 @@ export async function analyzeBotPerformance(botId: string): Promise<BotPerforman
       eq(botPositions.isPaper, false),
     ))
     .orderBy(desc(botPositions.closedAt))
-    .limit(200);
+    .limit(500);
 
   const totalTrades = allClosed.length;
 
@@ -107,26 +160,23 @@ export async function analyzeBotPerformance(botId: string): Promise<BotPerforman
     return {
       botId, totalTrades: 0, wins: 0, losses: 0, winRate: 0, profitFactor: 0,
       avgWinPct: 0, avgLossPct: 0, maxDrawdown: 0, consecutiveLosses: 0,
-      recentWinRate: 0, sharpeEstimate: 0, trainerScore: 50, needsRetrain: false, retrainReason: null,
+      recentWinRate: 0, sharpeEstimate: 0, trainerScore: 50,
+      needsRetrain: false, retrainReason: null,
+      trendDirection: 'stable', recentPnlTrend: 0, profitStreak: 0,
     };
   }
 
   const wins = allClosed.filter(p => parseFloat(p.pnl ?? '0') > 0);
   const losses = allClosed.filter(p => parseFloat(p.pnl ?? '0') <= 0);
   const winRate = (wins.length / totalTrades) * 100;
-
   const grossProfit = wins.reduce((s, p) => s + parseFloat(p.pnl ?? '0'), 0);
   const grossLoss = Math.abs(losses.reduce((s, p) => s + parseFloat(p.pnl ?? '0'), 0));
   const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : (grossProfit > 0 ? 99 : 0);
-
   const avgWinPct = wins.length > 0
-    ? wins.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / wins.length
-    : 0;
+    ? wins.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / wins.length : 0;
   const avgLossPct = losses.length > 0
-    ? Math.abs(losses.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / losses.length)
-    : 0;
+    ? Math.abs(losses.reduce((s, p) => s + parseFloat(p.pnlPercent ?? '0'), 0) / losses.length) : 0;
 
-  // Max drawdown
   let peak = 0, maxDrawdown = 0, cum = 0;
   for (const p of [...allClosed].reverse()) {
     cum += parseFloat(p.pnlPercent ?? '0');
@@ -134,104 +184,115 @@ export async function analyzeBotPerformance(botId: string): Promise<BotPerforman
     if (peak - cum > maxDrawdown) maxDrawdown = peak - cum;
   }
 
-  // Consecutive losses (most recent streak)
   let consecutiveLosses = 0;
   for (const p of allClosed) {
     if (parseFloat(p.pnl ?? '0') <= 0) consecutiveLosses++;
     else break;
   }
 
-  // Recent win rate (last 10 trades)
+  let profitStreak = 0;
+  for (const p of allClosed) {
+    if (parseFloat(p.pnl ?? '0') > 0) profitStreak++;
+    else break;
+  }
+
   const recent10 = allClosed.slice(0, 10);
   const recentWins = recent10.filter(p => parseFloat(p.pnl ?? '0') > 0).length;
   const recentWinRate = recent10.length > 0 ? (recentWins / recent10.length) * 100 : 0;
 
-  // Sharpe estimate: mean pnl pct / std dev
   const returns = allClosed.map(p => parseFloat(p.pnlPercent ?? '0'));
   const mean = returns.reduce((s, r) => s + r, 0) / returns.length;
   const variance = returns.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / returns.length;
   const stdDev = Math.sqrt(variance);
   const sharpeEstimate = stdDev > 0 ? mean / stdDev : 0;
 
-  // Trainer health score (0-100)
+  // Trend: compare recent 10 vs prior 10
+  const recent5 = allClosed.slice(0, 5).map(p => parseFloat(p.pnlPercent ?? '0'));
+  const recentPnlTrend = recent5.length > 0 ? recent5.reduce((s, r) => s + r, 0) / recent5.length : 0;
+  const prior10WR = allClosed.length >= 20
+    ? (allClosed.slice(10, 20).filter(p => parseFloat(p.pnl ?? '0') > 0).length / 10) * 100 : winRate;
+  const trendDirection: 'improving' | 'declining' | 'stable' =
+    recentWinRate > prior10WR + 5 ? 'improving' :
+    recentWinRate < prior10WR - 5 ? 'declining' : 'stable';
+
   let score = 50;
-  // Profit factor contribution (0-30 pts)
   score += Math.min(30, Math.max(-20, (profitFactor - 1) * 15));
-  // Win rate contribution (0-25 pts)
   score += Math.min(25, Math.max(-15, (winRate - 50) * 0.5));
-  // Consecutive loss penalty (0 to -20 pts)
   score -= Math.min(20, consecutiveLosses * 4);
-  // Drawdown penalty (0 to -20 pts)
   score -= Math.min(20, maxDrawdown * 0.5);
-  // Sharpe bonus (0-15 pts)
   score += Math.min(15, Math.max(-10, sharpeEstimate * 8));
+  if (trendDirection === 'improving') score += 5;
+  if (trendDirection === 'declining') score -= 8;
   score = Math.max(0, Math.min(100, Math.round(score)));
 
-  // Retrain triggers
   let needsRetrain = false;
   let retrainReason: string | null = null;
-
   if (profitFactor < 1.2 && totalTrades >= 10) {
-    needsRetrain = true;
-    retrainReason = `Profit factor ${profitFactor.toFixed(2)} below threshold 1.2`;
+    needsRetrain = true; retrainReason = `Profit factor ${profitFactor.toFixed(2)} below 1.2`;
   } else if (consecutiveLosses >= 5) {
-    needsRetrain = true;
-    retrainReason = `${consecutiveLosses} consecutive losses`;
+    needsRetrain = true; retrainReason = `${consecutiveLosses} consecutive losses`;
   } else if (recentWinRate < winRate - 15 && totalTrades >= 20) {
-    needsRetrain = true;
-    retrainReason = `Recent win rate ${recentWinRate.toFixed(0)}% dropped >15% from overall ${winRate.toFixed(0)}%`;
+    needsRetrain = true; retrainReason = `Recent WR ${recentWinRate.toFixed(0)}% dropped >15pts from overall ${winRate.toFixed(0)}%`;
   }
 
   return {
     botId, totalTrades, wins: wins.length, losses: losses.length, winRate, profitFactor,
     avgWinPct, avgLossPct, maxDrawdown, consecutiveLosses, recentWinRate, sharpeEstimate,
     trainerScore: score, needsRetrain, retrainReason,
+    trendDirection, recentPnlTrend, profitStreak,
   };
 }
 
-// ─── Claude Trainer Agent ─────────────────────────────────────────────────────
+// ─── Live Market Context ──────────────────────────────────────────────────────
 
-const TRAINER_SYSTEM = `You are an expert trading bot trainer. Analyze this bot's performance data and generate an improved strategy.
+async function getLiveMarketContext(): Promise<string> {
+  try {
+    const [btcRaw, ethRaw] = await Promise.all([
+      redisConnection.get('price:BTC:USDT').catch(() => null),
+      redisConnection.get('price:ETH:USDT').catch(() => null),
+    ]);
+    const parts: string[] = [];
+    if (btcRaw) {
+      const b = JSON.parse(btcRaw);
+      const chg = b.change24h ?? 0;
+      const range = b.high24h > 0 ? ((b.high24h - b.low24h) / b.low24h * 100) : 0;
+      const regime = chg < -5 ? 'CRASH' : chg < -2 ? 'BEARISH' : chg > 5 ? 'BULLISH_SURGE' : chg > 2 ? 'BULLISH' : 'NEUTRAL';
+      parts.push(`BTC: $${b.price?.toFixed(0) ?? '?'} (${chg >= 0 ? '+' : ''}${chg.toFixed(1)}% 24h, range ${range.toFixed(1)}%, regime: ${regime})`);
+    }
+    if (ethRaw) {
+      const e = JSON.parse(ethRaw);
+      const chg = e.change24h ?? 0;
+      parts.push(`ETH: $${e.price?.toFixed(0) ?? '?'} (${chg >= 0 ? '+' : ''}${chg.toFixed(1)}% 24h)`);
+    }
+    return parts.join(' | ') || 'Market data unavailable';
+  } catch {
+    return 'Market data unavailable';
+  }
+}
 
-Your job:
-1. Identify what's working and what isn't from trade history
-2. Generate a refined bot prompt that will improve performance
-3. Suggest specific config parameter changes
-4. Explain your reasoning
+// ─── RAG-style trade chunk builder ───────────────────────────────────────────
+// Feed ALL trades in chunks to find patterns without hitting token limits
 
-Return ONLY valid JSON:
-{
-  "diagnosis": "Brief analysis of current performance problems",
-  "improvedPrompt": "Full improved trading bot instruction prompt (2-3 sentences, specific and actionable)",
-  "configChanges": {
-    "stopLoss": number_or_null,
-    "takeProfit": number_or_null,
-    "aiMode": "rules_only|hybrid|full_ai_or_null",
-    "tradingFrequency": "conservative|balanced|aggressive|null"
-  },
-  "keyInsights": ["insight1", "insight2", "insight3"],
-  "expectedImpact": "What improvement you expect and why",
-  "confidence": 0-100
-}`;
+interface TradeChunkAnalysis {
+  chunkLabel: string;
+  totalInChunk: number;
+  winsInChunk: number;
+  topWinSignal: string;
+  topLossSignal: string;
+  avgWinPct: number;
+  avgLossPct: number;
+  avgHoldWinsMin: number;
+  avgHoldLossesMin: number;
+  examples: string;
+}
 
-export async function runTrainerAgent(botId: string): Promise<{
-  improvedPrompt: string;
-  configChanges: Record<string, any>;
-  insights: string[];
-  diagnosis: string;
-  expectedImpact: string;
-  confidence: number;
-} | null> {
-  // Load bot + performance
-  const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1);
-  if (!bot) return null;
-
-  const perf = await analyzeBotPerformance(botId);
-
-  // FIX 2: Load individual closed trade records with entry conditions + actual P&L outcome.
-  // This is what real learning requires — not aggregate stats but specific examples of
-  // "I entered because RSI=72 MACD=positive → lost 2.3%" so Claude can find patterns.
-  const closedTrades = await db.select({
+async function buildTradeChunks(botId: string): Promise<{
+  chunks: TradeChunkAnalysis[];
+  totalTrades: number;
+  allTradesSummary: string;
+}> {
+  // Load ALL closed trades — no artificial limit
+  const allTrades = await db.select({
     pnl: botPositions.pnl,
     pnlPercent: botPositions.pnlPercent,
     entryReasoning: botPositions.entryReasoning,
@@ -240,14 +301,141 @@ export async function runTrainerAgent(botId: string): Promise<{
     openedAt: botPositions.openedAt,
     closedAt: botPositions.closedAt,
   }).from(botPositions)
-    .where(and(
-      eq(botPositions.botId, botId),
-      eq(botPositions.status, 'closed'),
-    ))
-    .orderBy(desc(botPositions.closedAt))
-    .limit(30);
+    .where(and(eq(botPositions.botId, botId), eq(botPositions.status, 'closed')))
+    .orderBy(desc(botPositions.closedAt));
 
-  // Load recent decisions (last 50) — used for pattern correlation
+  const total = allTrades.length;
+  if (total === 0) return { chunks: [], totalTrades: 0, allTradesSummary: 'No closed trades yet.' };
+
+  const INDICATORS = ['rsi', 'ema', 'macd', 'bollinger', 'momentum', 'trend', 'support', 'resistance', 'volume', 'breakout', 'oversold', 'overbought'];
+
+  function analyzeChunk(trades: typeof allTrades, label: string): TradeChunkAnalysis {
+    const wins = trades.filter(t => parseFloat(t.pnl ?? '0') > 0);
+    const losses = trades.filter(t => parseFloat(t.pnl ?? '0') <= 0);
+    const wp: Record<string, number> = {}, lp: Record<string, number> = {};
+    for (const t of wins) for (const ind of INDICATORS) { if (t.entryReasoning?.toLowerCase().includes(ind)) wp[ind] = (wp[ind] ?? 0) + 1; }
+    for (const t of losses) for (const ind of INDICATORS) { if (t.entryReasoning?.toLowerCase().includes(ind)) lp[ind] = (lp[ind] ?? 0) + 1; }
+    const topWin = Object.entries(wp).sort((a,b)=>b[1]-a[1])[0]?.[0] ?? 'none';
+    const topLoss = Object.entries(lp).sort((a,b)=>b[1]-a[1])[0]?.[0] ?? 'none';
+    const avgWP = wins.length > 0 ? wins.reduce((s,t) => s + parseFloat(t.pnlPercent ?? '0'), 0) / wins.length : 0;
+    const avgLP = losses.length > 0 ? Math.abs(losses.reduce((s,t) => s + parseFloat(t.pnlPercent ?? '0'), 0) / losses.length) : 0;
+    const holdW = wins.filter(t=>t.openedAt&&t.closedAt).reduce((s,t) => s + (new Date(t.closedAt!).getTime()-new Date(t.openedAt!).getTime()), 0);
+    const holdL = losses.filter(t=>t.openedAt&&t.closedAt).reduce((s,t) => s + (new Date(t.closedAt!).getTime()-new Date(t.openedAt!).getTime()), 0);
+    // Show only the 6 most representative trades (3 wins + 3 losses)
+    const topWins = wins.slice(0, 3).map(t => {
+      const pnl = parseFloat(t.pnlPercent ?? '0');
+      const held = t.openedAt && t.closedAt ? Math.round((new Date(t.closedAt).getTime()-new Date(t.openedAt).getTime())/60000) : 0;
+      return `  WIN +${pnl.toFixed(2)}% [${held}min] ${t.symbol}: ${t.entryReasoning?.slice(0,70) ?? '?'}`;
+    });
+    const topLosses = losses.slice(0, 3).map(t => {
+      const pnl = parseFloat(t.pnlPercent ?? '0');
+      const held = t.openedAt && t.closedAt ? Math.round((new Date(t.closedAt).getTime()-new Date(t.openedAt).getTime())/60000) : 0;
+      return `  LOSS ${pnl.toFixed(2)}% [${held}min] ${t.symbol}: ${t.entryReasoning?.slice(0,70) ?? '?'}`;
+    });
+    return {
+      chunkLabel: label,
+      totalInChunk: trades.length,
+      winsInChunk: wins.length,
+      topWinSignal: topWin,
+      topLossSignal: topLoss,
+      avgWinPct: avgWP,
+      avgLossPct: avgLP,
+      avgHoldWinsMin: wins.length > 0 ? holdW / wins.length / 60000 : 0,
+      avgHoldLossesMin: losses.length > 0 ? holdL / losses.length / 60000 : 0,
+      examples: [...topWins, ...topLosses].join('\n'),
+    };
+  }
+
+  // Chunk 1: most recent 15 (what the bot is doing NOW)
+  // Chunk 2: trades 16-40 (recent history)
+  // Chunk 3: everything older (long-term baseline)
+  const chunks: TradeChunkAnalysis[] = [];
+  if (total > 0)  chunks.push(analyzeChunk(allTrades.slice(0, Math.min(15, total)),  `Most recent ${Math.min(15, total)} trades (current behaviour)`));
+  if (total > 15) chunks.push(analyzeChunk(allTrades.slice(15, Math.min(40, total)), `Trades 16–${Math.min(40, total)} (recent history)`));
+  if (total > 40) chunks.push(analyzeChunk(allTrades.slice(40),                      `Trades 41–${total} (long-term baseline)`));
+
+  // Overall one-line summary per chunk
+  const allTradesSummary = chunks.map(c => {
+    const wr = c.totalInChunk > 0 ? (c.winsInChunk / c.totalInChunk * 100).toFixed(0) : '0';
+    return `${c.chunkLabel}: ${c.winsInChunk}W/${c.totalInChunk-c.winsInChunk}L (${wr}% WR) | top-win-signal: ${c.topWinSignal}, top-loss-signal: ${c.topLossSignal} | avg hold: wins ${c.avgHoldWinsMin.toFixed(0)}min / losses ${c.avgHoldLossesMin.toFixed(0)}min`;
+  }).join('\n');
+
+  return { chunks, totalTrades: total, allTradesSummary };
+}
+
+// ─── Trainer Memory String ────────────────────────────────────────────────────
+
+function buildMemoryContext(memory: TrainerMemoryEntry[]): string {
+  if (!memory || memory.length === 0) return 'No prior trainer cycles — this is the first analysis.';
+  return memory.slice(0, 8).map(m => {
+    const outcome = m.outcome ? ` → OUTCOME: ${m.outcome.toUpperCase()}` : ' → outcome: still measuring';
+    return `[Cycle ${m.cycleNumber} @ ${m.ts.slice(0,10)}] Decision: ${m.decision.toUpperCase()} | ${m.diagnosis.slice(0,100)} | Changes: ${m.changesSummary}${outcome}`;
+  }).join('\n');
+}
+
+// ─── Agentic Trainer System Prompt ───────────────────────────────────────────
+
+const TRAINER_SYSTEM = `You are an intelligent, agentic trading bot trainer with memory and planning capabilities.
+
+You analyze a trading bot's COMPLETE history and make ONE of four decisions:
+1. CHANGED — the strategy needs significant changes (new prompt + config tweaks)
+2. ADJUSTED — small config tweaks only (SL/TP/frequency), prompt stays the same
+3. KEPT — strategy is working or recently changed, do NOT touch it
+4. SKIPPED — not enough data yet to make a reliable decision
+
+CRITICAL RULES:
+- If the bot is currently profitable (trend=improving, recent WR going up) — lean towards KEPT or ADJUSTED only
+- If a change was made last cycle and performance improved — do NOT change again, let it run
+- If a change was made last cycle and performance declined — diagnose WHY and fix it
+- Dynamic SL/TP: if bot is on a profit streak (3+ wins), suggest tighter TP to lock in gains
+- Dynamic SL/TP: if bot has 3+ consecutive losses, tighten SL to limit damage
+- Do NOT keep making the same diagnosis repeatedly if prior changes had no effect
+- Read the TRAINER MEMORY carefully — do not repeat mistakes from prior cycles
+
+CRITICAL: Respond with a single valid JSON object only. No markdown, no preamble. Start with { end with }.
+{
+  "decision": "changed|adjusted|kept|skipped",
+  "reasoning": "plain English explanation of WHY you made this decision (2-3 sentences, specific)",
+  "diagnosis": "what is working vs not working, referencing actual trade data",
+  "improvedPrompt": "full new prompt string, or null if decision is kept/skipped",
+  "configChanges": {
+    "stopLoss": number_or_null,
+    "takeProfit": number_or_null,
+    "aiMode": "rules_only|hybrid|full_ai" or null,
+    "tradingFrequency": "conservative|balanced|aggressive" or null,
+    "aiConfidenceThreshold": number_or_null
+  },
+  "keyInsights": ["specific observation 1", "specific observation 2", "specific observation 3"],
+  "expectedImpact": "what you expect to happen after this decision and why",
+  "changesSummary": "one-line summary of what changed, e.g. 'SL 3%→2%, TP 6%→5%, added RSI filter'",
+  "confidence": 0-100
+}`;
+
+// ─── Core Agentic Trainer Agent ───────────────────────────────────────────────
+
+export async function runTrainerAgent(botId: string): Promise<{
+  decision: 'changed' | 'adjusted' | 'kept' | 'skipped';
+  improvedPrompt: string | null;
+  configChanges: Record<string, any>;
+  insights: string[];
+  diagnosis: string;
+  reasoning: string;
+  expectedImpact: string;
+  changesSummary: string;
+  confidence: number;
+} | null> {
+  const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1);
+  if (!bot) return null;
+
+  const perf = await analyzeBotPerformance(botId);
+  const marketContext = await getLiveMarketContext();
+  const { chunks, totalTrades, allTradesSummary } = await buildTradeChunks(botId);
+
+  const trainerConfig = ((bot.trainerConfig as any) ?? DEFAULT_TRAINER_CONFIG) as TrainerConfig;
+  const memory = trainerConfig.trainerMemory ?? [];
+  const cycleNumber = memory.length + 1;
+
+  // Recent decisions context
   const recentDecisions = await db.select({
     action: botDecisions.action,
     reasoning: botDecisions.reasoning,
@@ -257,150 +445,247 @@ export async function runTrainerAgent(botId: string): Promise<{
   }).from(botDecisions)
     .where(eq(botDecisions.botId, botId))
     .orderBy(desc(botDecisions.createdAt))
-    .limit(50);
+    .limit(20);
 
-  // Build trade-outcome examples: each line = entry context → outcome
-  // This is the core learning material — specific setups with their actual results
-  const tradeExamples = closedTrades.map(t => {
-    const pnl = parseFloat(t.pnlPercent ?? '0');
-    const outcome = pnl >= 0 ? `WIN +${pnl.toFixed(2)}%` : `LOSS ${pnl.toFixed(2)}%`;
-    const holdTime = t.openedAt && t.closedAt
-      ? Math.round((new Date(t.closedAt).getTime() - new Date(t.openedAt).getTime()) / 60000) + 'min'
-      : '?';
-    return `${outcome} [held ${holdTime}] ${t.symbol}: Entry — ${t.entryReasoning?.slice(0, 80) ?? 'unknown'} | Exit — ${t.exitReasoning?.slice(0, 40) ?? 'unknown'}`;
-  }).join('\n');
+  // Build full chunk details for prompt
+  const chunkDetails = chunks.map(c => `
+=== ${c.chunkLabel} ===
+Win rate: ${c.totalInChunk > 0 ? (c.winsInChunk/c.totalInChunk*100).toFixed(0) : 0}% (${c.winsInChunk}W / ${c.totalInChunk - c.winsInChunk}L)
+Top winning signal: ${c.topWinSignal} | Top losing signal: ${c.topLossSignal}
+Avg win: +${c.avgWinPct.toFixed(2)}% held ${c.avgHoldWinsMin.toFixed(0)}min | Avg loss: -${c.avgLossPct.toFixed(2)}% held ${c.avgHoldLossesMin.toFixed(0)}min
+${c.avgHoldLossesMin > c.avgHoldWinsMin * 1.5 ? '⚠ HOLDING LOSERS LONGER THAN WINNERS — tighten SL' : ''}
+${c.avgHoldWinsMin < 8 ? '⚠ EXITING WINNERS TOO EARLY — widen TP or trail stop' : ''}
+Representative trades:
+${c.examples || '  (no examples)'}
+`).join('\n');
 
-  // Identify win patterns vs loss patterns from entry reasoning keywords
-  const wins = closedTrades.filter(t => parseFloat(t.pnl ?? '0') > 0);
-  const losses = closedTrades.filter(t => parseFloat(t.pnl ?? '0') <= 0);
-  const INDICATORS = ['rsi', 'ema', 'macd', 'bollinger', 'momentum', 'trend', 'support', 'resistance', 'volume'];
-  const winPatterns: Record<string, number> = {};
-  const lossPatterns: Record<string, number> = {};
-  for (const t of wins) { for (const ind of INDICATORS) { if (t.entryReasoning?.toLowerCase().includes(ind)) winPatterns[ind] = (winPatterns[ind] ?? 0) + 1; } }
-  for (const t of losses) { for (const ind of INDICATORS) { if (t.entryReasoning?.toLowerCase().includes(ind)) lossPatterns[ind] = (lossPatterns[ind] ?? 0) + 1; } }
-  const topWinSignal = Object.entries(winPatterns).sort((a,b) => b[1]-a[1])[0]?.[0] ?? 'none identified';
-  const topLossSignal = Object.entries(lossPatterns).sort((a,b) => b[1]-a[1])[0]?.[0] ?? 'none identified';
-
-  // Average hold time for wins vs losses
-  const avgHoldWins = wins.length > 0
-    ? wins.filter(t => t.openedAt && t.closedAt).reduce((s, t) => s + (new Date(t.closedAt!).getTime() - new Date(t.openedAt!).getTime()), 0) / wins.length / 60000
-    : 0;
-  const avgHoldLosses = losses.length > 0
-    ? losses.filter(t => t.openedAt && t.closedAt).reduce((s, t) => s + (new Date(t.closedAt!).getTime() - new Date(t.openedAt!).getTime()), 0) / losses.length / 60000
-    : 0;
-
-  const config = ((bot.trainerConfig as any) ?? {}) as any;
-  const previousActions = (config.insights ?? [])
-    .filter((i: any) => i.type === 'retrain' || i.type === 'improvement')
-    .slice(0, 5)
-    .map((i: any) => `[${new Date(i.ts).toLocaleDateString()}] ${i.message}`)
-    .join('\n');
-
-  // Read current market context (set by auto-trainer check cycle)
-  let marketContext = '';
-  try {
-    marketContext = (await redisConnection.get(`trainer:market-context:${bot.id}`)) ?? '';
-  } catch {}
-
-  // Build comprehensive analysis prompt with real trade examples
   const analysisPrompt = `
-Bot: "${bot.name}" | Strategy: ${bot.strategy} | Risk: ${bot.riskLevel}
+BOT: "${bot.name}" | Strategy: ${bot.strategy} | Risk: ${bot.riskLevel}
 Current Prompt: ${bot.prompt ?? 'None'}
+Current Config: stopLoss=${(bot.config as any)?.stopLoss ?? '?'}%, takeProfit=${(bot.config as any)?.takeProfit ?? '?'}%, aiMode=${(bot.config as any)?.aiMode ?? '?'}, frequency=${(bot.config as any)?.tradingFrequency ?? '?'}
 
-TRAINER HISTORY (last 5 actions — build on what worked, avoid repeating failures):
-${previousActions || 'No previous trainer actions — this is the first analysis.'}
-${marketContext ? `\nCURRENT MARKET CONTEXT: ${marketContext}` : ''}
+LIVE MARKET RIGHT NOW: ${marketContext}
 
-PERFORMANCE METRICS (${perf.totalTrades} total trades):
-- Win Rate: ${perf.winRate.toFixed(1)}% (recent 10: ${perf.recentWinRate.toFixed(1)}%)
-- Profit Factor: ${perf.profitFactor.toFixed(2)} (needs >1.2)
-- Avg Win: +${perf.avgWinPct.toFixed(2)}% | Avg Loss: -${perf.avgLossPct.toFixed(2)}%
-- Max Drawdown: ${perf.maxDrawdown.toFixed(2)}%
-- Consecutive Losses: ${perf.consecutiveLosses}
-- Sharpe Estimate: ${perf.sharpeEstimate.toFixed(2)}
+TRAINER MEMORY (what happened in past cycles — learn from this):
+${buildMemoryContext(memory)}
+
+PERFORMANCE OVERVIEW (${totalTrades} total trades):
+- Overall: WR ${perf.winRate.toFixed(1)}% | PF ${perf.profitFactor.toFixed(2)} | Sharpe ${perf.sharpeEstimate.toFixed(2)}
+- Recent 10: WR ${perf.recentWinRate.toFixed(1)}% | Trend: ${perf.trendDirection.toUpperCase()}
+- Avg Win: +${perf.avgWinPct.toFixed(2)}% | Avg Loss: -${perf.avgLossPct.toFixed(2)}% | R:R ratio: ${perf.avgLossPct > 0 ? (perf.avgWinPct / perf.avgLossPct).toFixed(2) : 'N/A'}
+- Max Drawdown: ${perf.maxDrawdown.toFixed(2)}% | Consecutive Losses NOW: ${perf.consecutiveLosses}
+- Current Profit Streak: ${perf.profitStreak} wins | Recent 5-trade PnL avg: ${perf.recentPnlTrend.toFixed(2)}%
 - Health Score: ${perf.trainerScore}/100
-- Retrain Reason: ${perf.retrainReason ?? 'Manual/scheduled'}
 
-PATTERN ANALYSIS (from ${closedTrades.length} closed trades):
-- Top signal in winning trades: ${topWinSignal}
-- Top signal in losing trades: ${topLossSignal}
-- Avg hold time — wins: ${avgHoldWins.toFixed(0)}min, losses: ${avgHoldLosses.toFixed(0)}min
-${avgHoldLosses > avgHoldWins * 1.5 ? '⚠ HOLDING LOSERS TOO LONG — consider tighter stops' : ''}
-${avgHoldWins < 10 ? '⚠ EXITS TOO EARLY — wins avg only ' + avgHoldWins.toFixed(0) + 'min, may be cutting profits' : ''}
+TRADE HISTORY SUMMARY (all ${totalTrades} trades, chunked):
+${allTradesSummary}
 
-INDIVIDUAL TRADE EXAMPLES (most recent ${closedTrades.length} — find the pattern):
-${tradeExamples || 'No closed trades yet.'}
+DETAILED TRADE ANALYSIS:
+${chunkDetails}
 
-Current Config:
-${JSON.stringify((bot.config as any) ?? {}, null, 2)}
+RECENT BOT DECISIONS (last ${recentDecisions.length}):
+${recentDecisions.slice(0, 8).map(d => `${d.action}(conf:${d.confidence}) ${d.symbol}: ${d.reasoning?.slice(0, 60)}`).join('\n')}
 
-Recent Decision Pattern (last ${recentDecisions.length}):
-${recentDecisions.slice(0, 10).map(d => `${d.action}(${d.confidence}) ${d.symbol}: ${d.reasoning?.slice(0, 60)}`).join('\n')}
+TRAINER CYCLE: #${cycleNumber}
+TRIGGER REASON: ${perf.retrainReason ?? 'Scheduled analysis'}
 
-Analyze the individual trade examples above to find what entry conditions consistently lead to wins vs losses. Generate a refined strategy that exploits the winning pattern and avoids the losing one.`;
+Now make your decision. Remember: if the bot is improving, say KEPT. If just small tweaks needed, say ADJUSTED. Only say CHANGED if there is a genuine structural problem in the strategy.`;
 
-  try {
-    const response = await llmChat(
-      [{ role: 'user', content: analysisPrompt }],
-      { system: TRAINER_SYSTEM, maxTokens: 2048, temperature: 0.3, cacheSystem: true },
-    );
+  // Agentic retry loop — try up to 3 times with increasing strictness
+  let result: Record<string, any> | null = null;
+  let lastResponse = '';
+  let attemptLog = '';
 
-    let text = response.text;
-    const cb = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (cb) text = cb[1].trim();
-    const jm = text.match(/\{[\s\S]*\}/);
-    if (!jm) throw new Error('No JSON in trainer response');
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const messages: Array<{role: 'user' | 'assistant'; content: string}> = attempt === 1
+        ? [{ role: 'user', content: analysisPrompt }]
+        : [
+            { role: 'user', content: analysisPrompt },
+            { role: 'assistant', content: lastResponse },
+            { role: 'user', content: `Attempt ${attempt}: Your previous response was not valid JSON or was missing required fields. Reply with ONLY a valid JSON object. Required: decision, reasoning, diagnosis, improvedPrompt, configChanges, keyInsights, expectedImpact, changesSummary, confidence.` },
+          ];
 
-    const result = JSON.parse(jm[0]);
-    // Calculate real confidence from verifiable data signals — do not use LLM's self-reported score
-    let realConfidence = 40; // base
+      const response = await llmChat(messages, {
+        system: TRAINER_SYSTEM,
+        maxTokens: 8192,
+        temperature: attempt === 1 ? 0.3 : 0,
+        cacheSystem: true,
+      });
 
-    // +20 if we have enough trades for a statistically meaningful sample
-    if (perf.totalTrades >= 20) realConfidence += 20;
-    else if (perf.totalTrades >= 10) realConfidence += 10;
+      console.log(`[Trainer] Cycle #${cycleNumber} attempt ${attempt}: ${response.provider}/${response.model} (${response.usage?.outputTokens ?? '?'} tokens)`);
+      lastResponse = response.text;
+      attemptLog += `attempt${attempt}:${response.provider} `;
 
-    // +15 if profit factor is above breakeven (strategy makes more than it loses)
-    if (perf.profitFactor >= 1.2) realConfidence += 15;
-    else if (perf.profitFactor >= 1.0) realConfidence += 5;
+      result = extractJSON(response.text);
+      if (result && result.decision && result.reasoning) break;
+      result = null;
+    } catch (err: any) {
+      const msg = err?.message ?? String(err);
+      console.warn(`[Trainer] Cycle #${cycleNumber} attempt ${attempt} failed: ${msg}`);
+      if (attempt === 3) {
+        console.error(`[Trainer] All attempts exhausted for bot ${botId}`);
+        return null;
+      }
+    }
+  }
 
-    // +15 if win rate is respectable
-    if (perf.winRate >= 55) realConfidence += 15;
-    else if (perf.winRate >= 50) realConfidence += 8;
+  if (!result) return null;
 
-    // +10 if the new config has a better R:R ratio than current (TP/SL > current ratio)
-    const newSL = result.configChanges?.stopLoss ?? (bot.config as any)?.stopLoss ?? 3;
-    const newTP = result.configChanges?.takeProfit ?? (bot.config as any)?.takeProfit ?? 6;
+  // Validate and fill defaults
+  const decision = (['changed','adjusted','kept','skipped'].includes(result.decision)) ? result.decision : 'kept';
+  if (!result.configChanges) result.configChanges = {};
+  if (!result.keyInsights) result.keyInsights = [];
+  if (!result.diagnosis) result.diagnosis = 'Analysis complete.';
+  if (!result.reasoning) result.reasoning = 'No reasoning provided.';
+  if (!result.expectedImpact) result.expectedImpact = 'No impact prediction.';
+  if (!result.changesSummary) result.changesSummary = decision === 'kept' ? 'No changes made' : 'Config updated';
+
+  // If decision is kept/skipped — clear any config changes to avoid accidental tweaks
+  if (decision === 'kept' || decision === 'skipped') {
+    result.configChanges = {};
+    result.improvedPrompt = null;
+  }
+
+  // Dynamic SL/TP intelligence based on current state
+  if (decision === 'adjusted' || decision === 'changed') {
     const currentSL = (bot.config as any)?.stopLoss ?? 3;
     const currentTP = (bot.config as any)?.takeProfit ?? 6;
-    if (newTP / newSL > currentTP / currentSL) realConfidence += 10;
 
-    // -20 if we have very few trades (not enough signal)
-    if (perf.totalTrades < 10) realConfidence -= 20;
-
-    // -15 if drawdown is severe — risky to auto-promote in a drawdown
-    if (perf.maxDrawdown > 20) realConfidence -= 15;
-    else if (perf.maxDrawdown > 10) realConfidence -= 5;
-
-    // -10 if this is the first trainer run (no baseline to compare)
-    if (!config.lastRetrainAt) realConfidence -= 10;
-
-    realConfidence = Math.max(0, Math.min(100, realConfidence));
-
-    return {
-      improvedPrompt: result.improvedPrompt ?? bot.prompt ?? '',
-      configChanges: result.configChanges ?? {},
-      insights: result.keyInsights ?? [],
-      diagnosis: result.diagnosis ?? '',
-      expectedImpact: result.expectedImpact ?? '',
-      confidence: realConfidence,
-    };
-  } catch (err) {
-    console.error('[Trainer] Agent failed:', (err as Error).message);
-    return null;
+    // On a 3+ win streak → tighten TP to lock in gains (trail stop logic)
+    if (perf.profitStreak >= 3 && !result.configChanges.takeProfit) {
+      result.configChanges.takeProfit = Math.max(currentTP * 0.85, 1.5);
+      result.changesSummary += ` | TP tightened to ${result.configChanges.takeProfit.toFixed(1)}% (profit streak ${perf.profitStreak})`;
+    }
+    // On 3+ consecutive losses → tighten SL urgently
+    if (perf.consecutiveLosses >= 3 && !result.configChanges.stopLoss) {
+      result.configChanges.stopLoss = Math.max(currentSL * 0.75, 1.0);
+      result.changesSummary += ` | SL tightened to ${result.configChanges.stopLoss.toFixed(1)}% (${perf.consecutiveLosses} consec losses)`;
+    }
   }
+
+  // Real confidence score (not from AI self-report)
+  let realConfidence = 40;
+  if (perf.totalTrades >= 30) realConfidence += 25;
+  else if (perf.totalTrades >= 15) realConfidence += 15;
+  else if (perf.totalTrades >= 5) realConfidence += 5;
+  if (perf.profitFactor >= 1.3) realConfidence += 15;
+  else if (perf.profitFactor >= 1.0) realConfidence += 8;
+  if (perf.winRate >= 55) realConfidence += 15;
+  else if (perf.winRate >= 45) realConfidence += 7;
+  if (decision === 'kept') realConfidence += 10; // more confident when not changing
+  if (decision === 'skipped') realConfidence = Math.min(realConfidence, 40);
+  if (!trainerConfig.lastRetrainAt) realConfidence -= 10;
+  if (perf.maxDrawdown > 20) realConfidence -= 15;
+  if (memory.length > 0 && memory[0].outcome === 'declined') realConfidence -= 10;
+  realConfidence = Math.max(0, Math.min(100, realConfidence));
+
+  console.log(`[Trainer] Cycle #${cycleNumber} decision: ${decision.toUpperCase()} | confidence: ${realConfidence}% | ${attemptLog.trim()}`);
+
+  return {
+    decision,
+    improvedPrompt: result.improvedPrompt ?? null,
+    configChanges: result.configChanges ?? {},
+    insights: result.keyInsights ?? [],
+    diagnosis: result.diagnosis,
+    reasoning: result.reasoning,
+    expectedImpact: result.expectedImpact,
+    changesSummary: result.changesSummary,
+    confidence: realConfidence,
+  };
 }
 
-// ─── Get Trainer Status for a Bot ────────────────────────────────────────────
+// ─── Update Trainer Memory (called each cycle) ────────────────────────────────
+
+async function updateTrainerMemory(
+  botId: string,
+  config: TrainerConfig,
+  cycleResult: NonNullable<Awaited<ReturnType<typeof runTrainerAgent>>>,
+  perf: BotPerformanceSnapshot,
+): Promise<TrainerMemoryEntry[]> {
+  const memory = [...(config.trainerMemory ?? [])];
+
+  // Mark previous cycle's outcome now that we have new data
+  if (memory.length > 0 && memory[0].outcome === 'pending') {
+    const prev = memory[0];
+    const prevScore = prev.perfSnapshot.trainerScore;
+    const prevWR = prev.perfSnapshot.winRate;
+    memory[0] = {
+      ...prev,
+      outcome: perf.trainerScore > prevScore + 3 ? 'improved'
+              : perf.trainerScore < prevScore - 3 ? 'declined'
+              : perf.winRate > prevWR + 2 ? 'improved'
+              : perf.winRate < prevWR - 2 ? 'declined'
+              : 'stable',
+      outcomeMeasuredAt: new Date().toISOString(),
+    };
+  }
+
+  // Add new cycle entry
+  const newEntry: TrainerMemoryEntry = {
+    ts: new Date().toISOString(),
+    cycleNumber: memory.length + 1,
+    decision: cycleResult.decision,
+    diagnosis: cycleResult.diagnosis.slice(0, 150),
+    changesSummary: cycleResult.changesSummary,
+    perfSnapshot: {
+      totalTrades: perf.totalTrades,
+      winRate: perf.winRate,
+      profitFactor: perf.profitFactor,
+      trainerScore: perf.trainerScore,
+      consecutiveLosses: perf.consecutiveLosses,
+    },
+    outcome: 'pending',
+  };
+
+  return [newEntry, ...memory].slice(0, 20); // keep last 20 cycles in memory
+}
+
+// ─── Build Human-Readable Insight Log Entry ───────────────────────────────────
+
+function buildInsightMessage(
+  cycleResult: NonNullable<Awaited<ReturnType<typeof runTrainerAgent>>>,
+  perf: BotPerformanceSnapshot,
+  marketCtx: string,
+  cycleNumber: number,
+): TrainerInsight {
+  const now = new Date().toISOString();
+  const decisionEmoji = { changed: '🔄', adjusted: '⚡', kept: '✅', skipped: '⏭' }[cycleResult.decision] ?? '•';
+
+  let message = `[Cycle #${cycleNumber}] ${decisionEmoji} Decision: ${cycleResult.decision.toUpperCase()}\n`;
+  message += `Reasoning: ${cycleResult.reasoning}\n`;
+  message += `Bot health: ${perf.trainerScore}/100 | WR: ${perf.winRate.toFixed(1)}% | PF: ${perf.profitFactor.toFixed(2)} | Trend: ${perf.trendDirection}`;
+  if (perf.consecutiveLosses > 0) message += ` | ${perf.consecutiveLosses} consec losses`;
+  if (perf.profitStreak > 0) message += ` | ${perf.profitStreak} win streak`;
+  message += `\nMarket: ${marketCtx}`;
+  if (cycleResult.decision !== 'kept' && cycleResult.decision !== 'skipped') {
+    message += `\nChanges: ${cycleResult.changesSummary}`;
+    message += `\nExpected: ${cycleResult.expectedImpact}`;
+  }
+  message += `\nInsights: ${cycleResult.insights.slice(0,3).join(' | ')}`;
+
+  const beforeValues: Record<string, any> = {};
+  const afterValues: Record<string, any> = {};
+  const changedFields: string[] = [];
+  for (const [k, v] of Object.entries(cycleResult.configChanges ?? {})) {
+    if (v != null) { changedFields.push(k); afterValues[k] = v; }
+  }
+
+  return {
+    ts: now,
+    type: cycleResult.decision === 'kept' || cycleResult.decision === 'skipped' ? 'info'
+         : cycleResult.decision === 'adjusted' ? 'improvement'
+         : 'retrain',
+    message,
+    action: cycleResult.decision === 'changed' ? 'Review and apply in trainer panel' : undefined,
+    decision: cycleResult.decision,
+    changedFields,
+    beforeValues,
+    afterValues,
+  };
+}
+
+// ─── Get Trainer Status ───────────────────────────────────────────────────────
 
 export async function getTrainerStatus(botId: string, callerId?: string): Promise<{
   config: TrainerConfig;
@@ -414,21 +699,18 @@ export async function getTrainerStatus(botId: string, callerId?: string): Promis
   const isCreator = !!callerId && bot?.creatorId === callerId;
   const fullConfig = ((bot?.trainerConfig as any) ?? DEFAULT_TRAINER_CONFIG) as TrainerConfig;
 
-  // Non-creators see public trainer data only — no pending strategy (that's IP)
   let config: TrainerConfig;
   if (isCreator) {
     config = fullConfig;
   } else {
-    const { pendingPrompt: _pp, pendingConfig: _pc, ...publicConfig } = fullConfig as any;
+    const { pendingPrompt: _pp, pendingConfig: _pc, trainerMemory: _tm, ...publicConfig } = fullConfig as any;
     config = publicConfig as TrainerConfig;
   }
 
   const performance = await analyzeBotPerformance(botId);
 
   let redisStatus: string | null = null;
-  try {
-    redisStatus = await redisConnection.get(`trainer:status:${botId}`);
-  } catch {}
+  try { redisStatus = await redisConnection.get(`trainer:status:${botId}`); } catch {}
 
   return { config, performance, redisStatus, isCreator };
 }
@@ -444,27 +726,18 @@ export async function updateTrainerConfig(botId: string, userId: string, updates
   const current = ((bot.trainerConfig as any) ?? DEFAULT_TRAINER_CONFIG) as TrainerConfig;
   const merged: TrainerConfig = { ...current, ...updates };
 
-  // Keep autoRetrain in sync with trainingMode — single source of truth
   if (updates.trainingMode !== undefined) {
     merged.autoRetrain = merged.trainingMode !== 'off';
   } else if (updates.autoRetrain !== undefined) {
-    // Legacy path: if autoRetrain changed directly, derive trainingMode
-    if (!merged.autoRetrain) {
-      merged.trainingMode = 'off';
-    } else if (!merged.trainingMode || merged.trainingMode === 'off') {
-      merged.trainingMode = 'suggestions'; // safe default when enabling
-    }
+    if (!merged.autoRetrain) merged.trainingMode = 'off';
+    else if (!merged.trainingMode || merged.trainingMode === 'off') merged.trainingMode = 'suggestions';
   }
 
-  await db.update(bots).set({
-    trainerConfig: merged as any,
-    updatedAt: new Date(),
-  }).where(eq(bots.id, botId));
-
+  await db.update(bots).set({ trainerConfig: merged as any, updatedAt: new Date() }).where(eq(bots.id, botId));
   return merged;
 }
 
-// ─── Trigger Manual Retrain ───────────────────────────────────────────────────
+// ─── Trigger Retrain (manual or from auto-job) ────────────────────────────────
 
 export async function triggerRetrain(botId: string, userId: string): Promise<{
   success: boolean;
@@ -475,62 +748,71 @@ export async function triggerRetrain(botId: string, userId: string): Promise<{
   if (!bot) return { success: false, message: 'Bot not found' };
   if (bot.creatorId !== userId) return { success: false, message: 'Not authorized' };
 
-  // Update status to retraining
   const currentConfig = ((bot.trainerConfig as any) ?? DEFAULT_TRAINER_CONFIG) as TrainerConfig;
+
   await db.update(bots).set({
-    trainerConfig: {
-      ...currentConfig,
-      trainerStatus: 'retraining',
-    } as any,
+    trainerConfig: { ...currentConfig, trainerStatus: 'retraining' } as any,
     updatedAt: new Date(),
   }).where(eq(bots.id, botId));
 
-  // Run trainer agent
+  const perf = await analyzeBotPerformance(botId);
+  const marketCtx = await getLiveMarketContext();
   const trainerResult = await runTrainerAgent(botId);
 
   if (!trainerResult) {
+    const failInsight: TrainerInsight = {
+      ts: new Date().toISOString(),
+      type: 'warning',
+      message: `[${fmtDateTime(new Date())}] Trainer analysis failed — all AI providers exhausted. Check API keys/credits for Anthropic, OpenAI, Gemini.`,
+      action: 'Check AI provider credits',
+    };
     await db.update(bots).set({
       trainerConfig: {
         ...currentConfig,
         trainerStatus: 'idle',
         lastInsightAt: new Date().toISOString(),
-        insights: [{
-          ts: new Date().toISOString(),
-          type: 'warning',
-          message: 'Trainer agent failed — AI credits may be needed.',
-          action: 'Check AI provider credits',
-        }, ...(currentConfig.insights ?? [])].slice(0, 20),
+        insights: [failInsight, ...(currentConfig.insights ?? [])].slice(0, 30),
       } as any,
       updatedAt: new Date(),
     }).where(eq(bots.id, botId));
-    return { success: false, message: 'Trainer agent failed — AI credits needed' };
+    return { success: false, message: 'Trainer analysis failed — AI providers unavailable' };
   }
 
-  const newInsight: TrainerInsight = {
-    ts: new Date().toISOString(),
-    type: 'retrain',
-    message: `Trainer generated improved strategy (confidence: ${trainerResult.confidence}%). ${trainerResult.diagnosis}`,
-    action: 'Review and apply in trainer panel',
-  };
+  // Update trainer memory
+  const updatedMemory = await updateTrainerMemory(botId, currentConfig, trainerResult, perf);
 
-  // Store as pending (not auto-applied — user reviews first unless autoApply)
+  // Build human-readable insight
+  const cycleNumber = updatedMemory.length;
+  const insight = buildInsightMessage(trainerResult, perf, marketCtx, cycleNumber);
+
   const updatedConfig: TrainerConfig = {
     ...currentConfig,
-    trainerStatus: 'shadow_validating',
+    trainerStatus: trainerResult.decision === 'kept' || trainerResult.decision === 'skipped'
+      ? 'monitoring' : 'shadow_validating',
     lastRetrainAt: new Date().toISOString(),
-    trainerScore: (await analyzeBotPerformance(botId)).trainerScore,
+    trainerScore: perf.trainerScore,
     pendingPrompt: trainerResult.improvedPrompt,
-    pendingConfig: trainerResult.configChanges,
+    pendingConfig: Object.keys(trainerResult.configChanges ?? {}).length > 0
+      ? trainerResult.configChanges : null,
     lastInsightAt: new Date().toISOString(),
-    insights: [newInsight, ...(currentConfig.insights ?? [])].slice(0, 20),
+    insights: [insight, ...(currentConfig.insights ?? [])].slice(0, 30),
+    trainerMemory: updatedMemory,
   };
 
-  await db.update(bots).set({
-    trainerConfig: updatedConfig as any,
-    updatedAt: new Date(),
-  }).where(eq(bots.id, botId));
+  await db.update(bots).set({ trainerConfig: updatedConfig as any, updatedAt: new Date() })
+    .where(eq(bots.id, botId));
 
-  // Queue for shadow validation — stores candidate config with validation deadline
+  // If KEPT or SKIPPED — nothing to apply, return immediately
+  if (trainerResult.decision === 'kept' || trainerResult.decision === 'skipped') {
+    console.log(`[Trainer] Cycle #${cycleNumber} — ${trainerResult.decision.toUpperCase()}, no changes applied`);
+    return {
+      success: true,
+      message: `Trainer analysed bot and decided to ${trainerResult.decision} current strategy. ${trainerResult.reasoning}`,
+      trainerResult,
+    };
+  }
+
+  // Store pending in Redis for shadow validation / auto-apply
   const shadowValidationHours = currentConfig.shadowValidationHours ?? 24;
   const validationDeadline = new Date(Date.now() + shadowValidationHours * 3600 * 1000).toISOString();
   try {
@@ -539,20 +821,19 @@ export async function triggerRetrain(botId: string, userId: string): Promise<{
       config: trainerResult.configChanges,
       startedAt: new Date().toISOString(),
       validationDeadlineAt: validationDeadline,
-      baselineWinRate: (await analyzeBotPerformance(botId)).winRate,
-      baselinePF: (await analyzeBotPerformance(botId)).profitFactor,
-    }), 'EX', shadowValidationHours * 3600 + 3600); // TTL = validation window + 1hr buffer
+      baselineWinRate: perf.winRate,
+      baselinePF: perf.profitFactor,
+    }), 'EX', shadowValidationHours * 3600 + 3600);
   } catch {}
 
   return {
     success: true,
-    message: `Trainer generated improved strategy. Shadow validation started (${currentConfig.shadowValidationHours}h).`,
+    message: `Trainer cycle #${cycleNumber}: ${trainerResult.decision.toUpperCase()} — ${trainerResult.changesSummary}`,
     trainerResult,
   };
 }
 
-// ─── Promote Pending Trainer Changes ─────────────────────────────────────────
-// Called by user to promote validated pending prompt/config to live
+// ─── Promote Pending Changes ──────────────────────────────────────────────────
 
 export async function promotePendingChanges(botId: string, userId: string): Promise<{ success: boolean; message: string; newPrompt?: string }> {
   const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1);
@@ -565,29 +846,26 @@ export async function promotePendingChanges(botId: string, userId: string): Prom
   }
 
   const promotedPrompt = config.pendingPrompt;
-
-  // Apply improved prompt to bot
   const updates: Partial<typeof bots.$inferInsert> = { updatedAt: new Date() };
-  if (config.pendingPrompt) {
-    (updates as any).prompt = config.pendingPrompt;
-  }
+  if (config.pendingPrompt) (updates as any).prompt = config.pendingPrompt;
 
-  // Apply config changes (merge into existing bot.config)
   if (config.pendingConfig && Object.keys(config.pendingConfig).length > 0) {
     const currentBotConfig = (bot.config as any) ?? {};
     const cc = config.pendingConfig;
-    const newConfig = { ...currentBotConfig };
-    if (cc.stopLoss != null) newConfig.stopLoss = cc.stopLoss;
-    if (cc.takeProfit != null) newConfig.takeProfit = cc.takeProfit;
-    if (cc.aiMode != null) newConfig.aiMode = cc.aiMode;
-    if (cc.tradingFrequency != null) newConfig.tradingFrequency = cc.tradingFrequency;
-    (updates as any).config = newConfig;
+    const newCfg = { ...currentBotConfig };
+    if (cc.stopLoss != null) newCfg.stopLoss = cc.stopLoss;
+    if (cc.takeProfit != null) newCfg.takeProfit = cc.takeProfit;
+    if (cc.aiMode != null) newCfg.aiMode = cc.aiMode;
+    if (cc.tradingFrequency != null) newCfg.tradingFrequency = cc.tradingFrequency;
+    if (cc.aiConfidenceThreshold != null) newCfg.aiConfidenceThreshold = cc.aiConfidenceThreshold;
+    (updates as any).config = newCfg;
   }
 
   const promotedInsight: TrainerInsight = {
     ts: new Date().toISOString(),
     type: 'improvement',
-    message: 'Trainer improvements promoted to live bot.',
+    message: `[${fmtDateTime(new Date())}] ✅ Trainer improvements applied to live bot. New config active immediately.`,
+    decision: 'changed',
   };
 
   await db.update(bots).set({
@@ -597,203 +875,129 @@ export async function promotePendingChanges(botId: string, userId: string): Prom
       trainerStatus: 'monitoring',
       pendingPrompt: null,
       pendingConfig: null,
-      insights: [promotedInsight, ...(config.insights ?? [])].slice(0, 20),
+      insights: [promotedInsight, ...(config.insights ?? [])].slice(0, 30),
     } as any,
   }).where(eq(bots.id, botId));
 
-  // Apply trainer config changes directly into rules cache so the very next engine
-  // cycle (30s away) uses improved stopLoss/takeProfit/aiMode without waiting for
-  // another LLM generateRules call. Falls back to plain invalidation if cache is empty.
   try {
     const { applyTrainerConfigToRulesCache, invalidateRulesCache } = await import('../../lib/bot-engine.js');
     if (config.pendingConfig && Object.keys(config.pendingConfig).length > 0) {
       applyTrainerConfigToRulesCache(botId, config.pendingConfig);
     } else {
-      // No structured config changes — just invalidate so engine re-generates from new prompt
       invalidateRulesCache(botId);
-    }
-  } catch { /* Non-fatal if engine isn't loaded yet */ }
-
-  return {
-    success: true,
-    message: 'Trainer improvements applied to live bot. Rules cache updated immediately.',
-    newPrompt: promotedPrompt ?? undefined,
-  };
-}
-
-// ─── Automated Monitoring Check ───────────────────────────────────────────────
-// Called from the auto-trainer BullMQ job
-
-export async function runAutoTrainerCheck(botId: string): Promise<void> {
-  const [bot] = await db.select({ trainerConfig: bots.trainerConfig, creatorId: bots.creatorId })
-    .from(bots).where(eq(bots.id, botId)).limit(1);
-  if (!bot) return;
-
-  const config = ((bot.trainerConfig as any) ?? DEFAULT_TRAINER_CONFIG) as TrainerConfig;
-
-  // Resolve effective mode — support both old autoRetrain bool and new trainingMode
-  const mode: 'auto' | 'suggestions' | 'off' = config.trainingMode
-    ?? (config.autoRetrain ? 'suggestions' : 'off');
-
-  // 'off' — do nothing at all
-  if (mode === 'off') return;
-
-  // Skip if already working
-  if (config.trainerStatus === 'retraining' || config.trainerStatus === 'shadow_validating') return;
-
-  const perf = await analyzeBotPerformance(botId);
-
-  // Fetch current market regime from Redis (populated by price-sync job)
-  let marketContext = '';
-  try {
-    const btcRaw = await redisConnection.get('price:BTC:USDT');
-    if (btcRaw) {
-      const btcData = JSON.parse(btcRaw);
-      const btcChange = btcData.change24h ?? 0;
-      const btcVol = btcData.high24h > 0 ? ((btcData.high24h - btcData.low24h) / btcData.low24h) * 100 : 0;
-      const regimeLabel = btcChange < -5 ? 'CRASH' : btcChange < -2 ? 'BEARISH' : btcChange > 5 ? 'BULLISH_SURGE' : btcChange > 2 ? 'BULLISH' : 'NEUTRAL';
-      marketContext = `BTC regime: ${regimeLabel} (${btcChange.toFixed(1)}% 24h, range ${btcVol.toFixed(1)}%)`;
     }
   } catch {}
 
-  // Store market context in Redis so runTrainerAgent can include it
-  if (marketContext) {
-    await redisConnection.set(`trainer:market-context:${botId}`, marketContext, 'EX', 3600).catch(() => {});
-  }
+  return { success: true, message: 'Trainer improvements applied to live bot. Rules cache updated immediately.', newPrompt: promotedPrompt ?? undefined };
+}
 
-  const currentInsights = config.insights ?? [];
+// ─── Automated Check (called from job every 30 min) ───────────────────────────
+
+export async function runAutoTrainerCheck(botId: string): Promise<{ fired: boolean }> {
+  const [bot] = await db.select({ trainerConfig: bots.trainerConfig, creatorId: bots.creatorId })
+    .from(bots).where(eq(bots.id, botId)).limit(1);
+  if (!bot) return { fired: false };
+
+  const config = ((bot.trainerConfig as any) ?? DEFAULT_TRAINER_CONFIG) as TrainerConfig;
+  const mode: 'auto' | 'suggestions' | 'off' = config.trainingMode
+    ?? (config.autoRetrain ? 'suggestions' : 'off');
+
+  if (mode === 'off') return { fired: false };
+
+  // If there's already a pending improvement waiting to be applied, skip analysis
+  // The apply timer in auto-trainer.job.ts handles promoting it after 30 min
+  if (config.pendingPrompt || config.pendingConfig) return { fired: false };
+
+  if (config.trainerStatus === 'retraining') return { fired: false };
+  if (config.trainerStatus === 'shadow_validating') return { fired: false };
+
+  const perf = await analyzeBotPerformance(botId);
+
+  // Market context
+  const marketCtx = await getLiveMarketContext();
+  await redisConnection.set(`trainer:market-context:${botId}`, marketCtx, 'EX', 3600).catch(() => {});
+
+  // ── Trigger decision ───────────────────────────────────────────────────────
   let shouldFire = false;
   let fireReason = '';
 
-  // Performance-based triggers
-  if (config.retrainMode === 'performance' || config.retrainMode === 'combined') {
-    if (perf.needsRetrain) {
-      shouldFire = true;
-      fireReason = perf.retrainReason ?? 'Performance degraded';
-    }
-    if (perf.consecutiveLosses >= config.consecutiveLossLimit) {
-      shouldFire = true;
-      fireReason = `${perf.consecutiveLosses} consecutive losses (limit: ${config.consecutiveLossLimit})`;
-    }
-    if (perf.profitFactor < config.profitFactorFloor && perf.totalTrades >= 10) {
-      shouldFire = true;
-      fireReason = `Profit factor ${perf.profitFactor.toFixed(2)} below floor ${config.profitFactorFloor}`;
-    }
+  // First time — always analyze on first cycle
+  if (!config.lastRetrainAt) {
+    shouldFire = true; fireReason = 'Initial analysis (training just enabled)';
   }
 
-  // Time-based trigger
-  if (config.retrainMode === 'time' || config.retrainMode === 'combined') {
+  // Time-based
+  if (!shouldFire && (config.retrainMode === 'time' || config.retrainMode === 'combined')) {
     if (config.lastRetrainAt) {
-      const daysSince = (Date.now() - new Date(config.lastRetrainAt).getTime()) / (1000 * 60 * 60 * 24);
-      if (daysSince >= config.retrainIntervalDays) {
-        shouldFire = true;
-        fireReason = `Scheduled retrain (every ${config.retrainIntervalDays} days)`;
+      const days = (Date.now() - new Date(config.lastRetrainAt).getTime()) / 86400000;
+      if (days >= config.retrainIntervalDays) {
+        shouldFire = true; fireReason = `Scheduled (${days.toFixed(1)} days since last cycle)`;
       }
-    } else if (perf.totalTrades >= 20) {
-      shouldFire = true;
-      fireReason = 'Initial trainer analysis';
     }
   }
 
-  const monitoringInsight: TrainerInsight = {
-    ts: new Date().toISOString(),
-    type: perf.trainerScore >= 70 ? 'info' : perf.trainerScore >= 50 ? 'warning' : 'retrain',
-    message: `[${mode.toUpperCase()}] Health ${perf.trainerScore}/100. WR: ${perf.winRate.toFixed(0)}%, PF: ${perf.profitFactor.toFixed(2)}, DD: ${perf.maxDrawdown.toFixed(1)}%${marketContext ? ` | ${marketContext}` : ''}${shouldFire ? ` — ${fireReason}` : ''}`,
-  };
+  // Performance-based
+  if (!shouldFire && (config.retrainMode === 'performance' || config.retrainMode === 'combined')) {
+    if (perf.needsRetrain) { shouldFire = true; fireReason = perf.retrainReason!; }
+    else if (perf.consecutiveLosses >= config.consecutiveLossLimit) {
+      shouldFire = true; fireReason = `${perf.consecutiveLosses} consecutive losses`;
+    } else if (perf.profitFactor < config.profitFactorFloor && perf.totalTrades >= 10) {
+      shouldFire = true; fireReason = `PF ${perf.profitFactor.toFixed(2)} < floor ${config.profitFactorFloor}`;
+    }
+  }
+
+  if (!shouldFire) return { fired: false };
+
+  console.log(`[Trainer] ${mode.toUpperCase()} — firing cycle for bot ${botId}: ${fireReason}`);
 
   await db.update(bots).set({
-    trainerConfig: {
-      ...config,
-      trainingMode: mode,
-      trainerScore: perf.trainerScore,
-      trainerStatus: shouldFire ? 'retraining' : 'monitoring',
-      lastInsightAt: new Date().toISOString(),
-      insights: [monitoringInsight, ...currentInsights].slice(0, 30),
-    } as any,
+    trainerConfig: { ...config, trainerStatus: 'retraining', trainingMode: mode, trainerScore: perf.trainerScore } as any,
     updatedAt: new Date(),
   }).where(eq(bots.id, botId));
 
-  if (!shouldFire) return;
-
-  console.log(`[Trainer] ${mode} mode — firing for bot ${botId}: ${fireReason}`);
-
-  if (mode === 'auto') {
-    // AUTO: run trainer AND auto-promote if result is good (confidence ≥ 70)
-    await fireAutoRetrain(botId, fireReason, true);
-  } else {
-    // SUGGESTIONS: run trainer, store as pending, creator must confirm
-    await fireAutoRetrain(botId, fireReason, false);
-  }
-}
-
-async function fireAutoRetrain(botId: string, reason: string, autoPromote: boolean): Promise<void> {
   try {
-    const [bot] = await db.select({ creatorId: bots.creatorId }).from(bots).where(eq(bots.id, botId)).limit(1);
-    if (!bot) return;
-
     const result = await triggerRetrain(botId, bot.creatorId);
-
-    // AUTO mode: if trainer succeeded and confidence is sufficient, promote immediately
-    const trainerConfidence = result.trainerResult?.confidence ?? 0;
-    const trainerDiagnosis = result.trainerResult?.diagnosis ?? '';
-    if (autoPromote && result.success && trainerConfidence >= 70) {
-      console.log(`[Trainer] AUTO mode — auto-promoting for bot ${botId} (confidence ${trainerConfidence}%)`);
-      await promotePendingChanges(botId, bot.creatorId);
-
-      // Add auto-promote insight
-      const [b2] = await db.select({ trainerConfig: bots.trainerConfig }).from(bots).where(eq(bots.id, botId)).limit(1);
-      const cfg2 = ((b2?.trainerConfig as any) ?? {}) as TrainerConfig;
-      const autoInsight: TrainerInsight = {
-        ts: new Date().toISOString(),
-        type: 'improvement',
-        message: `[AUTO] Strategy auto-promoted (confidence ${trainerConfidence}%). ${trainerDiagnosis.slice(0, 80)}`,
-      };
-      await db.update(bots).set({
-        trainerConfig: {
-          ...cfg2,
-          insights: [autoInsight, ...(cfg2.insights ?? [])].slice(0, 30),
-        } as any,
-        updatedAt: new Date(),
-      }).where(eq(bots.id, botId));
-    }
+    const decision = result.trainerResult?.decision ?? 'unknown';
+    const note = mode === 'auto' && decision !== 'kept' && decision !== 'skipped'
+      ? 'Will auto-apply in next cycle (~30 min).'
+      : mode === 'suggestions' && decision !== 'kept' && decision !== 'skipped'
+      ? 'Waiting for creator approval.'
+      : 'No changes needed.';
+    console.log(`[Trainer] ${mode.toUpperCase()} — cycle complete for bot ${botId}: ${decision.toUpperCase()}. ${note}`);
   } catch (err) {
-    console.error(`[Trainer] Auto-retrain failed for ${botId}:`, (err as Error).message);
+    console.error(`[Trainer] Cycle failed for bot ${botId}:`, (err as Error).message);
+    await db.update(bots).set({
+      trainerConfig: { ...config, trainerStatus: 'monitoring' } as any,
+      updatedAt: new Date(),
+    }).where(eq(bots.id, botId));
   }
+
+  return { fired: true };
 }
 
-// ─── Get All Bots With Trainer Active (for admin panel) ──────────────────────
+
+// ─── Admin: all trainer statuses ─────────────────────────────────────────────
 
 export async function getAllTrainerStatuses(): Promise<Array<{
-  botId: string;
-  botName: string;
-  trainerScore: number | null;
-  trainerStatus: string;
-  lastRetrainAt: string | null;
-  totalTrades: number;
-  winRate: number;
-  needsAttention: boolean;
+  botId: string; botName: string; trainerScore: number | null;
+  trainerStatus: string; lastRetrainAt: string | null;
+  totalTrades: number; winRate: number; needsAttention: boolean;
 }>> {
-  const allBots = await db.select({
-    id: bots.id,
-    name: bots.name,
-    trainerConfig: bots.trainerConfig,
-  }).from(bots).where(eq(bots.status, 'approved'));
+  const allBots = await db.select({ id: bots.id, name: bots.name, trainerConfig: bots.trainerConfig })
+    .from(bots).where(eq(bots.status, 'approved'));
 
   const results = [];
   for (const bot of allBots) {
     const config = ((bot.trainerConfig as any) ?? DEFAULT_TRAINER_CONFIG) as TrainerConfig;
     const perf = await analyzeBotPerformance(bot.id);
     results.push({
-      botId: bot.id,
-      botName: bot.name,
+      botId: bot.id, botName: bot.name,
       trainerScore: config.trainerScore ?? perf.trainerScore,
       trainerStatus: config.trainerStatus,
       lastRetrainAt: config.lastRetrainAt,
-      totalTrades: perf.totalTrades,
-      winRate: perf.winRate,
+      totalTrades: perf.totalTrades, winRate: perf.winRate,
       needsAttention: perf.trainerScore < 50 || perf.needsRetrain || perf.consecutiveLosses >= 3,
     });
   }
-
   return results.sort((a, b) => (a.trainerScore ?? 100) - (b.trainerScore ?? 100));
 }
