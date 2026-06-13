@@ -96,11 +96,28 @@ async function runApplyCycle() {
       const now = Date.now();
 
       if (!pendingRaw) {
-        // Redis TTL expired but DB still has pending — apply immediately (stale state)
+        // Redis key gone — only safe to act if the DB pending itself recorded when it was stored.
+        // Parse startedAt from cfg.pendingConfig to enforce the 30-min window even without Redis.
+        const dbStartedAt = (cfg.pendingConfig as any)?.startedAt as string | undefined;
+        if (!dbStartedAt) {
+          // No timestamp anywhere — discard to be safe rather than applying blindly.
+          console.warn(`[AutoTrainer/Apply] Redis key gone and no startedAt for bot ${bot.id} — discarding stale pending`);
+          await db.update(bots).set({
+            trainerConfig: { ...cfg, pendingPrompt: null, pendingConfig: null, trainerStatus: 'monitoring' } as any,
+            updatedAt: new Date(),
+          }).where(eq(bots.id, bot.id));
+          continue;
+        }
+        const staleSince = Date.now() - new Date(dbStartedAt).getTime();
+        if (staleSince < SHADOW_WINDOW_MS) {
+          // Shadow window hasn't elapsed yet — Redis just hasn't been set, skip.
+          continue;
+        }
+        // 30-min window elapsed, Redis key evicted — apply with a warning (no perf data available).
         if (mode === 'auto') {
           try {
             await promotePendingChanges(bot.id, bot.creatorId);
-            console.log(`[AutoTrainer/Apply] AUTO — applied stale pending for bot ${bot.id} (Redis key gone)`);
+            console.log(`[AutoTrainer/Apply] AUTO — applied stale pending for bot ${bot.id} (Redis evicted, ${Math.round(staleSince / 60000)}min elapsed)`);
           } catch (err) {
             console.error(`[AutoTrainer/Apply] Promote failed for ${bot.id}:`, (err as Error).message);
           }
@@ -113,6 +130,7 @@ async function runApplyCycle() {
         validationDeadlineAt?: string;
         baselineWinRate?: number;
         baselinePF?: number;
+        totalTradesAtDecision?: number;
       };
       try { pending = JSON.parse(pendingRaw); } catch { continue; }
 
@@ -134,20 +152,27 @@ async function runApplyCycle() {
           const wrDelta = currentPerf.winRate - pending.baselineWinRate;
           const pfDelta = currentPerf.profitFactor - pending.baselinePF;
 
-          // Need at least 5 new trades since the decision to have a meaningful comparison
-          // Without enough new trades, we default to applying (give it a chance)
-          const hasEnoughNewData = currentPerf.totalTrades >= 5;
+          // Count only trades that occurred AFTER the pending was stored.
+          // Falls back to total-trades check if totalTradesAtDecision wasn't saved.
+          const newTradesSinceDecision = pending.totalTradesAtDecision != null
+            ? currentPerf.totalTrades - pending.totalTradesAtDecision
+            : currentPerf.totalTrades;
+          const hasEnoughNewData = newTradesSinceDecision >= 3;
 
           if (hasEnoughNewData) {
-            const declined = wrDelta < -10 || pfDelta < -0.3;
+            // Threshold scaled to sample size: stricter for small samples, lenient for larger.
+            // With 3-5 new trades a single bad run can move WR by 10-20pts — use -5pts threshold.
+            // With 10+ new trades the signal is more reliable — use -3pts threshold.
+            const wrThreshold = newTradesSinceDecision >= 10 ? -3 : -5;
+            const declined = wrDelta < wrThreshold || pfDelta < -0.2;
             if (declined) {
               shouldApply = false;
-              validationNote = `Shadow validation FAILED: WR ${pending.baselineWinRate.toFixed(1)}%→${currentPerf.winRate.toFixed(1)}% (${wrDelta > 0 ? '+' : ''}${wrDelta.toFixed(1)}pts), PF ${pending.baselinePF.toFixed(2)}→${currentPerf.profitFactor.toFixed(2)}`;
+              validationNote = `Shadow validation FAILED: WR ${pending.baselineWinRate.toFixed(1)}%→${currentPerf.winRate.toFixed(1)}% (${wrDelta > 0 ? '+' : ''}${wrDelta.toFixed(1)}pts, ${newTradesSinceDecision} new trades), PF ${pending.baselinePF.toFixed(2)}→${currentPerf.profitFactor.toFixed(2)}`;
             } else {
-              validationNote = `Shadow validation OK: WR ${pending.baselineWinRate.toFixed(1)}%→${currentPerf.winRate.toFixed(1)}%, PF ${pending.baselinePF.toFixed(2)}→${currentPerf.profitFactor.toFixed(2)}`;
+              validationNote = `Shadow validation OK: WR ${pending.baselineWinRate.toFixed(1)}%→${currentPerf.winRate.toFixed(1)}%, PF ${pending.baselinePF.toFixed(2)}→${currentPerf.profitFactor.toFixed(2)} (${newTradesSinceDecision} new trades)`;
             }
           } else {
-            validationNote = `Applied after 30-min shadow period (${currentPerf.totalTrades} trades — not enough for validation comparison yet)`;
+            validationNote = `Applied after 30-min shadow period (${newTradesSinceDecision} new trades — not enough for validation comparison)`;
           }
         } catch { /* validation failed — still apply */ }
       }

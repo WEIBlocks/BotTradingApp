@@ -450,13 +450,8 @@ export async function runTrainerAgent(botId: string): Promise<{
   // Fetch post-trade notes written by the agentic monitor (EXIT_EARLY, SL hits, TP hits, wins/losses)
   let postTradeNotes = '';
   try {
-    const ptRaw = await redisConnection.get(`bot:posttrade:${botId}`);
-    if (ptRaw) {
-      const notes: string[] = JSON.parse(ptRaw);
-      if (notes.length > 0) {
-        postTradeNotes = notes.slice(0, 8).join('\n  ');
-      }
-    }
+    const notes = await redisConnection.lrange(`bot:posttrade:${botId}`, 0, 7);
+    if (notes && notes.length > 0) postTradeNotes = notes.join('\n  ');
   } catch {}
 
   // Build full chunk details for prompt
@@ -805,7 +800,7 @@ export async function triggerRetrain(botId: string, userId: string): Promise<{
     trainerScore: perf.trainerScore,
     pendingPrompt: trainerResult.improvedPrompt,
     pendingConfig: Object.keys(trainerResult.configChanges ?? {}).length > 0
-      ? trainerResult.configChanges : null,
+      ? { ...trainerResult.configChanges, startedAt: new Date().toISOString(), totalTradesAtDecision: perf.totalTrades } : null,
     lastInsightAt: new Date().toISOString(),
     insights: [insight, ...(currentConfig.insights ?? [])].slice(0, 30),
     trainerMemory: updatedMemory,
@@ -835,6 +830,7 @@ export async function triggerRetrain(botId: string, userId: string): Promise<{
       validationDeadlineAt: validationDeadline,
       baselineWinRate: perf.winRate,
       baselinePF: perf.profitFactor,
+      totalTradesAtDecision: perf.totalTrades,
     }), 'EX', shadowValidationHours * 3600 + 3600);
   } catch {}
 

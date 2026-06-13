@@ -638,7 +638,7 @@ async function monitorOpenPosition(opts: {
 
   const prompt = `OPEN POSITION — ${opts.symbol}
 Entry: $${opts.entryPrice.toFixed(4)} | Current: $${opts.currentPrice.toFixed(4)}
-P&L: ${opts.positionPnlPct >= 0 ? '+' : ''}${opts.positionPnlPct.toFixed(2)}% | Peak P&L: +${peakPnl.toFixed(2)}%
+P&L: ${opts.positionPnlPct >= 0 ? '+' : ''}${opts.positionPnlPct.toFixed(2)}% | Peak P&L: ${peakPnl >= 0 ? '+' : ''}${peakPnl.toFixed(2)}%
 Current SL: -${opts.stopLossPercent.toFixed(1)}%
 
 Indicators: RSI ${snap.rsi?.toFixed(1) ?? 'N/A'} | EMA20 ${snap.ema20?.toFixed(2) ?? 'N/A'} | MACD hist ${snap.macd?.histogram.toFixed(4) ?? 'N/A'}
@@ -679,16 +679,17 @@ Decide what to do with this open position RIGHT NOW.`;
   }
 }
 
-// Write a post-trade note to Redis for the trainer to pick up in next cycle
+// Write a post-trade note to Redis for the trainer to pick up in next cycle.
+// Uses LPUSH + LTRIM (atomic) so concurrent closes on different symbols never overwrite each other.
 async function writePostTradeNote(botId: string, symbol: string, note: string): Promise<void> {
   try {
     const key = `bot:posttrade:${botId}`;
-    const existing = await redisConnection.get(key);
-    const notes: string[] = existing ? JSON.parse(existing) : [];
-    notes.unshift(`[${symbol}] ${note}`);
-    // Keep last 10 post-trade notes
-    await redisConnection.set(key, JSON.stringify(notes.slice(0, 10)), 'EX', 86400 * 3);
-  } catch {}
+    await redisConnection.lpush(key, `[${symbol}] ${note}`);
+    await redisConnection.ltrim(key, 0, 9); // keep last 10
+    await redisConnection.expire(key, 86400 * 3);
+  } catch (err) {
+    console.warn('[BotEngine] writePostTradeNote failed:', (err as Error).message);
+  }
 }
 
 // ─── AI Decision ────────────────────────────────────────────────────────────
@@ -923,27 +924,34 @@ export async function processSymbol(opts: {
         if (monitorResult && monitorResult.action !== 'HOLD') {
           if (monitorResult.action === 'EXIT_EARLY') {
             const closed = await closePosition(existingPos.id, priceData.price, `AI early exit: ${monitorResult.reasoning}`, undefined, opts.feeRate ?? 0);
-            await redisConnection.del(`trailing:${existingPos.id}`).catch(() => {});
-            positionMonitorCache.delete(existingPos.id);
-            const pnlStr = closed ? ` | P&L: ${closed.pnlPercentNum >= 0 ? '+' : ''}${closed.pnlPercentNum.toFixed(2)}% ($${closed.pnlNum.toFixed(2)})` : '';
-            await writePostTradeNote(botId, symbol, `EXIT_EARLY at ${positionPnlPct.toFixed(2)}% — ${monitorResult.reasoning}`);
-            const exitDecision: EngineDecision = {
-              action: 'SELL', confidence: monitorResult.confidence,
-              reasoning: `[AI Monitor] EXIT_EARLY: ${monitorResult.reasoning}${pnlStr}`,
-              indicators: formatIndicators(snap), aiCalled: true, tokensCost: monitorResult.tokens,
-              price: priceData.price, symbol, sizePercent: 100,
-              pnl: closed?.pnlNum, pnlPercent: closed?.pnlPercentNum,
-            };
-            await logDecision(exitDecision, opts);
-            return exitDecision;
+            if (!closed) {
+              // closePosition failed — position still open; do not record a phantom exit.
+              // Let SL/TP rules handle it on the next tick.
+              console.warn(`[BotEngine] EXIT_EARLY: closePosition returned null for ${existingPos.id}, skipping note`);
+            } else {
+              await redisConnection.del(`trailing:${existingPos.id}`).catch(() => {});
+              positionMonitorCache.delete(existingPos.id);
+              const pnlStr = ` | P&L: ${closed.pnlPercentNum >= 0 ? '+' : ''}${closed.pnlPercentNum.toFixed(2)}% ($${closed.pnlNum.toFixed(2)})`;
+              await writePostTradeNote(botId, symbol, `EXIT_EARLY at ${positionPnlPct.toFixed(2)}% — ${monitorResult.reasoning}`);
+              const exitDecision: EngineDecision = {
+                action: 'SELL', confidence: monitorResult.confidence,
+                reasoning: `[AI Monitor] EXIT_EARLY: ${monitorResult.reasoning}${pnlStr}`,
+                indicators: formatIndicators(snap), aiCalled: true, tokensCost: monitorResult.tokens,
+                price: priceData.price, symbol, sizePercent: 100,
+                pnl: closed.pnlNum, pnlPercent: closed.pnlPercentNum,
+              };
+              await logDecision(exitDecision, opts);
+              return exitDecision;
+            }
 
           } else if (monitorResult.action === 'TIGHTEN_SL' && monitorResult.newSlPercent != null) {
             // Only tighten SL if the new value is actually tighter (smaller distance from entry)
             if (monitorResult.newSlPercent < rules.stopLossPercent) {
               const newSlPrice = parseFloat(existingPos.entryPrice) * (1 - monitorResult.newSlPercent / 100);
               await db.update(botPositions).set({ stopLoss: newSlPrice.toFixed(8) }).where(eq(botPositions.id, existingPos.id));
+              const oldSlPct = rules.stopLossPercent;
               rules.stopLossPercent = monitorResult.newSlPercent; // also update in-memory for this tick
-              console.log(`[BotEngine] [${botId}] TIGHTEN_SL on ${symbol}: ${rules.stopLossPercent.toFixed(1)}% → ${monitorResult.newSlPercent.toFixed(1)}% (P&L: +${positionPnlPct.toFixed(2)}%)`);
+              console.log(`[BotEngine] [${botId}] TIGHTEN_SL on ${symbol}: ${oldSlPct.toFixed(1)}% → ${monitorResult.newSlPercent.toFixed(1)}% (P&L: +${positionPnlPct.toFixed(2)}%)`);
             }
 
           } else if (monitorResult.action === 'RIDE_WINNER') {
@@ -1652,13 +1660,8 @@ export async function summarizeSessionLearnings(botId: string): Promise<string> 
   // Include recent post-trade AI monitor notes (context about HOW trades closed)
   let postTradeContext = '';
   try {
-    const postTradeRaw = await redisConnection.get(`bot:posttrade:${botId}`);
-    if (postTradeRaw) {
-      const notes: string[] = JSON.parse(postTradeRaw);
-      if (notes.length > 0) {
-        postTradeContext = ` Recent trade outcomes: ${notes.slice(0, 5).join(' | ')}.`;
-      }
-    }
+    const notes = await redisConnection.lrange(`bot:posttrade:${botId}`, 0, 4);
+    if (notes && notes.length > 0) postTradeContext = ` Recent trade outcomes: ${notes.join(' | ')}.`;
   } catch {}
 
   const summary = `Total: ${allClosed.length} trades, ${wins.length}W/${losses.length}L (${winRate.toFixed(0)}% win rate). Avg win: ${avgWin >= 0 ? '+' : ''}${avgWin.toFixed(1)}%, Avg loss: ${avgLoss.toFixed(1)}%. Best indicator: ${bestIndicator ? `${bestIndicator[0]} (${bestIndicator[1]} wins)` : 'N/A'}. Worst: ${worstIndicator ? `${worstIndicator[0]} (${worstIndicator[1]} losses)` : 'N/A'}. ${hoursStr}${postTradeContext}`;
