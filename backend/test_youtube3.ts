@@ -1,4 +1,4 @@
-const BACKEND = 'http://206.81.2.59';
+const BACKEND = 'http://157.245.215.118';
 async function req(method: string, path: string, body?: any, token?: string) {
   const headers: any = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;

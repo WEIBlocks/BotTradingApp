@@ -87,7 +87,6 @@ export default function Trainer() {
   };
 
   const needsAttention = bots.filter(b => b.needsAttention);
-  const healthy = bots.filter(b => !b.needsAttention);
   const avgScore = bots.length
     ? Math.round(bots.reduce((s, b) => s + (b.trainerScore ?? 0), 0) / bots.length)
     : null;

@@ -1,4 +1,4 @@
-const BACKEND = 'http://206.81.2.59';
+const BACKEND = 'http://157.245.215.118';
 const EMAIL = 'user@bottrade.com';
 const PASSWORD = 'Password123!';
 

@@ -2,7 +2,7 @@ import { readFileSync } from 'fs';
 const env = readFileSync('D:/Weiblocks/Bot_App/backend/.env.development', 'utf8');
 const get = (key: string) => (env.match(new RegExp(`^${key}=(.+)$`, 'm')) ?? [])[1]?.trim() ?? '';
 
-const BACKEND = 'http://206.81.2.59';
+const BACKEND = 'http://157.245.215.118';
 const EMAIL = 'user@bottrade.com';
 const PASSWORD = 'Password123!';
 const BINANCE_KEY = get('BINANCE_API_KEY');
